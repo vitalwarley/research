@@ -82,6 +82,7 @@ class Model(pl.LightningModule):
                 self.parameters(),
                 lr=self.start_lr,
                 momentum=self.momentum,
+                weight_decay=self.weight_decay
             )
 
             return {

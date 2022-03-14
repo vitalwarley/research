@@ -1,0 +1,17 @@
+gdown                    
+guildai
+ipython                  
+matplotlib               
+numpy
+opencv-python            
+pandas                   
+python-dotenv            
+pytorch-lightning        
+pytorch-metric-learning
+timm
+tqdm                     
+virtualenv               
+wandb                    
+imagesize
+yolov5
+

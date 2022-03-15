@@ -10,9 +10,11 @@ from torch.nn import functional as F
 from torch.optim import Adam, SGD
 from torch.optim.lr_scheduler import StepLR, MultiStepLR
 
+from lr_scheduler import PolyScheduler
+
 
 class Model(pl.LightningModule):
-    def __init__(self, args: ArgumentParser = None):
+    def __init__(self, num_classes, num_samples, args: ArgumentParser = None):
         """
 
         Parameters
@@ -21,35 +23,39 @@ class Model(pl.LightningModule):
         TODO
 
         """
-
         super().__init__()
+        self.num_classes = num_classes
+        self.train_samples = num_samples
+
         self.normalize = args.normalize
         self.embedding_dim = args.embedding_dim
+        self.clip_gradient = args.clip_gradient
+
         self.lr = args.lr
         self.end_lr = args.end_lr
         self.lr_factor = args.lr_factor
         self.momentum = args.momentum
         self.weight_decay = args.weight_decay
-        self.clip_gradient = args.clip_gradient
         self.warmup = args.warmup
         self.cooldown = args.cooldown
-        self.num_classes = args.num_classes
-        self.train_samples = args.num_samples
         self.lr_steps = [8, 14, 25, 35, 40, 50, 60]
+
+        self.margin = np.rad2deg(args.arcface_m)
+        self.scale = args.arcface_s
 
         # timm automatically replaces final layer with a new, untrained, linear layer
         self.backbone = timm.models.create_model(
             args.model, pretrained=True, num_classes=0
         )
+        # FIXME: improve
         out_features = self.backbone(torch.randn(1, 3, 224, 224)).shape[1]
         self.linear = torch.nn.Linear(out_features, self.embedding_dim)
 
-        # margin is in degrees (degrees(0.7) = 40.1); there is no easy_margin
         self.loss = losses.ArcFaceLoss(
             num_classes=self.num_classes,
             embedding_size=self.embedding_dim,
-            margin=40.1,
-            scale=32,
+            margin=self.margin,
+            scale=self.scale,
         )
 
         self.train_accuracy = tm.Accuracy()
@@ -65,26 +71,29 @@ class Model(pl.LightningModule):
             # 1.5.11 will include this in trainer, I think. My version is 1.5.10
             total_devices = self.trainer.gpus * self.trainer.num_nodes
             # train_batches = len(self.train_dataloader()) // total_devices
-            train_batches = self.train_samples // total_devices
+            train_batches = self.train_samples / self.args.batch_size // total_devices
             self.train_steps = (
                 self.trainer.max_epochs * train_batches
             ) // self.trainer.accumulate_grad_batches
 
+            print(f"train steps = {self.train_steps}")
+
     def configure_optimizers(self):
-        if self.args.task == "finetune":
-            if self.warmup > 0:
-                self.start_lr = 1e-10
-            else:
-                self.start_lr = self.lr
+        if self.warmup > 0:
+            self.start_lr = 1e-10
+        else:
+            self.start_lr = self.lr
 
-            optimizer = SGD(
-                # loss params are already included (ref. ArcFaceLoss)
-                self.parameters(),
-                lr=self.start_lr,
-                momentum=self.momentum,
-                weight_decay=self.weight_decay
-            )
+        optimizer = SGD(
+            # loss params are already included (ref. ArcFaceLoss)
+            self.parameters(),
+            lr=self.start_lr,
+            momentum=self.momentum,
+            weight_decay=self.weight_decay,
+        )
 
+        # FIXME: improve
+        if self.lr_factor:
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
@@ -94,7 +103,19 @@ class Model(pl.LightningModule):
                 },
             }
         else:
-            return Adam(self.parameters(), lr=self.lr)
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": PolyScheduler(
+                        optimizer,
+                        base_lr=self.lr,
+                        max_steps=self.train_steps,
+                        warmup_steps=self.warmup,
+                    ),
+                    "interval": "step",
+                    "frequency": 1,
+                },
+            }
 
     def optimizer_step(
         self,
@@ -107,22 +128,21 @@ class Model(pl.LightningModule):
         using_native_amp,
         using_lbfgs,
     ):
-        if self.args.task == "finetune":
-            # warm up lr
-            if self.trainer.global_step < self.warmup:
-                cur_lr = (self.trainer.global_step + 1) * (
-                    self.lr - self.start_lr
-                ) / self.warmup + self.start_lr
-                # lr_scale = min(1.0, float(self.trainer.global_step + 1) / self.warmup)
-                for pg in optimizer.param_groups:
-                    # pg["lr"] = lr_scale * self.hparams.learning_rate
-                    pg["lr"] = cur_lr
-            # cool down lr
-            elif self.trainer.global_step > self.train_steps - self.cooldown:
-                cur_lr = (self.train_steps - self.trainer.global_step) * (
-                    optimizer.param_groups["lr"] - self.end_lr
-                ) / self.cooldown + self.end_lr
-                optimizer.param_groups["lr"] = cur_lr
+        # warm up lr
+        if self.trainer.global_step < self.warmup:
+            cur_lr = (self.trainer.global_step + 1) * (
+                self.lr - self.start_lr
+            ) / self.warmup + self.start_lr
+            # lr_scale = min(1.0, float(self.trainer.global_step + 1) / self.warmup)
+            for pg in optimizer.param_groups:
+                # pg["lr"] = lr_scale * self.hparams.learning_rate
+                pg["lr"] = cur_lr
+        # cool down lr
+        elif self.trainer.global_step > self.train_steps - self.cooldown:
+            cur_lr = (self.train_steps - self.trainer.global_step) * (
+                optimizer.param_groups["lr"] - self.end_lr
+            ) / self.cooldown + self.end_lr
+            optimizer.param_groups["lr"] = cur_lr
 
         # update params
         optimizer.step(closure=optimizer_closure)
@@ -158,6 +178,8 @@ class Model(pl.LightningModule):
         self.log(
             "train_loss", loss, on_step=True, on_epoch=False, prog_bar=True, logger=True
         )
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        self.log("lr", cur_lr, prog_bar=True, on_step=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -192,7 +214,7 @@ class Model(pl.LightningModule):
         )
         parser.add_argument(
             "--lr-factor",
-            default=0.75,
+            default=0,
             type=float,
         )
         parser.add_argument(
@@ -224,6 +246,16 @@ class Model(pl.LightningModule):
             "--embedding-dim",
             default=512,
             type=int,
+        )
+        parser.add_argument(
+            "--arcface-s",
+            default=64,
+            type=int,
+        )
+        parser.add_argument(
+            "--arcface-m",
+            default=0.5,
+            type=float,
         )
         parser.add_argument("--model", default="vit_small_patch16_224", type=str)
         parser.add_argument(

@@ -120,7 +120,7 @@ class MS1MDataset(Dataset):
         )
         self.num_classes = labels.target.unique().shape[0]
         val_classes = np.random.choice(
-            labels.target.unique(), size=int(self.num_classes * 0.1), replace=False
+            labels.target.unique(), size=int(self.num_classes * 0.01), replace=False
         )
         if self.split == "train":
             labels = labels[~labels.target.isin(val_classes)]
@@ -129,11 +129,11 @@ class MS1MDataset(Dataset):
 
         seq = labels.values
         # DEBUG -- TRYING TO OVERFIT ON SMALL DATA
-        # n_samples = seq.shape[0]
+        n_samples = seq.shape[0]
         # n_selected = int(n_samples * 0.01)
         # idxs = np.random.choice(np.arange(n_samples), size=n_selected, replace=False)
         # seq = seq[idxs]
-        # print(f"{self.split} = {n_selected}")
+        print(f"{self.split} = {n_samples}")
         return seq
 
     def __getitem__(self, idx: int) -> Tuple[t.Img, int, int]:

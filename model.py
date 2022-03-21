@@ -14,7 +14,7 @@ from lr_scheduler import PolyScheduler
 
 
 class Model(pl.LightningModule):
-    def __init__(self, num_classes, num_samples, args: ArgumentParser = None):
+    def __init__(self, args: ArgumentParser = None):
         """
 
         Parameters
@@ -24,8 +24,7 @@ class Model(pl.LightningModule):
 
         """
         super().__init__()
-        self.num_classes = num_classes
-        self.train_samples = num_samples
+        self.num_classes = args.num_classes
 
         self.normalize = args.normalize
         self.embedding_dim = args.embedding_dim
@@ -44,12 +43,16 @@ class Model(pl.LightningModule):
         self.scale = args.arcface_s
 
         # timm automatically replaces final layer with a new, untrained, linear layer
+        # we do this to normalize embeddings as in original insightface implementation (?)
         self.backbone = timm.models.create_model(
             args.model, pretrained=True, num_classes=0
         )
         # FIXME: improve
-        out_features = self.backbone(torch.randn(1, 3, 224, 224)).shape[1]
+        out_features = self.backbone(torch.randn(1, 3, 112, 112)).shape[1]
         self.linear = torch.nn.Linear(out_features, self.embedding_dim)
+        self.bn = torch.nn.BatchNorm1d(
+            self.embedding_dim, eps=0.001, momentum=0.1, affine=False
+        )
 
         self.loss = losses.ArcFaceLoss(
             num_classes=self.num_classes,
@@ -70,8 +73,10 @@ class Model(pl.LightningModule):
             # src: https://github.com/PyTorchLightning/pytorch-lightning/issues/3115#issuecomment-678824664
             # 1.5.11 will include this in trainer, I think. My version is 1.5.10
             total_devices = self.trainer.gpus * self.trainer.num_nodes
+            total_devices = total_devices if total_devices else 1
             # train_batches = len(self.train_dataloader()) // total_devices
-            train_batches = self.train_samples / self.args.batch_size // total_devices
+            train_samples = len(self.trainer.datamodule.train_dataloader())
+            train_batches = train_samples / self.args.batch_size // total_devices
             self.train_steps = (
                 self.trainer.max_epochs * train_batches
             ) // self.trainer.accumulate_grad_batches
@@ -150,26 +155,31 @@ class Model(pl.LightningModule):
     def forward(self, x):
         embeddings = self.backbone(x)
         embeddings = self.linear(embeddings)
+        embeddings = self.bn(embeddings)
         if self.normalize:
             embeddings = F.normalize(embeddings, p=2, dim=1)
+        # if torch.any(torch.isnan(embeddings)):
+        #     breakpoint()
         return embeddings
 
-    def _calculate_loss(self, batch, mode="train"):
+    def _calculate_loss(self, batch):
         images, labels = batch[0], batch[1]  # labels == family_idx
         logits = self(images)
         # # TODO: add clip_grad
         loss = self.loss(logits, labels)
         return loss, logits
 
-    def training_step(self, batch, batch_idx):
+    def __base_step(self, batch):
         loss, logits = self._calculate_loss(batch)
-
         preds = logits.argmax(dim=1)
-        labels = batch[1]
-        self.train_accuracy(preds, labels)
+        return preds, loss
+
+    def training_step(self, batch, batch_idx):
+        preds, loss = self.__base_step(batch)
+        acc = self.train_accuracy(preds, batch[1])
         self.log(
             "train_acc",
-            self.train_accuracy,
+            acc,
             on_step=True,
             on_epoch=False,
             prog_bar=True,
@@ -183,13 +193,11 @@ class Model(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, logits = self._calculate_loss(batch)
-        preds = logits.argmax(dim=1)
-        labels = batch[1]
-        self.val_accuracy(preds, labels)
+        preds, loss = self.__base_step(batch)
+        acc = self.val_accuracy(preds, batch[1])
         self.log(
             "val_acc",
-            self.val_accuracy,
+            acc,
             on_step=True,
             on_epoch=True,
             prog_bar=True,
@@ -202,6 +210,11 @@ class Model(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = parent_parser.add_argument_group("SiameseNet")
+        parser.add_argument(
+            "--num_classes",
+            default=93430,
+            type=int,
+        )
         parser.add_argument(
             "--lr",
             default=1e-4,

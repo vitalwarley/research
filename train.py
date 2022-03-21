@@ -11,7 +11,7 @@ from pytorch_lightning.callbacks import lr_monitor
 
 import mytypes as t
 import transforms as mytransforms
-from dataset import FamiliesDataset, FamiliesDataModule, MS1MDataset, MS1MDataModule
+from dataset import FamiliesDataset, FamiliesDataModule, MS1MDataModule
 from model import Model
 
 
@@ -67,18 +67,15 @@ if __name__ == "__main__":
         val_transforms = transforms.Compose([transforms.ToTensor()])
 
         datamodule = MS1MDataModule(
-            Path(args.data_dir),
+            args.data_dir,
             transforms=[train_transforms, val_transforms],
             batch_size=args.batch_size,
             num_workers=args.num_workers,
         )
-        datamodule.setup(stage="fit")
-        num_classes = datamodule.train_dataloader().dataset.num_classes
-        num_samples = len(datamodule.train_dataloader().dataset)
-
         # instantiate model
-        model = Model(num_classes, num_samples, args)
+        model = Model(args)
         model.train()
+
         lrm = lr_monitor.LearningRateMonitor(logging_interval="step")
 
         # show params

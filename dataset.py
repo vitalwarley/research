@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import torch
+from torch import nn
 from pytorch_lightning import LightningDataModule
 from sklearn.model_selection import train_test_split
 from torchvision import transforms
@@ -105,36 +106,13 @@ class FamiliesDataset(Dataset):
 
 
 class MS1MDataset(Dataset):
-    def __init__(self, root: Path, transform=None, split: str = "train"):
+    def __init__(
+        self, root: Path, transform: nn.Module = None, seq: pd.DataFrame = None
+    ):
         super(MS1MDataset, self).__init__()
         self.root = root
         self._transform = transform
-        self.split = split
-
-        self.seq = self._split_data()
-
-    def _split_data(self):
-        # split: no overlap between classes
-        labels = pd.read_csv(
-            str(Path(self.root) / "label.txt"), delimiter="\t", names=["path", "target"]
-        )
-        self.num_classes = labels.target.unique().shape[0]
-        val_classes = np.random.choice(
-            labels.target.unique(), size=int(self.num_classes * 0.01), replace=False
-        )
-        if self.split == "train":
-            labels = labels[~labels.target.isin(val_classes)]
-        else:
-            labels = labels[labels.target.isin(val_classes)]
-
-        seq = labels.values
-        # DEBUG -- TRYING TO OVERFIT ON SMALL DATA
-        n_samples = seq.shape[0]
-        # n_selected = int(n_samples * 0.01)
-        # idxs = np.random.choice(np.arange(n_samples), size=n_selected, replace=False)
-        # seq = seq[idxs]
-        print(f"{self.split} = {n_samples}")
-        return seq
+        self.seq = seq
 
     def __getitem__(self, idx: int) -> Tuple[t.Img, int, int]:
         img_path, celebrity_idx = self.seq[idx]
@@ -310,34 +288,67 @@ class MS1MDataModule(LightningDataModule):
         transforms: List[torch.nn.Module] = None,
         batch_size=32,
         num_workers=8,
+        debug=False,
     ):
         super().__init__()
-        self.data_dir = data_dir
+        self.data_dir = Path(data_dir)
+        self.train_save_path = str(self.data_dir / "train.npy")
+        self.val_save_path = str(self.data_dir / "val.npy")
+        self.label_path = str(Path(self.data_dir) / "label.txt")
         self.batch_size = batch_size
         self.train_transform, self.val_transform = (
             transforms if transforms is not None else (None, None)
         )
         self.num_workers = num_workers
-
-        # self.dims
+        self.debug = debug
 
     def prepare_data(self):
-        pass  # don't need it
+        # load data
+        df = pd.read_csv(self.label_path, delimiter="\t", names=["path", "target"])
+        df = df.sample(frac=1.0)
+        classes = df.target.unique()
+        num_classes = classes.shape[0]
+
+        if self.debug:  # TODO: add --num_classes
+            num_classes = 10
+            classes = np.random.choice(classes, size=num_classes, replace=False)
+            df = df[df.target.isin(classes)]
+            df["target"] = df.target.astype("category").cat.codes
+            classes = df.target.unique()
+            assert max(df.target) == max(classes), "Mismatch between classes in data"
+
+        # split data
+        num_classes_val = int(num_classes * 0.1)
+        val_classes = np.random.choice(classes, size=num_classes_val, replace=False)
+        train_labels_df = df[~df.target.isin(val_classes)]
+        val_labels_df = df[df.target.isin(val_classes)]
+
+        print(
+            f"train - total of {len(train_labels_df)} samples for"
+            f" n_classes={len(train_labels_df.target.unique())}"
+        )
+        print(
+            f"val - total of {len(val_labels_df)} samples for"
+            f" n_classes={len(val_labels_df.target.unique())}"
+        )
+
+        # save splits
+        np.save(self.train_save_path, train_labels_df.values)
+        np.save(self.val_save_path, val_labels_df.values)
 
     def setup(self, stage: Optional[str] = None):
 
         # add pretrain on MS-Celeb-1M
-        if stage == "fit" or stage is None:
+        if stage in (None, "fit"):
             # self.data_dir should be 'fitw2020'
+            train_arr = np.load(self.train_save_path, allow_pickle=True)
+            val_arr = np.load(self.val_save_path, allow_pickle=True)
             self.train_ds = MS1MDataset(
-                self.data_dir, split="train", transform=self.train_transform
+                self.data_dir, transform=self.train_transform, seq=train_arr
             )
             self.val_ds = MS1MDataset(
-                self.data_dir, split="val", transform=self.val_transform
+                self.data_dir, transform=self.val_transform, seq=val_arr
             )
-
-        if stage == "test" or stage is None:
-            raise NotImplementedError
 
     def train_dataloader(self):
         return DataLoader(

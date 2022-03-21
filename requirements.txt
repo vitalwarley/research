@@ -7,6 +7,7 @@ opencv-python
 pandas                   
 python-dotenv            
 pytorch-lightning        
+lightning-bolts
 pytorch-metric-learning
 timm
 tqdm                     

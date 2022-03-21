@@ -3,11 +3,12 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from torch import nn
-from tqdm import tqdm
-from torchvision import transforms
+from pl_bolts.callbacks import ModuleDataMonitor
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import lr_monitor
+from torch import nn
+from torchvision import transforms
+from tqdm import tqdm
 
 import mytypes as t
 import transforms as mytransforms
@@ -40,7 +41,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--debug",
-        action="store_true",
+        type=str,
+        default=''
     )
 
     # Model specific args
@@ -67,6 +69,7 @@ if __name__ == "__main__":
         val_transforms = transforms.Compose([transforms.ToTensor()])
 
         datamodule = MS1MDataModule(
+            args.num_classes,
             args.data_dir,
             transforms=[train_transforms, val_transforms],
             batch_size=args.batch_size,
@@ -76,13 +79,18 @@ if __name__ == "__main__":
         model = Model(args)
         model.train()
 
-        lrm = lr_monitor.LearningRateMonitor(logging_interval="step")
+        lrm_cb = lr_monitor.LearningRateMonitor(logging_interval="step")
+        mdm_cb = ModuleDataMonitor()
+
+        callbacks = [lrm_cb]
+        if 'monitoring' in args.debug:
+            callbacks.append(mdm_cb)
 
         # show params
         print(args)
 
         # instantiate trainer
-        trainer = Trainer.from_argparse_args(args, callbacks=[lrm])
+        trainer = Trainer.from_argparse_args(args, callbacks=callbacks)
         # fit model on dataset
         trainer.fit(model, datamodule)
     else:
@@ -124,9 +132,9 @@ if __name__ == "__main__":
 
         print(args)
 
-        lrm = lr_monitor.LearningRateMonitor(logging_interval="step")
+        lrm_cb = lr_monitor.LearningRateMonitor(logging_interval="step")
 
         # instantiate trainer
-        trainer = Trainer.from_argparse_args(args, callbacks=[lrm])
+        trainer = Trainer.from_argparse_args(args, callbacks=[lrm_cb])
         # fit model on dataset
         trainer.fit(model, datamodule)

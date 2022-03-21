@@ -284,6 +284,7 @@ class FamiliesDataModule(LightningDataModule):
 class MS1MDataModule(LightningDataModule):
     def __init__(
         self,
+        num_classes: int,
         data_dir: str,
         transforms: List[torch.nn.Module] = None,
         batch_size=32,
@@ -291,6 +292,7 @@ class MS1MDataModule(LightningDataModule):
         debug=False,
     ):
         super().__init__()
+        self.num_classes = num_classes
         self.data_dir = Path(data_dir)
         self.train_save_path = str(self.data_dir / "train.npy")
         self.val_save_path = str(self.data_dir / "val.npy")
@@ -307,34 +309,32 @@ class MS1MDataModule(LightningDataModule):
         df = pd.read_csv(self.label_path, delimiter="\t", names=["path", "target"])
         df = df.sample(frac=1.0)
         classes = df.target.unique()
-        num_classes = classes.shape[0]
 
-        if self.debug:  # TODO: add --num_classes
-            num_classes = 10
-            classes = np.random.choice(classes, size=num_classes, replace=False)
+        if self.num_classes < len(classes):
+            classes = np.random.choice(classes, size=self.num_classes, replace=False)
             df = df[df.target.isin(classes)]
             df["target"] = df.target.astype("category").cat.codes
             classes = df.target.unique()
             assert max(df.target) == max(classes), "Mismatch between classes in data"
 
         # split data
-        num_classes_val = int(num_classes * 0.1)
-        val_classes = np.random.choice(classes, size=num_classes_val, replace=False)
-        train_labels_df = df[~df.target.isin(val_classes)]
-        val_labels_df = df[df.target.isin(val_classes)]
+        # TODO: check for reproducibility
+        # TODO: improve-me
+        val_df = df.groupby('target').sample(n=1)
+        train_df = df[~df.index.isin(val_df.index)]
 
         print(
-            f"train - total of {len(train_labels_df)} samples for"
-            f" n_classes={len(train_labels_df.target.unique())}"
+            f"train - total of {len(train_df)} samples for"
+            f" n_classes={len(train_df.target.unique())}"
         )
         print(
-            f"val - total of {len(val_labels_df)} samples for"
-            f" n_classes={len(val_labels_df.target.unique())}"
+            f"val - total of {len(val_df)} samples for"
+            f" n_classes={len(val_df.target.unique())}"
         )
 
         # save splits
-        np.save(self.train_save_path, train_labels_df.values)
-        np.save(self.val_save_path, val_labels_df.values)
+        np.save(self.train_save_path, train_df.values)
+        np.save(self.val_save_path, val_df.values)
 
     def setup(self, stage: Optional[str] = None):
 

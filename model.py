@@ -27,7 +27,7 @@ class SimpleModel(nn.Module):
     def forward(self, x):
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
-        x = torch.flatten(x, 1) # flatten all dimensions except batch
+        x = torch.flatten(x, 1)  # flatten all dimensions except batch
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return x
@@ -63,7 +63,7 @@ class Model(pl.LightningModule):
         self.margin = np.rad2deg(args.arcface_m)
         self.scale = args.arcface_s
 
-        if args.model == 'simple':
+        if args.model == "simple":
             self.backbone = SimpleModel()
             self.fc = torch.nn.Linear(84, 10)
         else:
@@ -77,14 +77,14 @@ class Model(pl.LightningModule):
             )
             self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
 
-        if args.loss == 'arcface':
+        if args.loss == "arcface":
             self.loss = losses.ArcFaceLoss(
                 num_classes=self.num_classes,
                 embedding_size=self.embedding_dim,
                 margin=self.margin,
                 scale=self.scale,
             )
-        elif args.loss == 'ce':
+        elif args.loss == "ce":
             self.loss = nn.CrossEntropyLoss()
         else:
             raise NotImplementedError
@@ -130,35 +130,32 @@ class Model(pl.LightningModule):
             weight_decay=self.weight_decay,
         )
 
-        # FIXME: improve
-        if self.lr_factor:
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": MultiStepLR(
-                        optimizer, milestones=self.lr_steps, gamma=self.lr_factor
-                    )
-                },
-            }
-        else:
-            config = {
-                "optimizer": optimizer,
-            }
-            if self.scheduler == "poly":
-                config["lr_scheduler"] = (
-                    {
-                        "scheduler": PolyScheduler(
-                            optimizer,
-                            base_lr=self.lr,
-                            max_steps=self.train_steps,
-                            warmup_steps=self.warmup,
-                        ),
-                        "interval": "step",
-                        "frequency": 1,
-                    },
-                )
+        config = {
+            "optimizer": optimizer,
+        }
 
-            return config
+        # FIXME: improve
+        if self.scheduler == "multistep":
+            config["lr_scheduler"] = {
+                "scheduler": MultiStepLR(
+                    optimizer, milestones=self.lr_steps, gamma=self.lr_factor
+                )
+            }
+        elif self.scheduler == "poly":
+            config["lr_scheduler"] = (
+                {
+                    "scheduler": PolyScheduler(
+                        optimizer,
+                        base_lr=self.lr,
+                        max_steps=self.train_steps,
+                        warmup_steps=self.warmup,
+                    ),
+                    "interval": "step",
+                    "frequency": 1,
+                },
+            )
+
+        return config
 
     def optimizer_step(
         self,
@@ -192,9 +189,9 @@ class Model(pl.LightningModule):
 
     def _forward_features(self, x):
         embeddings = self.backbone(x)
-        if hasattr(self, 'linear'):
+        if hasattr(self, "linear"):
             embeddings = F.relu(self.linear(embeddings))
-        if hasattr(self, 'bn'):
+        if hasattr(self, "bn"):
             embeddings = self.bn(embeddings)
         if self.normalize:
             embeddings = F.normalize(embeddings, p=2, dim=1)
@@ -205,15 +202,16 @@ class Model(pl.LightningModule):
         logits = self.fc(embeddings)
         return embeddings, logits
 
-    def _calculate_loss(self, batch):
-        images, labels = batch[0], batch[1]  # labels == family_idx
-        embeddings, logits = self(images)
-        # # TODO: add clip_grad?
-        loss = self.loss(embeddings, labels)
-        return loss, logits
-
     def __base_step(self, batch):
-        loss, logits = self._calculate_loss(batch)
+        images, labels = batch[0], batch[1]
+
+        embeddings, logits = self(images)
+
+        if isinstance(self.loss, losses.ArcFaceLoss):
+            loss = self.loss(embeddings, labels)
+        else:
+            loss = self.loss(logits, labels)
+
         preds = logits.argmax(dim=1)
         return preds, loss
 
@@ -328,13 +326,6 @@ class Model(pl.LightningModule):
             default=0.15,
             type=float,
         )
-        parser.add_argument(
-            "--scheduler",
-            type=str
-        )
-        parser.add_argument(
-            "--loss",
-            type=str,
-            default='arcface'
-        )
+        parser.add_argument("--scheduler", type=str)
+        parser.add_argument("--loss", type=str, default="arcface")
         return parent_parser

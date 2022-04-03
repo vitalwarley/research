@@ -118,7 +118,7 @@ class MS1MDataset(Dataset):
         img_path, celebrity_idx = self.seq[idx]
         img = cv2.imread(str(Path(self.root) / img_path))
         # TODO: timm needs it. how to improve?
-        img = cv2.resize(img, (224, 224))
+        img = cv2.resize(img, (112, 112))
         # img = np.moveaxis(img, 2, 0)
         if self._transform is not None:
             img = self._transform(img)

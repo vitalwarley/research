@@ -5,12 +5,27 @@ import pytorch_lightning as pl
 import timm
 import torch
 import torchmetrics as tm
+from torch import nn
 from pytorch_metric_learning import losses
 from torch.nn import functional as F
 from torch.optim import Adam, SGD
 from torch.optim.lr_scheduler import StepLR, MultiStepLR
 
 from lr_scheduler import PolyScheduler
+
+
+class SimpleModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = torch.flatten(x, 1) # flatten all dimensions except batch
+        return x
 
 
 class Model(pl.LightningModule):
@@ -38,33 +53,37 @@ class Model(pl.LightningModule):
         self.warmup = args.warmup
         self.cooldown = args.cooldown
         self.lr_steps = [8, 14, 25, 35, 40, 50, 60]
+        self.scheduler = args.scheduler
 
         self.margin = np.rad2deg(args.arcface_m)
         self.scale = args.arcface_s
 
-        # timm automatically replaces final layer with a new, untrained, linear layer
-        # we do this to normalize embeddings as in original insightface implementation (?)
-        self.backbone = timm.models.create_model(
-            args.model, pretrained=True, num_classes=0
-        )
-        # FIXME: improve
-        out_features = self.backbone(torch.randn(1, 3, 112, 112)).shape[1]
-        self.linear = torch.nn.Linear(out_features, self.embedding_dim)
-        self.bn = torch.nn.BatchNorm1d(
-            self.embedding_dim, eps=0.001, momentum=0.1, affine=False
-        )
+        if args.model == 'simple':
+            self.backbone = SimpleModel()
+            self.linear = torch.nn.Linear(400, self.embedding_dim)
+        else:
+            self.backbone = timm.models.create_model(args.model, num_classes=0)
+            # FIXME: improve
+            out_features = self.backbone(torch.randn(1, 3, 112, 112)).shape[1]
+            self.linear = torch.nn.Linear(out_features, self.embedding_dim)
 
-        self.loss = losses.ArcFaceLoss(
-            num_classes=self.num_classes,
-            embedding_size=self.embedding_dim,
-            margin=self.margin,
-            scale=self.scale,
-        )
+            self.bn = torch.nn.BatchNorm1d(
+                self.embedding_dim, eps=0.001, momentum=0.1, affine=False
+            )
+        self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
+
+        if args.loss == 'arcface':
+            self.loss = losses.ArcFaceLoss(
+                num_classes=self.num_classes,
+                embedding_size=self.embedding_dim,
+                margin=self.margin,
+                scale=self.scale,
+            )
+        elif args.loss == 'ce':
+            self.loss = nn.CrossEntropyLoss()
 
         self.train_accuracy = tm.Accuracy()
         self.val_accuracy = tm.Accuracy()
-
-        self.args = args
 
     def setup(self, stage):
         # TODO: dont need to call super().setup?
@@ -75,13 +94,20 @@ class Model(pl.LightningModule):
             total_devices = self.trainer.gpus * self.trainer.num_nodes
             total_devices = total_devices if total_devices else 1
             # train_batches = len(self.train_dataloader()) // total_devices
-            train_samples = len(self.trainer.datamodule.train_dataloader())
-            train_batches = train_samples / self.args.batch_size // total_devices
+            if self.trainer.datamodule is not None:
+                train_batches = (
+                    len(self.trainer.datamodule.train_dataloader()) // total_devices
+                )
+            else:
+                train_batches = len(self.train_dataloader) // total_devices
+
             self.train_steps = (
                 self.trainer.max_epochs * train_batches
             ) // self.trainer.accumulate_grad_batches
 
-            print(f"train steps = {self.train_steps}")
+            print(
+                f"train steps = {self.train_steps} in {train_batches} batches per epoch"
+            )
 
     def configure_optimizers(self):
         if self.warmup > 0:
@@ -108,19 +134,24 @@ class Model(pl.LightningModule):
                 },
             }
         else:
-            return {
+            config = {
                 "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": PolyScheduler(
-                        optimizer,
-                        base_lr=self.lr,
-                        max_steps=self.train_steps,
-                        warmup_steps=self.warmup,
-                    ),
-                    "interval": "step",
-                    "frequency": 1,
-                },
             }
+            if self.scheduler == "poly":
+                config["lr_scheduler"] = (
+                    {
+                        "scheduler": PolyScheduler(
+                            optimizer,
+                            base_lr=self.lr,
+                            max_steps=self.train_steps,
+                            warmup_steps=self.warmup,
+                        ),
+                        "interval": "step",
+                        "frequency": 1,
+                    },
+                )
+
+            return config
 
     def optimizer_step(
         self,
@@ -145,28 +176,32 @@ class Model(pl.LightningModule):
         # cool down lr
         elif self.trainer.global_step > self.train_steps - self.cooldown:
             cur_lr = (self.train_steps - self.trainer.global_step) * (
-                optimizer.param_groups["lr"] - self.end_lr
+                optimizer.param_groups[0]["lr"] - self.end_lr
             ) / self.cooldown + self.end_lr
-            optimizer.param_groups["lr"] = cur_lr
+            optimizer.param_groups[0]["lr"] = cur_lr
 
         # update params
         optimizer.step(closure=optimizer_closure)
 
-    def forward(self, x):
+    def _forward_features(self, x):
         embeddings = self.backbone(x)
-        embeddings = self.linear(embeddings)
-        embeddings = self.bn(embeddings)
+        embeddings = F.relu(self.linear(embeddings))
+        if hasattr(self, 'bn'):
+            embeddings = self.bn(embeddings)
         if self.normalize:
             embeddings = F.normalize(embeddings, p=2, dim=1)
-        # if torch.any(torch.isnan(embeddings)):
-        #     breakpoint()
         return embeddings
+
+    def forward(self, x):
+        embeddings = self._forward_features(x)
+        logits = self.fc(embeddings)
+        return embeddings, logits
 
     def _calculate_loss(self, batch):
         images, labels = batch[0], batch[1]  # labels == family_idx
-        logits = self(images)
-        # # TODO: add clip_grad
-        loss = self.loss(logits, labels)
+        embeddings, logits = self(images)
+        # # TODO: add clip_grad?
+        loss = self.loss(embeddings, labels)
         return loss, logits
 
     def __base_step(self, batch):
@@ -211,7 +246,7 @@ class Model(pl.LightningModule):
     def add_model_specific_args(parent_parser):
         parser = parent_parser.add_argument_group("SiameseNet")
         parser.add_argument(
-            "--num_classes",
+            "--num-classes",
             default=93430,
             type=int,
         )
@@ -274,5 +309,24 @@ class Model(pl.LightningModule):
         parser.add_argument(
             "--normalize",
             action="store_true",
+        )
+        parser.add_argument(
+            "--jitter_param",
+            default=0.15,
+            type=float,
+        )
+        parser.add_argument(
+            "--lighting_param",
+            default=0.15,
+            type=float,
+        )
+        parser.add_argument(
+            "--scheduler",
+            type=str
+        )
+        parser.add_argument(
+            "--loss",
+            type=str,
+            default='arcface'
         )
         return parent_parser

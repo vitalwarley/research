@@ -20,11 +20,16 @@ class SimpleModel(nn.Module):
         self.conv1 = nn.Conv2d(3, 6, 5)
         self.pool = nn.MaxPool2d(2, 2)
         self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = torch.nn.Linear(400, 120)
+        self.fc2 = torch.nn.Linear(120, 84)
+        # self.fc3 is self.fc in model
 
     def forward(self, x):
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
         x = torch.flatten(x, 1) # flatten all dimensions except batch
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
         return x
 
 
@@ -60,7 +65,7 @@ class Model(pl.LightningModule):
 
         if args.model == 'simple':
             self.backbone = SimpleModel()
-            self.linear = torch.nn.Linear(400, self.embedding_dim)
+            self.fc = torch.nn.Linear(84, 10)
         else:
             self.backbone = timm.models.create_model(args.model, num_classes=0)
             # FIXME: improve
@@ -70,7 +75,7 @@ class Model(pl.LightningModule):
             self.bn = torch.nn.BatchNorm1d(
                 self.embedding_dim, eps=0.001, momentum=0.1, affine=False
             )
-        self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
+            self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
 
         if args.loss == 'arcface':
             self.loss = losses.ArcFaceLoss(
@@ -81,6 +86,8 @@ class Model(pl.LightningModule):
             )
         elif args.loss == 'ce':
             self.loss = nn.CrossEntropyLoss()
+        else:
+            raise NotImplementedError
 
         self.train_accuracy = tm.Accuracy()
         self.val_accuracy = tm.Accuracy()
@@ -185,7 +192,8 @@ class Model(pl.LightningModule):
 
     def _forward_features(self, x):
         embeddings = self.backbone(x)
-        embeddings = F.relu(self.linear(embeddings))
+        if hasattr(self, 'linear'):
+            embeddings = F.relu(self.linear(embeddings))
         if hasattr(self, 'bn'):
             embeddings = self.bn(embeddings)
         if self.normalize:

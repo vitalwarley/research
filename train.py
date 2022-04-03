@@ -23,7 +23,6 @@ def init_parser():
     parser.add_argument(
         "--data-dir",
         type=str,
-        required=True,
     )
     parser.add_argument(
         "--task", type=str, required=True, choices=["cifar", "pretrain", "finetune"]

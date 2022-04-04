@@ -63,19 +63,10 @@ class Model(pl.LightningModule):
         self.margin = np.rad2deg(args.arcface_m)
         self.scale = args.arcface_s
 
-        if args.model == "simple":
-            self.backbone = SimpleModel()
-            self.fc = torch.nn.Linear(84, 10)
-        else:
-            self.backbone = timm.models.create_model(args.model, num_classes=0)
-            # FIXME: improve
-            out_features = self.backbone(torch.randn(1, 3, 112, 112)).shape[1]
-            self.linear = torch.nn.Linear(out_features, self.embedding_dim)
+        self.train_accuracy = tm.Accuracy()
+        self.val_accuracy = tm.Accuracy()
 
-            self.bn = torch.nn.BatchNorm1d(
-                self.embedding_dim, eps=0.001, momentum=0.1, affine=False
-            )
-            self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
+        self._init_model(args.model)
 
         if args.loss == "arcface":
             self.loss = losses.ArcFaceLoss(
@@ -89,10 +80,23 @@ class Model(pl.LightningModule):
         else:
             raise NotImplementedError
 
-        self.train_accuracy = tm.Accuracy()
-        self.val_accuracy = tm.Accuracy()
+    def _init_model(self, model):
+        if model == "simple":
+            self.backbone = SimpleModel()
+            self.fc = torch.nn.Linear(84, 10)
+        else:
+            self.backbone = timm.models.create_model(model, num_classes=0)
+            # FIXME: improve; resnet34 out_features is already 512
+            out_features = self.backbone(torch.randn(1, 3, 112, 112)).shape[1]
+            if out_features > 512:
+                self.linear = torch.nn.Linear(out_features, self.embedding_dim)
+            self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
+            # self.bn = torch.nn.BatchNorm1d(
+            #     self.embedding_dim, eps=0.001, momentum=0.1, affine=False
+            # )
 
     def setup(self, stage):
+
         # TODO: dont need to call super().setup?
         if stage == "fit" or stage is None:
             # for cooldown lr
@@ -204,11 +208,11 @@ class Model(pl.LightningModule):
 
     def __base_step(self, batch):
         images, labels = batch[0], batch[1]
-
         embeddings, logits = self(images)
 
         if isinstance(self.loss, losses.ArcFaceLoss):
             loss = self.loss(embeddings, labels)
+            logits = self.loss.get_logits(embeddings)
         else:
             loss = self.loss(logits, labels)
 

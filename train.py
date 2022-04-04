@@ -13,7 +13,7 @@ from tqdm import tqdm
 import mytypes as t
 from callbacks import ModelInspectionCallback
 from model import Model
-from tasks import init_cifar, init_msm1, init_fiw
+from tasks import init_cifar, init_ms1m, init_fiw
 
 
 def init_parser():
@@ -90,7 +90,7 @@ if __name__ == "__main__":
         model.train_dataloader = trainloader
         trainer.fit(model, trainloader, valloader)
     elif args.task == "pretrain":
-        datamodule = init_msm1(args)
+        datamodule = init_ms1m(args)
         trainer.fit(model, datamodule)
     elif args.task == "finetune":
         datamodule = init_fiw(args)

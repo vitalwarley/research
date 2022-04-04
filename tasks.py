@@ -43,7 +43,7 @@ def init_cifar(args):
     return trainloader, valloader
 
 
-def init_msm1(args):
+def init_ms1m(args):
     train_transforms = transforms.Compose(
         [
             # transforms.ToPILImage(),

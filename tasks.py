@@ -46,8 +46,8 @@ def init_cifar(args):
 def init_ms1m(args):
     train_transforms = transforms.Compose(
         [
-            # transforms.ToPILImage(),
-            # transforms.RandomHorizontalFlip(),
+            transforms.ToPILImage(),
+            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ]
@@ -60,8 +60,9 @@ def init_ms1m(args):
     )
 
     datamodule = MS1MDataModule(
-        args.num_classes,
-        args.data_dir,
+        num_samples=args.num_samples,
+        num_classes=args.num_classes,
+        data_dir=args.data_dir,
         transforms=[train_transforms, val_transforms],
         batch_size=args.batch_size,
         num_workers=args.num_workers,

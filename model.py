@@ -63,22 +63,32 @@ class Model(pl.LightningModule):
         self.margin = np.rad2deg(args.arcface_m)
         self.scale = args.arcface_s
 
-        self.train_accuracy = tm.Accuracy()
-        self.val_accuracy = tm.Accuracy()
-
+        # Add to .setup?
         self._init_model(args.model)
+        self._init_metrics()
+        self._init_loss(args.loss)
 
-        if args.loss == "arcface":
+
+    def _init_loss(self, loss):
+        if loss == "arcface":
             self.loss = losses.ArcFaceLoss(
                 num_classes=self.num_classes,
                 embedding_size=self.embedding_dim,
                 margin=self.margin,
                 scale=self.scale,
             )
-        elif args.loss == "ce":
+        elif loss == "ce":
             self.loss = nn.CrossEntropyLoss()
         else:
             raise NotImplementedError
+
+    def _init_metrics(self):
+        self.train_accuracy = tm.Accuracy()
+        self.train_precision = tm.Precision()
+        self.train_recall = tm.Recall()
+        self.val_accuracy = tm.Accuracy()
+        self.val_precision = tm.Precision()
+        self.val_recall = tm.Recall()
 
     def _init_model(self, model):
         if model == "simple":
@@ -146,19 +156,18 @@ class Model(pl.LightningModule):
                 )
             }
         elif self.scheduler == "poly":
-            config["lr_scheduler"] = (
-                {
-                    "scheduler": PolyScheduler(
-                        optimizer,
-                        base_lr=self.lr,
-                        max_steps=self.train_steps,
-                        warmup_steps=self.warmup,
-                    ),
-                    "interval": "step",
-                    "frequency": 1,
-                },
-            )
+            config["lr_scheduler"] = {
+                "scheduler": PolyScheduler(
+                    optimizer,
+                    base_lr=self.lr,
+                    max_steps=self.train_steps,
+                    warmup_steps=self.warmup,
+                ),
+                "interval": "step",
+                "frequency": 1,
+            }
 
+        print(f"optimizers config = {config}")
         return config
 
     def optimizer_step(
@@ -222,9 +231,27 @@ class Model(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         preds, loss = self.__base_step(batch)
         acc = self.train_accuracy(preds, batch[1])
+        prec = self.train_precision(preds, batch[1])
+        rec = self.train_recall(preds, batch[1])
         self.log(
             "train_acc",
             acc,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=True,
+            logger=True,
+        )
+        self.log(
+            "train_prec",
+            prec,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=True,
+            logger=True,
+        )
+        self.log(
+            "train_rec",
+            rec,
             on_step=True,
             on_epoch=False,
             prog_bar=True,
@@ -240,11 +267,29 @@ class Model(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         preds, loss = self.__base_step(batch)
         acc = self.val_accuracy(preds, batch[1])
+        prec = self.val_precision(preds, batch[1])
+        rec = self.val_recall(preds, batch[1])
         self.log(
             "val_acc",
             acc,
             on_step=True,
             on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+        self.log(
+            "val_prec",
+            prec,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=True,
+            logger=True,
+        )
+        self.log(
+            "val_rec",
+            rec,
+            on_step=True,
+            on_epoch=False,
             prog_bar=True,
             logger=True,
         )

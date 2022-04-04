@@ -118,7 +118,7 @@ class MS1MDataset(Dataset):
         img_path, celebrity_idx = self.seq[idx]
         img = cv2.imread(str(Path(self.root) / img_path))
         # TODO: timm needs it. how to improve?
-        img = cv2.resize(img, (112, 112))
+        # img = cv2.resize(img, (112, 112))
         # img = np.moveaxis(img, 2, 0)
         if self._transform is not None:
             img = self._transform(img)
@@ -284,6 +284,7 @@ class FamiliesDataModule(LightningDataModule):
 class MS1MDataModule(LightningDataModule):
     def __init__(
         self,
+        num_samples: int,
         num_classes: int,
         data_dir: str,
         transforms: List[torch.nn.Module] = None,
@@ -293,6 +294,7 @@ class MS1MDataModule(LightningDataModule):
     ):
         super().__init__()
         self.num_classes = num_classes
+        self.num_samples = num_samples
         self.data_dir = Path(data_dir)
         self.train_save_path = str(self.data_dir / "train.npy")
         self.val_save_path = str(self.data_dir / "val.npy")
@@ -307,6 +309,13 @@ class MS1MDataModule(LightningDataModule):
     def prepare_data(self):
         # load data
         df = pd.read_csv(self.label_path, delimiter="\t", names=["path", "target"])
+
+        if 0 < self.num_samples < 1:
+            df = df.sample(frac=self.num_samples)
+        elif self.num_samples > 1:
+            df = df.sample(n=self.num_samples)
+
+        # shuffle
         df = df.sample(frac=1.0)
         classes = df.target.unique()
 
@@ -319,9 +328,7 @@ class MS1MDataModule(LightningDataModule):
 
         # split data
         # TODO: check for reproducibility
-        # TODO: improve-me
-        val_df = df.groupby('target').sample(n=1)
-        train_df = df[~df.index.isin(val_df.index)]
+        train_df, val_df = train_test_split(df, test_size=0.01)
 
         print(
             f"train - total of {len(train_df)} samples for"

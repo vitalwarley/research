@@ -11,7 +11,7 @@ from torchvision import transforms, datasets
 from tqdm import tqdm
 
 import mytypes as t
-from callbacks import ModelInspectionCallback
+from callbacks import ModelInspectionCallback, MetricsCallback
 from model import Model
 from tasks import init_cifar, init_ms1m, init_fiw
 
@@ -33,6 +33,11 @@ def init_parser():
         type=int,
     )
     parser.add_argument(
+        "--num-samples",
+        default=0,
+        type=int,
+    )
+    parser.add_argument(
         "--num-workers",
         default=8,
         type=int,
@@ -51,11 +56,14 @@ def init_parser():
 def init_trainer(args):
 
     # add callbacks
-    lrm_cb = lr_monitor.LearningRateMonitor(logging_interval="step")
+    # lrm_cb = lr_monitor.LearningRateMonitor(logging_interval="step")
     mdm_cb = ModuleDataMonitor(submodules=True, log_every_n_steps=1)
     mi_cb = ModelInspectionCallback()
+    # m_cb = MetricsCallback()
 
-    callbacks = [lrm_cb]
+    # callbacks = [lrm_cb]
+    # callbacks = [m_cb]
+    callbacks = []
 
     if "monitoring" in args.debug:
         callbacks.append(mdm_cb)

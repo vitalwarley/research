@@ -112,7 +112,8 @@ class Model(pl.LightningModule):
             # for cooldown lr
             # src: https://github.com/PyTorchLightning/pytorch-lightning/issues/3115#issuecomment-678824664
             # 1.5.11 will include this in trainer, I think. My version is 1.5.10
-            total_devices = self.trainer.gpus * self.trainer.num_nodes
+            gpus = self.trainer.gpus if self.trainer.gpus else 0
+            total_devices = gpus * self.trainer.num_nodes
             total_devices = total_devices if total_devices else 1
             # train_batches = len(self.train_dataloader()) // total_devices
             if self.trainer.datamodule is not None:
@@ -296,6 +297,7 @@ class Model(pl.LightningModule):
         self.log(
             "val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True
         )
+        return {'preds': preds}
 
     @staticmethod
     def add_model_specific_args(parent_parser):

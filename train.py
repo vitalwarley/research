@@ -59,7 +59,7 @@ def init_trainer(args):
     # lrm_cb = lr_monitor.LearningRateMonitor(logging_interval="step")
     mdm_cb = ModuleDataMonitor(submodules=True, log_every_n_steps=1)
     mi_cb = ModelInspectionCallback()
-    # m_cb = MetricsCallback()
+    m_cb = MetricsCallback()
 
     # callbacks = [lrm_cb]
     # callbacks = [m_cb]

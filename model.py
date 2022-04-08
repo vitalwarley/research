@@ -112,7 +112,13 @@ class Model(pl.LightningModule):
             # for cooldown lr
             # src: https://github.com/PyTorchLightning/pytorch-lightning/issues/3115#issuecomment-678824664
             # 1.5.11 will include this in trainer, I think. My version is 1.5.10
-            gpus = self.trainer.gpus if self.trainer.gpus else 0
+            if isinstance(self.trainer.gpus, int):
+                gpus = 1 if self.trainer.gpus else 0
+                if self.trainer.gpus == -1:
+                    gpus = torch.cuda.device_count()
+            else:
+                # TODO: improve-me
+                gpus = len(self.trainer.gpus.split(','))
             total_devices = gpus * self.trainer.num_nodes
             total_devices = total_devices if total_devices else 1
             # train_batches = len(self.train_dataloader()) // total_devices

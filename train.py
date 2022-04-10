@@ -93,6 +93,8 @@ if __name__ == "__main__":
     model = Model(args)
     model.train()
 
+    print(model)
+
     if args.task == "cifar":
         trainloader, valloader = init_cifar(args)
         model.train_dataloader = trainloader

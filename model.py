@@ -14,25 +14,6 @@ from torch.optim.lr_scheduler import StepLR, MultiStepLR
 from lr_scheduler import PolyScheduler
 
 
-class SimpleModel(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = torch.nn.Linear(400, 120)
-        self.fc2 = torch.nn.Linear(120, 84)
-        # self.fc3 is self.fc in model
-
-    def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = torch.flatten(x, 1)  # flatten all dimensions except batch
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return x
-
-
 class Model(pl.LightningModule):
     def __init__(self, args: ArgumentParser = None):
         """
@@ -64,8 +45,8 @@ class Model(pl.LightningModule):
         self.scale = args.arcface_s
 
         # Add to .setup?
-        self._init_model(args.model)
         self._init_metrics()
+        self._init_model(args.model, args.loss)
         self._init_loss(args.loss)
 
 
@@ -90,23 +71,26 @@ class Model(pl.LightningModule):
         self.val_precision = tm.Precision()
         self.val_recall = tm.Recall()
 
-    def _init_model(self, model):
-        if model == "simple":
-            self.backbone = SimpleModel()
-            self.fc = torch.nn.Linear(84, 10)
-        else:
-            self.backbone = timm.models.create_model(model, num_classes=0)
-            # FIXME: improve; resnet34 out_features is already 512
-            out_features = self.backbone(torch.randn(1, 3, 112, 112)).shape[1]
-            if out_features > 512:
-                self.linear = torch.nn.Linear(out_features, self.embedding_dim)
+    def _init_model(self, model, loss):
+        self.backbone = timm.models.create_model(model, num_classes=0)
+        # FIXME: improve; resnet34 out_features is already 512
+        out_features = self.backbone(torch.randn(1, 3, 112, 112)).shape[1]
+        if out_features > 512:
+            self._big_model = True
+            # With ResNet101 we have a big (is it?) feature vector.
+            # Therefore I think we should add another layer.
+            # With a smaller ResNet, the feature vector is directly passed to ArcFaceLoss,
+            # which creates a new layer on its own.
+            # TODO: should I also add a Dropout layer?
+            self.fc = torch.nn.Linear(out_features, self.embedding_dim)
+            self.bn = torch.nn.BatchNorm1d(
+                self.embedding_dim, eps=1e-5, momentum=0.1, affine=True  # default parmas
+            )
+            self.act = torch.nn.ReLU(inplace=True)
+        if loss != 'arcface':
             self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
-            # self.bn = torch.nn.BatchNorm1d(
-            #     self.embedding_dim, eps=0.001, momentum=0.1, affine=False
-            # )
 
     def setup(self, stage):
-
         # TODO: dont need to call super().setup?
         if stage == "fit" or stage is None:
             # for cooldown lr
@@ -209,17 +193,26 @@ class Model(pl.LightningModule):
 
     def _forward_features(self, x):
         embeddings = self.backbone(x)
-        if hasattr(self, "linear"):
-            embeddings = F.relu(self.linear(embeddings))
-        if hasattr(self, "bn"):
+        # Remember that bn layer is used when using very deep models, like ResNet101,
+        # where embeddings.dim > 512.
+        if self._big_model:
+            embeddings = self.fc(embeddings)
             embeddings = self.bn(embeddings)
+            embeddings = self.act(embeddings)
         if self.normalize:
             embeddings = F.normalize(embeddings, p=2, dim=1)
         return embeddings
 
+    def _get_logits(self, x):
+        if isinstance(self.loss, losses.ArcFaceLoss):
+            logits = self.loss.get_logits(x)
+        else:
+            logits = self.fc(x)
+        return logits
+
     def forward(self, x):
         embeddings = self._forward_features(x)
-        logits = self.fc(embeddings)
+        logits = self._get_logits(embeddings)
         return embeddings, logits
 
     def __base_step(self, batch):
@@ -228,7 +221,6 @@ class Model(pl.LightningModule):
 
         if isinstance(self.loss, losses.ArcFaceLoss):
             loss = self.loss(embeddings, labels)
-            logits = self.loss.get_logits(embeddings)
         else:
             loss = self.loss(logits, labels)
 

@@ -9,7 +9,7 @@ opencv-python
 pandas                   
 pytest
 python-dotenv            
-pytorch-lightning        
+pytorch-lightning==1.6.0
 pytorch-metric-learning
 timm
 tqdm                     

@@ -6,6 +6,7 @@ import numpy as np
 from pl_bolts.callbacks import ModuleDataMonitor
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import lr_monitor
+from pytorch_lightning.plugins import DDPPlugin
 from torch import nn, utils
 from torchvision import transforms, datasets
 from tqdm import tqdm
@@ -75,7 +76,9 @@ def init_trainer(args):
     print(args)
 
     # instantiate trainer
-    trainer = Trainer.from_argparse_args(args, callbacks=callbacks)
+    trainer = Trainer.from_argparse_args(
+        args, callbacks=callbacks, plugins=DDPPlugin(find_unused_parameters=False)
+    )
 
     return trainer
 

@@ -49,6 +49,7 @@ class Model(pl.LightningModule):
         self._init_model(args.model, args.loss)
         self._init_loss(args.loss)
 
+        self.save_hyperparameters()
 
     def _init_loss(self, loss):
         if loss == "arcface":
@@ -83,7 +84,7 @@ class Model(pl.LightningModule):
         self.bn.weight.requires_grad = False
 
         # Will I use another loss?
-        if loss != 'arcface':
+        if loss != "arcface":
             self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
 
     def setup(self, stage):
@@ -98,7 +99,7 @@ class Model(pl.LightningModule):
                     gpus = torch.cuda.device_count()
             else:
                 # TODO: improve-me
-                gpus = len(self.trainer.gpus.split(','))
+                gpus = len(self.trainer.gpus.split(","))
             total_devices = gpus * self.trainer.num_nodes
             total_devices = total_devices if total_devices else 1
             # train_batches = len(self.train_dataloader()) // total_devices
@@ -289,7 +290,7 @@ class Model(pl.LightningModule):
         self.log(
             "val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True
         )
-        return {'preds': preds}
+        return {"preds": preds}
 
     @staticmethod
     def add_model_specific_args(parent_parser):

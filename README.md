@@ -38,8 +38,8 @@ python train.py --data-dir ../datasets/MS1M_v3/ --devices 2 --max_epochs 50 --mo
 
 |Backbone|Train Loss|Train Accuracy|Val Loss|Val Accuracy|Date
 |-|-|-|-|-|-|
-|ResNet34|Train|9.724|93.26%|12.42| 89.62%|10-04-2022
-|ResNet101|Train|9.734|96%|10.95| 96.23%|17-04-2022
+|ResNet34|9.724|93.26%|12.42| 89.62%|10-04-2022
+|ResNet101|9.734|96%|10.95| 96.23%|17-04-2022
 
 - ResNet34 trained for 13 epochs, but could continue for more if a I haven't canceled by mistake.
 - ResNet101 trained for 15 epochs, but could continue for more if the desktop didn't restarted. 

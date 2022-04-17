@@ -72,21 +72,17 @@ class Model(pl.LightningModule):
         self.val_recall = tm.Recall()
 
     def _init_model(self, model, loss):
-        self.backbone = timm.models.create_model(model, num_classes=0)
-        # FIXME: improve; resnet34 out_features is already 512
-        out_features = self.backbone(torch.randn(1, 3, 112, 112)).shape[1]
-        if out_features > 512:
-            self._big_model = True
-            # With ResNet101 we have a big (is it?) feature vector.
-            # Therefore I think we should add another layer.
-            # With a smaller ResNet, the feature vector is directly passed to ArcFaceLoss,
-            # which creates a new layer on its own.
-            # TODO: should I also add a Dropout layer?
-            self.fc = torch.nn.Linear(out_features, self.embedding_dim)
-            self.bn = torch.nn.BatchNorm1d(
-                self.embedding_dim, eps=1e-5, momentum=0.1, affine=True  # default parmas
-            )
-            self.act = torch.nn.ReLU(inplace=True)
+        self.backbone = timm.models.create_model(model, num_classes=0, global_pool="")
+        out_features = self.backbone(torch.randn(1, 3, 112, 112))
+        out_features = torch.flatten(out_features, 1).shape[1]
+        self.fc = torch.nn.Linear(out_features, self.embedding_dim)
+        self.bn = torch.nn.BatchNorm1d(
+            self.embedding_dim, eps=1e-5, momentum=0.1, affine=True  # default parmas
+        )
+        torch.nn.init.constant_(self.bn.weight, 1.0)
+        self.bn.weight.requires_grad = False
+
+        # Will I use another loss?
         if loss != 'arcface':
             self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
 
@@ -193,13 +189,11 @@ class Model(pl.LightningModule):
 
     def _forward_features(self, x):
         embeddings = self.backbone(x)
-        # Remember that bn layer is used when using very deep models, like ResNet101,
-        # where embeddings.dim > 512.
-        if self._big_model:
-            embeddings = self.fc(embeddings)
-            embeddings = self.bn(embeddings)
-            embeddings = self.act(embeddings)
+        embeddings = torch.flatten(embeddings, 1)
+        embeddings = self.fc(embeddings)
+        embeddings = self.bn(embeddings)
         if self.normalize:
+            # For ArcFaceLoss we normalize the embeddings and weights internally.
             embeddings = F.normalize(embeddings, p=2, dim=1)
         return embeddings
 

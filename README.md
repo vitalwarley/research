@@ -8,7 +8,8 @@
 
 - [x] Adapt Shadrikov code to PyTorch.
 - [ ] Reproduce Shadrikov verification results.
-  - [ ] Pretrain ResNet101 with ArcFace loss on cleaned MS-Celeb-1M.
+  - [x] Pretrain ResNet101 with ArcFace loss on cleaned MS-Celeb-1M.
+    - Convergence is possible, despite different [results](https://github.com/vitalwarley/research/issues/9#issuecomment-1100849905) -- I will fix this soon.
   - [ ] Finetune pretrained model
     - [ ] pretrain + classification
     - [ ] pretrain + classification + normalization

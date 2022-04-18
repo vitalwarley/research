@@ -1,5 +1,6 @@
 import logging
 import random
+import pickle
 from itertools import combinations, starmap
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from pytorch_lightning import LightningDataModule
 from sklearn.model_selection import train_test_split
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
+from more_itertools import grouper
 
 import mytypes as t
 from typing import Tuple, Optional, Generator, Any, List, Union, Callable
@@ -126,6 +128,73 @@ class MS1MDataset(Dataset):
 
     def __len__(self) -> int:
         return len(self.seq)
+
+
+class EvalPretrainDataset(Dataset):
+    """LFW, CFP_FP and AGEDB_30."""
+
+    def __init__(
+        self,
+        root: Path,
+        target: str,
+        transform: nn.Module = None,
+        image_size: (int, int) = (112, 112),
+    ):
+        super(EvalPretrainDataset, self).__init__()
+        self.root = Path(root)
+        self._transform = transform
+        self._image_size = image_size
+        # [(data_list, issame_list)] * 3, 
+        #   where (data_list) -> [flip, no_flip], 
+        #   each one as [n_samples, 3, image_size, image_size]
+        self._data = []  
+        self._load_dataset(target)
+
+    def _load_dataset(self, target):
+        # read bin
+        with open((self.root / target).with_suffix(".bin"), "rb") as f:
+            bins, self.labels = pickle.load(f, encoding="bytes")
+        # create data array
+        for flip in [0, 1]:
+            _first = np.empty(
+                (len(self.labels), self._image_size[0], self._image_size[1], 3),
+                dtype=np.float32
+            )
+            _second = np.empty(
+                (len(self.labels), self._image_size[0], self._image_size[1], 3), 
+                dtype=np.float32
+            )
+            self._data.append((_first, _second))
+        # populate data array
+        for idx, (first, second) in enumerate(grouper(bins, 2)):
+            if first is None or second is None:
+                continue
+            # decode _bin as image
+            # TODO: is cv2.resize the same mx.image.resize_short?
+            first = cv2.imdecode(first, cv2.IMREAD_COLOR)
+            first = cv2.resize(first, self._image_size)
+            second = cv2.imdecode(second, cv2.IMREAD_COLOR)
+            second = cv2.resize(second, self._image_size)
+            for flip in [0, 1]:
+                if flip == 1:
+                    first = np.flip(first, axis=2)
+                    second = np.flip(second, axis=2)
+                self._data[0][flip][idx][:] = first
+                self._data[1][flip][idx][:] = second
+
+    def __getitem__(self, idx: int) -> Tuple[t.Img, t.Img]:
+        first = (self._data[0][0][idx], self._data[0][1][idx])  # (no flip, flipped)
+        second = (self._data[1][0][idx], self._data[1][1][idx])
+        if self._transform is not None:
+            first = (self._transform(self._data[0][0][idx]), self._transform(self._data[0][1][idx]))
+            second = (self._transform(self._data[1][0][idx]), self._transform(self._data[1][1][idx]))
+
+        label = self.labels[idx]
+        pair = (first, second, label)
+        return pair
+
+    def __len__(self) -> int:
+        return len(self.labels)
 
 
 class PairDataset(Dataset):
@@ -297,7 +366,6 @@ class MS1MDataModule(LightningDataModule):
         self.num_samples = num_samples
         self.data_dir = Path(data_dir)
         self.train_save_path = str(self.data_dir / "train.npy")
-        self.val_save_path = str(self.data_dir / "val.npy")
         self.label_path = str(Path(self.data_dir) / "label.txt")
         self.batch_size = batch_size
         self.train_transform, self.val_transform = (
@@ -326,22 +394,7 @@ class MS1MDataModule(LightningDataModule):
             classes = df.target.unique()
             assert max(df.target) == max(classes), "Mismatch between classes in data"
 
-        # split data
-        # TODO: check for reproducibility
-        train_df, val_df = train_test_split(df, test_size=0.01)
-
-        print(
-            f"train - total of {len(train_df)} samples for"
-            f" n_classes={len(train_df.target.unique())}"
-        )
-        print(
-            f"val - total of {len(val_df)} samples for"
-            f" n_classes={len(val_df.target.unique())}"
-        )
-
-        # save splits
-        np.save(self.train_save_path, train_df.values)
-        np.save(self.val_save_path, val_df.values)
+        np.save(self.train_save_path, df.values)
 
     def setup(self, stage: Optional[str] = None):
 
@@ -349,12 +402,17 @@ class MS1MDataModule(LightningDataModule):
         if stage in (None, "fit"):
             # self.data_dir should be 'fitw2020'
             train_arr = np.load(self.train_save_path, allow_pickle=True)
-            val_arr = np.load(self.val_save_path, allow_pickle=True)
             self.train_ds = MS1MDataset(
                 self.data_dir, transform=self.train_transform, seq=train_arr
             )
-            self.val_ds = MS1MDataset(
-                self.data_dir, transform=self.val_transform, seq=val_arr
+            self.lfw = EvalPretrainDataset(
+                self.data_dir, target="lfw", transform=self.val_transform
+            )
+            self.cfp_fp = EvalPretrainDataset(
+                self.data_dir, target="cfp_fp", transform=self.val_transform
+            )
+            self.agedb_30 = EvalPretrainDataset(
+                self.data_dir, target="agedb_30", transform=self.val_transform
             )
 
     def train_dataloader(self):
@@ -367,10 +425,25 @@ class MS1MDataModule(LightningDataModule):
         )
 
     def val_dataloader(self):
-        return DataLoader(
-            self.val_ds,
+        lfw_loader = DataLoader(
+            self.lfw,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=True,
         )
+        cfp_fp_loader = DataLoader(
+            self.cfp_fp,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )
+        agedb_30_loader = DataLoader(
+            self.agedb_30,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )
+        return [lfw_loader, cfp_fp_loader, agedb_30_loader]

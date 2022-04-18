@@ -10,6 +10,7 @@ from pytorch_metric_learning import losses
 from torch.nn import functional as F
 from torch.optim import Adam, SGD
 from torch.optim.lr_scheduler import StepLR, MultiStepLR
+from sklearn.model_selection import KFold
 
 from lr_scheduler import PolyScheduler
 
@@ -373,3 +374,110 @@ class Model(pl.LightningModule):
         parser.add_argument("--scheduler", type=str)
         parser.add_argument("--loss", type=str, default="arcface")
         return parent_parser
+
+
+class PretrainModel(Model):
+    def __init__(self, args: ArgumentParser = None):
+        super().__init__(args)
+
+        self.val_targets = ["lfw", "cfp_fp", "agedb_30"]
+
+    def validation_step(self, batch, batch_idx, dataloader_idx):
+        first, second, label = batch
+
+        first_emb = self._forward_features(first[0])
+        first_flipped_emb = self._forward_features(first[1])
+        embeddings1 = first_emb + first_flipped_emb
+        embeddings1 = F.normalize(embeddings1, p=2, dim=1)
+
+        second_emb = self._forward_features(second[0])
+        second_flipped_emb = self._forward_features(second[1])
+        embeddings2 = second_emb + second_flipped_emb
+        embeddings2 = F.normalize(embeddings2, p=2, dim=1)
+
+        diff = embeddings1 - embeddings2
+        dist = torch.linalg.norm(diff, dim=-1)
+
+        embeddings = torch.cat(
+            [first_emb, first_flipped_emb, second_emb, second_flipped_emb], dim=0
+        )
+        norm = torch.linalg.norm(embeddings)
+
+        return norm, dist, label
+
+    def validation_epoch_end(self, outputs):
+
+        n_folds = 10
+        kfold = KFold(n_splits=n_folds, shuffle=False)
+
+        for target, output in zip(self.val_targets, outputs):
+            # unpack output in norms, dists, labels from output list
+            norms, dists, labels = zip(*output)
+
+            if torch.inf in norms:
+                acc = 0.0
+                norm = torch.inf
+                self.log(
+                    f"{target}_acc",
+                    acc,
+                    on_epoch=True,
+                    prog_bar=True,
+                    logger=True,
+                )
+                self.log(
+                    f"{target}_norm",
+                    norm,
+                    on_epoch=True,
+                    prog_bar=True,
+                    logger=True,
+                )
+                continue
+
+            # stack batches
+            norm = torch.cat([norm.unsqueeze(0) for norm in norms], dim=0).mean()
+            dists = torch.cat(dists, dim=0)
+            labels = torch.cat(labels, dim=0)
+
+            # init vars
+            n_pairs = dists.shape[0]
+            accuracy = torch.zeros((n_folds), dtype=torch.float32)
+            thresholds = torch.arange(0.0, 4, 0.01, dtype=torch.float32)
+            indexes = torch.arange(n_pairs, dtype=torch.int32)
+            acc_train = torch.zeros((thresholds.shape[0]), dtype=torch.float32)
+
+            # iterate over folds
+            for fold, (train_idx, test_idx) in enumerate(kfold.split(indexes)):
+                # slice train dist and labels
+                train_dists = dists[train_idx]
+                train_labels = labels[train_idx]
+                # compute train accuracy
+                for t_idx, threshold in enumerate(thresholds):
+                    predicted = train_dists < threshold
+                    acc_train[t_idx] = tm.functional.accuracy(predicted, train_labels)
+                # compute test accuracy
+                test_dists = dists[test_idx]
+                test_labels = labels[test_idx]
+                best_threshold_index = torch.argmax(acc_train)
+                threshold = thresholds[best_threshold_index]
+                predicted = test_dists < threshold
+                accuracy[fold] = tm.functional.accuracy(predicted, test_labels)
+
+            acc = torch.mean(accuracy).item()
+
+            self.log(
+                f"{target}_acc",
+                acc,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+            )
+            self.log(
+                f"{target}_norm",
+                norm,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+            )
+
+    def _compute_validation_accuracy(self):
+        pass

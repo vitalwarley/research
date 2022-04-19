@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+from functools import singledispatchmethod
 
 import numpy as np
 import pytorch_lightning as pl
@@ -377,12 +378,20 @@ class Model(pl.LightningModule):
 
 
 class PretrainModel(Model):
+
     def __init__(self, args: ArgumentParser = None):
         super().__init__(args)
 
-        self.val_targets = ["lfw", "cfp_fp", "agedb_30"]
+    def setup(self, stage: str):
+        super().setup(stage)
+        if stage == "test":
+            # TODO: add test step
+            self.val_targets = ["cfp_fp", "agedb_30"]
+        else:
+            self.val_targets = ["lfw"]
 
-    def validation_step(self, batch, batch_idx, dataloader_idx):
+    # TODO: use singledispatchmethod to overload validation_step
+    def validation_step(self, batch, batch_idx):
         first, second, label = batch
 
         first_emb = self._forward_features(first[0])
@@ -407,63 +416,16 @@ class PretrainModel(Model):
 
     def validation_epoch_end(self, outputs):
 
+        target = self.val_targets[0]
         n_folds = 10
         kfold = KFold(n_splits=n_folds, shuffle=False)
 
-        for target, output in zip(self.val_targets, outputs):
-            # unpack output in norms, dists, labels from output list
-            norms, dists, labels = zip(*output)
+        # unpack output in norms, dists, labels from output list
+        norms, dists, labels = zip(*outputs)
 
-            if torch.inf in norms:
-                acc = 0.0
-                norm = torch.inf
-                self.log(
-                    f"{target}_acc",
-                    acc,
-                    on_epoch=True,
-                    prog_bar=True,
-                    logger=True,
-                )
-                self.log(
-                    f"{target}_norm",
-                    norm,
-                    on_epoch=True,
-                    prog_bar=True,
-                    logger=True,
-                )
-                continue
-
-            # stack batches
-            norm = torch.cat([norm.unsqueeze(0) for norm in norms], dim=0).mean()
-            dists = torch.cat(dists, dim=0)
-            labels = torch.cat(labels, dim=0)
-
-            # init vars
-            n_pairs = dists.shape[0]
-            accuracy = torch.zeros((n_folds), dtype=torch.float32)
-            thresholds = torch.arange(0.0, 4, 0.01, dtype=torch.float32)
-            indexes = torch.arange(n_pairs, dtype=torch.int32)
-            acc_train = torch.zeros((thresholds.shape[0]), dtype=torch.float32)
-
-            # iterate over folds
-            for fold, (train_idx, test_idx) in enumerate(kfold.split(indexes)):
-                # slice train dist and labels
-                train_dists = dists[train_idx]
-                train_labels = labels[train_idx]
-                # compute train accuracy
-                for t_idx, threshold in enumerate(thresholds):
-                    predicted = train_dists < threshold
-                    acc_train[t_idx] = tm.functional.accuracy(predicted, train_labels)
-                # compute test accuracy
-                test_dists = dists[test_idx]
-                test_labels = labels[test_idx]
-                best_threshold_index = torch.argmax(acc_train)
-                threshold = thresholds[best_threshold_index]
-                predicted = test_dists < threshold
-                accuracy[fold] = tm.functional.accuracy(predicted, test_labels)
-
-            acc = torch.mean(accuracy).item()
-
+        if torch.inf in norms:
+            acc = 0.0
+            norm = torch.inf
             self.log(
                 f"{target}_acc",
                 acc,
@@ -478,6 +440,53 @@ class PretrainModel(Model):
                 prog_bar=True,
                 logger=True,
             )
+            return
+
+        # stack batches
+        norm = torch.cat([norm.unsqueeze(0) for norm in norms], dim=0).mean()
+        dists = torch.cat(dists, dim=0)
+        labels = torch.cat(labels, dim=0)
+
+        # init vars
+        n_pairs = dists.shape[0]
+        accuracy = torch.zeros((n_folds), dtype=torch.float32)
+        thresholds = torch.arange(0.0, 4, 0.01, dtype=torch.float32)
+        indexes = torch.arange(n_pairs, dtype=torch.int32)
+        acc_train = torch.zeros((thresholds.shape[0]), dtype=torch.float32)
+
+        # iterate over folds
+        for fold, (train_idx, test_idx) in enumerate(kfold.split(indexes)):
+            # slice train dist and labels
+            train_dists = dists[train_idx]
+            train_labels = labels[train_idx]
+            # compute train accuracy
+            for t_idx, threshold in enumerate(thresholds):
+                predicted = train_dists < threshold
+                acc_train[t_idx] = tm.functional.accuracy(predicted, train_labels)
+            # compute test accuracy
+            test_dists = dists[test_idx]
+            test_labels = labels[test_idx]
+            best_threshold_index = torch.argmax(acc_train)
+            threshold = thresholds[best_threshold_index]
+            predicted = test_dists < threshold
+            accuracy[fold] = tm.functional.accuracy(predicted, test_labels)
+
+        acc = torch.mean(accuracy).item()
+
+        self.log(
+            f"{target}_acc",
+            acc,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+        self.log(
+            f"{target}_norm",
+            norm,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
 
     def _compute_validation_accuracy(self):
         pass

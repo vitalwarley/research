@@ -144,10 +144,10 @@ class EvalPretrainDataset(Dataset):
         self.root = Path(root)
         self._transform = transform
         self._image_size = image_size
-        # [(data_list, issame_list)] * 3, 
-        #   where (data_list) -> [flip, no_flip], 
+        # [(data_list, issame_list)] * 3,
+        #   where (data_list) -> [flip, no_flip],
         #   each one as [n_samples, 3, image_size, image_size]
-        self._data = []  
+        self._data = []
         self._load_dataset(target)
 
     def _load_dataset(self, target):
@@ -158,11 +158,11 @@ class EvalPretrainDataset(Dataset):
         for flip in [0, 1]:
             _first = np.empty(
                 (len(self.labels), self._image_size[0], self._image_size[1], 3),
-                dtype=np.float32
+                dtype=np.float32,
             )
             _second = np.empty(
-                (len(self.labels), self._image_size[0], self._image_size[1], 3), 
-                dtype=np.float32
+                (len(self.labels), self._image_size[0], self._image_size[1], 3),
+                dtype=np.float32,
             )
             self._data.append((_first, _second))
         # populate data array
@@ -186,8 +186,14 @@ class EvalPretrainDataset(Dataset):
         first = (self._data[0][0][idx], self._data[0][1][idx])  # (no flip, flipped)
         second = (self._data[1][0][idx], self._data[1][1][idx])
         if self._transform is not None:
-            first = (self._transform(self._data[0][0][idx]), self._transform(self._data[0][1][idx]))
-            second = (self._transform(self._data[1][0][idx]), self._transform(self._data[1][1][idx]))
+            first = (
+                self._transform(self._data[0][0][idx]),
+                self._transform(self._data[0][1][idx]),
+            )
+            second = (
+                self._transform(self._data[1][0][idx]),
+                self._transform(self._data[1][1][idx]),
+            )
 
         label = self.labels[idx]
         pair = (first, second, label)
@@ -359,6 +365,7 @@ class MS1MDataModule(LightningDataModule):
         transforms: List[torch.nn.Module] = None,
         batch_size=32,
         num_workers=8,
+        val_targets="",
         debug=False,
     ):
         super().__init__()
@@ -373,6 +380,7 @@ class MS1MDataModule(LightningDataModule):
         )
         self.num_workers = num_workers
         self.debug = debug
+        self.val_targets = val_targets
 
     def prepare_data(self):
         # load data
@@ -408,6 +416,8 @@ class MS1MDataModule(LightningDataModule):
             self.lfw = EvalPretrainDataset(
                 self.data_dir, target="lfw", transform=self.val_transform
             )
+        
+        if stage == 'test':
             self.cfp_fp = EvalPretrainDataset(
                 self.data_dir, target="cfp_fp", transform=self.val_transform
             )
@@ -432,6 +442,9 @@ class MS1MDataModule(LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
         )
+        return lfw_loader
+    
+    def test_dataloader(self):
         cfp_fp_loader = DataLoader(
             self.cfp_fp,
             batch_size=self.batch_size,
@@ -446,4 +459,4 @@ class MS1MDataModule(LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
         )
-        return [lfw_loader, cfp_fp_loader, agedb_30_loader]
+        return [cfp_fp_loader, agedb_30_loader]

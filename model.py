@@ -410,7 +410,7 @@ class PretrainModel(Model):
         embeddings = torch.cat(
             [first_emb, first_flipped_emb, second_emb, second_flipped_emb], dim=0
         )
-        norm = torch.linalg.norm(embeddings)
+        norm = torch.linalg.norm(embeddings, dim=-1).mean()
 
         return norm, dist, label
 

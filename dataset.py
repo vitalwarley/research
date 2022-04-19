@@ -150,6 +150,8 @@ class EvalPretrainDataset(Dataset):
         self._data = []
         self._load_dataset(target)
 
+        print(f"{target} dataset loaded.")
+
     def _load_dataset(self, target):
         # read bin
         with open((self.root / target).with_suffix(".bin"), "rb") as f:

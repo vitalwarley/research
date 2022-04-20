@@ -385,13 +385,26 @@ class PretrainModel(Model):
     def setup(self, stage: str):
         super().setup(stage)
         if stage == "test":
-            # TODO: add test step
             self.val_targets = ["cfp_fp", "agedb_30"]
         else:
             self.val_targets = ["lfw"]
 
     # TODO: use singledispatchmethod to overload validation_step
+
     def validation_step(self, batch, batch_idx):
+        return self._step(batch, batch_idx)
+
+    def validation_epoch_end(self, outputs):
+        return self._epoch_end(outputs, self.val_targets[0])
+
+    def test_step(self, batch, batch_idx, dataloader_idx):
+        return self._step(batch, batch_idx, dataloader_idx)
+
+    def test_epoch_end(self, outputs):
+        for idx, output in enumerate(outputs):
+            self._epoch_end(output, self.val_targets[idx])
+
+    def _step(self, batch: list, batch_idx: int, dataloader_idx: int = 0):
         first, second, label = batch
 
         first_emb = self._forward_features(first[0])
@@ -414,9 +427,8 @@ class PretrainModel(Model):
 
         return norm, dist, label
 
-    def validation_epoch_end(self, outputs):
+    def _epoch_end(self, outputs, target):
 
-        target = self.val_targets[0]
         n_folds = 10
         kfold = KFold(n_splits=n_folds, shuffle=False)
 

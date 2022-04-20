@@ -415,6 +415,8 @@ class MS1MDataModule(LightningDataModule):
             self.train_ds = MS1MDataset(
                 self.data_dir, transform=self.train_transform, seq=train_arr
             )
+
+        if stage in ("fit", "validate"):
             self.lfw = EvalPretrainDataset(
                 self.data_dir, target="lfw", transform=self.val_transform
             )

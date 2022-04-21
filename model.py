@@ -46,12 +46,11 @@ class Model(pl.LightningModule):
         self.margin = np.rad2deg(args.arcface_m)
         self.scale = args.arcface_s
 
-        # Add to .setup?
-        self._init_metrics()
-        self._init_model(args.model, args.loss)
-        self._init_loss(args.loss)
+        self.model = args.model
+        self.loss = args.loss
 
         self.save_hyperparameters()
+
 
     def _init_loss(self, loss):
         if loss == "arcface":
@@ -91,7 +90,10 @@ class Model(pl.LightningModule):
 
     def setup(self, stage):
         # TODO: dont need to call super().setup?
-        if stage == "fit" or stage is None:
+        if stage == "fit":
+            self._init_metrics()
+            self._init_model(self.model, self.loss)
+            self._init_loss(self.loss)
             # for cooldown lr
             # src: https://github.com/PyTorchLightning/pytorch-lightning/issues/3115#issuecomment-678824664
             # 1.5.11 will include this in trainer, I think. My version is 1.5.10
@@ -378,9 +380,14 @@ class Model(pl.LightningModule):
 
 
 class PretrainModel(Model):
-
     def __init__(self, args: ArgumentParser = None):
         super().__init__(args)
+
+        if args.insightface_weights:
+            from insightface.recognition.arcface_torch.backbones import get_model
+            self.backbone = get_model(args.model, fp16=False)
+            self.backbone.load_state_dict(torch.load(args.insightface_weights))
+            self.insightface = True
 
     def setup(self, stage: str):
         super().setup(stage)
@@ -388,6 +395,12 @@ class PretrainModel(Model):
             self.val_targets = ["cfp_fp", "agedb_30"]
         else:
             self.val_targets = ["lfw"]
+
+    def _forward_features(self, x):
+        if self.insightface:
+            return self.backbone(x)
+        else:
+            return super()._forward_features(x)
 
     # TODO: use singledispatchmethod to overload validation_step
 
@@ -499,6 +512,3 @@ class PretrainModel(Model):
             prog_bar=True,
             logger=True,
         )
-
-    def _compute_validation_accuracy(self):
-        pass

@@ -14,48 +14,8 @@ from tqdm import tqdm
 import mytypes as t
 from callbacks import ModelInspectionCallback, MetricsCallback
 from model import Model, PretrainModel
-from tasks import init_cifar, init_ms1m, init_fiw
+from tasks import init_cifar, init_ms1m, init_fiw, init_parser
 
-
-def init_parser():
-    parser = ArgumentParser()
-
-    # Program specific args
-    parser.add_argument(
-        "--data-dir",
-        type=str,
-    )
-    # parser.add_argument("--insightface", action='store_true')
-    parser.add_argument("--ckpt-path", type=str)  # ptl ckpt
-    parser.add_argument("--insightface-weights", type=str)  # insightface
-    parser.add_argument(
-        "--task", type=str, required=True, choices=["cifar", "pretrain", "finetune"]
-    )
-    parser.add_argument(
-        "--batch-size",
-        default=48,
-        type=int,
-    )
-    parser.add_argument(
-        "--num-workers",
-        default=8,
-        type=int,
-    )
-    parser.add_argument(
-        "--num-samples",
-        default=0,
-        type=int,
-    )
-    parser.add_argument("--debug", type=str, default="", nargs="+")
-    parser.add_argument("--test", action="store_true")
-
-    # Model specific args
-    parser = Model.add_model_specific_args(parser)
-
-    # Trainer args
-    parser = Trainer.add_argparse_args(parser)
-
-    return parser
 
 
 if __name__ == "__main__":

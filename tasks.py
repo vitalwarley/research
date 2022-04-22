@@ -1,8 +1,85 @@
+from argparse import ArgumentParser
+
 from torch import utils
 from torchvision import transforms, datasets
+from pytorch_lightning import Trainer
+from pytorch_lightning.strategies.ddp import DDPStrategy
+from pl_bolts.callbacks import ModuleDataMonitor
 
 import transforms as mytransforms
+from callbacks import ModelInspectionCallback, MetricsCallback
 from dataset import FamiliesDataset, FamiliesDataModule, MS1MDataModule
+from model import Model
+
+
+def init_trainer(args):
+
+    # add callbacks
+    # lrm_cb = lr_monitor.LearningRateMonitor(logging_interval="step")
+    mdm_cb = ModuleDataMonitor(submodules=True, log_every_n_steps=1)
+    mi_cb = ModelInspectionCallback()
+    m_cb = MetricsCallback()
+
+    # callbacks = [lrm_cb]
+    # callbacks = [m_cb]
+    callbacks = []
+
+    if "monitoring" in args.debug:
+        callbacks.append(mdm_cb)
+
+    if "weights" in args.debug:
+        callbacks.append(mi_cb)
+
+    # show params
+    print(args)
+
+    # instantiate trainer
+    trainer = Trainer.from_argparse_args(
+        args, callbacks=callbacks, strategy=DDPStrategy(find_unused_parameters=False), accelerator='gpu'
+    )
+
+    return trainer
+
+
+def init_parser():
+    parser = ArgumentParser()
+
+    # Program specific args
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+    )
+    # parser.add_argument("--insightface", action='store_true')
+    parser.add_argument("--ckpt-path", type=str)  # ptl ckpt
+    parser.add_argument("--insightface-weights", type=str)  # insightface
+    parser.add_argument(
+        "--task", type=str, required=True, choices=["cifar", "pretrain", "finetune"]
+    )
+    parser.add_argument(
+        "--batch-size",
+        default=48,
+        type=int,
+    )
+    parser.add_argument(
+        "--num-workers",
+        default=8,
+        type=int,
+    )
+    parser.add_argument(
+        "--num-samples",
+        default=0,
+        type=int,
+    )
+    parser.add_argument("--debug", type=str, default="", nargs="+")
+    parser.add_argument("--test", action="store_true")
+
+    # Model specific args
+    parser = Model.add_model_specific_args(parser)
+
+    # Trainer args
+    parser = Trainer.add_argparse_args(parser)
+
+    return parser
 
 
 def init_cifar(args):

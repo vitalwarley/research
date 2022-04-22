@@ -48,19 +48,20 @@ class Model(pl.LightningModule):
 
         self.model = args.model
         self.loss = args.loss
+        self.insightface = args.insightface_weights
 
         self.save_hyperparameters()
 
 
-    def _init_loss(self, loss):
-        if loss == "arcface":
+    def _init_loss(self):
+        if self.loss == "arcface":
             self.loss = losses.ArcFaceLoss(
                 num_classes=self.num_classes,
                 embedding_size=self.embedding_dim,
                 margin=self.margin,
                 scale=self.scale,
             )
-        elif loss == "ce":
+        elif self.loss == "ce":
             self.loss = nn.CrossEntropyLoss()
         else:
             raise NotImplementedError
@@ -69,31 +70,35 @@ class Model(pl.LightningModule):
         self.train_accuracy = tm.Accuracy()
         self.train_precision = tm.Precision()
         self.train_recall = tm.Recall()
-        self.val_accuracy = tm.Accuracy()
-        self.val_precision = tm.Precision()
-        self.val_recall = tm.Recall()
 
-    def _init_model(self, model, loss):
-        self.backbone = timm.models.create_model(model, num_classes=0, global_pool="")
-        out_features = self.backbone(torch.randn(1, 3, 112, 112))
-        out_features = torch.flatten(out_features, 1).shape[1]
-        self.fc = torch.nn.Linear(out_features, self.embedding_dim)
-        self.bn = torch.nn.BatchNorm1d(
-            self.embedding_dim, eps=1e-5, momentum=0.1, affine=True  # default parmas
-        )
-        torch.nn.init.constant_(self.bn.weight, 1.0)
-        self.bn.weight.requires_grad = False
+    def _init_model(self):
+        if self.insightface:
+            from insightface.recognition.arcface_torch.backbones import get_model
+            self.backbone = get_model(self.model, fp16=False)
+            self.backbone.load_state_dict(torch.load(self.insightface))
+        else:
+            self.backbone = timm.models.create_model(self.model, num_classes=0, global_pool="")
+            out_features = self.backbone(torch.randn(1, 3, 112, 112))
+            out_features = torch.flatten(out_features, 1).shape[1]
+            self.fc = torch.nn.Linear(out_features, self.embedding_dim)
+            self.bn = torch.nn.BatchNorm1d(
+                self.embedding_dim, eps=1e-5, momentum=0.1, affine=True  # default parmas
+            )
+            torch.nn.init.constant_(self.bn.weight, 1.0)
+            self.bn.weight.requires_grad = False
 
         # Will I use another loss?
-        if loss != "arcface":
+        if self.loss != "arcface":
             self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
 
     def setup(self, stage):
+
+        self._init_metrics()
+        self._init_model()
+        self._init_loss()
+
         # TODO: dont need to call super().setup?
         if stage == "fit":
-            self._init_metrics()
-            self._init_model(self.model, self.loss)
-            self._init_loss(self.loss)
             # for cooldown lr
             # src: https://github.com/PyTorchLightning/pytorch-lightning/issues/3115#issuecomment-678824664
             # 1.5.11 will include this in trainer, I think. My version is 1.5.10
@@ -193,6 +198,8 @@ class Model(pl.LightningModule):
         optimizer.step(closure=optimizer_closure)
 
     def _forward_features(self, x):
+        if self.insightface:
+            return self.backbone(x)
         embeddings = self.backbone(x)
         embeddings = torch.flatten(embeddings, 1)
         embeddings = self.fc(embeddings)
@@ -380,14 +387,9 @@ class Model(pl.LightningModule):
 
 
 class PretrainModel(Model):
+
     def __init__(self, args: ArgumentParser = None):
         super().__init__(args)
-
-        if args.insightface_weights:
-            from insightface.recognition.arcface_torch.backbones import get_model
-            self.backbone = get_model(args.model, fp16=False)
-            self.backbone.load_state_dict(torch.load(args.insightface_weights))
-            self.insightface = True
 
     def setup(self, stage: str):
         super().setup(stage)
@@ -395,12 +397,6 @@ class PretrainModel(Model):
             self.val_targets = ["cfp_fp", "agedb_30"]
         else:
             self.val_targets = ["lfw"]
-
-    def _forward_features(self, x):
-        if self.insightface:
-            return self.backbone(x)
-        else:
-            return super()._forward_features(x)
 
     # TODO: use singledispatchmethod to overload validation_step
 

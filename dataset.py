@@ -174,15 +174,17 @@ class EvalPretrainDataset(Dataset):
             # decode _bin as image
             # TODO: is cv2.resize the same mx.image.resize_short?
             first = cv2.imdecode(first, cv2.IMREAD_COLOR)
+            first = cv2.cvtColor(first, cv2.COLOR_BGR2RGB)
             first = cv2.resize(first, self._image_size)
             second = cv2.imdecode(second, cv2.IMREAD_COLOR)
+            second = cv2.cvtColor(second, cv2.COLOR_BGR2RGB)
             second = cv2.resize(second, self._image_size)
             for flip in [0, 1]:
-                if flip == 1:
+                if flip:
                     first = np.flip(first, axis=2)
                     second = np.flip(second, axis=2)
-                self._data[0][flip][idx][:] = first
-                self._data[1][flip][idx][:] = second
+                self._data[0][flip][idx][:] = first / 255.0
+                self._data[1][flip][idx][:] = second / 255.0
 
     def __getitem__(self, idx: int) -> Tuple[t.Img, t.Img]:
         first = (self._data[0][0][idx], self._data[0][1][idx])  # (no flip, flipped)

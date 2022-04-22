@@ -97,6 +97,8 @@ class Model(pl.LightningModule):
         self._init_model()
         self._init_loss()
 
+        print(self)
+
         # TODO: dont need to call super().setup?
         if stage == "fit":
             # for cooldown lr

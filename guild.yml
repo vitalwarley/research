@@ -1,0 +1,43 @@
+pretrain:
+  main: train
+  sourcecode: 
+    - '*.py'
+  flags:
+    data-dir: /home/warley/dev/datasets/MS1M_v3
+    devices: 2
+    max_epochs: 50
+    model: resnet101
+    batch-size: 1024
+    accumulate_grad_batches: 2 
+    task: pretrain 
+    lr: 0.2 
+    momentum: 0.9 
+    weight-decay: 5e-4 
+    warmup: 0 
+    cooldown: 0 
+    arcface-s: 64 
+    arcface-m: 0.5 
+    precision: 16 
+    loss: arcface 
+    scheduler: poly
+
+finetune:
+  main: train
+  flags:
+    data-dir: /home/warley/dev/datasets/MS1M_v3
+    devices: 2
+    max_epochs: 50
+    model: resnet101
+    batch-size: 1024
+    accumulate_grad_batches: 2 
+    task: finetune 
+    lr: 0.2 
+    momentum: 0.9 
+    weight-decay: 5e-4 
+    warmup: 0 
+    cooldown: 0 
+    arcface-s: 64 
+    arcface-m: 0.5 
+    precision: 16 
+    loss: arcface 
+    scheduler: poly

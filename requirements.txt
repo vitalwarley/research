@@ -16,3 +16,4 @@ tqdm
 virtualenv               
 wandb                    
 yolov5
+more_itertools

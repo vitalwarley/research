@@ -8,7 +8,7 @@ from pl_bolts.callbacks import ModuleDataMonitor
 
 import transforms as mytransforms
 from callbacks import ModelInspectionCallback, MetricsCallback
-from dataset import FamiliesDataset, FamiliesDataModule, MS1MDataModule
+from dataset import FamiliesDataset, KinshipDataModule, MS1MDataModule
 from model import Model
 
 
@@ -169,7 +169,7 @@ def init_fiw(args):
     val_transforms = transforms.Compose([transforms.ToTensor()])
 
     # add params from args
-    datamodule = FamiliesDataModule(
+    datamodule = KinshipDataModule(
         args.data_dir,
         transforms=[train_transforms, val_transforms],
         batch_size=args.batch_size,

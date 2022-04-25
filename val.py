@@ -1,7 +1,6 @@
 from argparse import ArgumentParser
 from pathlib import Path
 
-import cv2
 import numpy as np
 from pl_bolts.callbacks import ModuleDataMonitor
 from pytorch_lightning import Trainer, seed_everything
@@ -15,7 +14,6 @@ import mytypes as t
 from callbacks import ModelInspectionCallback, MetricsCallback
 from model import Model, PretrainModel
 from tasks import init_cifar, init_ms1m, init_fiw, init_parser
-
 
 
 if __name__ == "__main__":
@@ -40,9 +38,14 @@ if __name__ == "__main__":
         model.eval()
         print(model)
         datamodule = init_ms1m(args)
-        if not args.test:
-            trainer.validate(model, datamodule, ckpt_path=args.ckpt_path)
-        else:
-            trainer.test(model, datamodule, ckpt_path=args.ckpt_path)
     elif args.task == "finetune":
-        raise NotImplementedError("Finetune validation not implemented yet.")
+        args.model = "resnet101" if not args.model else args.model
+        model = Model(args)
+        model.eval()
+        print(model)
+        datamodule = init_fiw(args)
+
+    if not args.test:
+        trainer.validate(model, datamodule, ckpt_path=args.ckpt_path)
+    else:
+        trainer.test(model, datamodule, ckpt_path=args.ckpt_path)

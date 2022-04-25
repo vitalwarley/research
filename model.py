@@ -14,6 +14,7 @@ from torch.optim.lr_scheduler import StepLR, MultiStepLR
 from sklearn.model_selection import KFold
 
 from lr_scheduler import PolyScheduler
+from utils import plot_roc
 
 
 class Model(pl.LightningModule):
@@ -50,8 +51,15 @@ class Model(pl.LightningModule):
         self.loss = args.loss
         self.insightface = args.insightface_weights
 
+        # We need this here because .load_from_checkpoint
+        self._init_metrics()
+        self._init_model()
+        self._init_loss()
+
         self.save_hyperparameters()
 
+        if args.weights:
+            self.load_state_dict(torch.load(args.weights))
 
     def _init_loss(self):
         if self.loss == "arcface":
@@ -68,21 +76,28 @@ class Model(pl.LightningModule):
 
     def _init_metrics(self):
         self.train_accuracy = tm.Accuracy()
-        self.train_precision = tm.Precision()
-        self.train_recall = tm.Recall()
+        self.val_accuracy = tm.Accuracy()
+        self.val_roc = tm.ROC()
+        self.val_auc = tm.AUROC()
 
     def _init_model(self):
         if self.insightface:
             from insightface.recognition.arcface_torch.backbones import get_model
+
             self.backbone = get_model(self.model, fp16=False)
             self.backbone.load_state_dict(torch.load(self.insightface))
         else:
-            self.backbone = timm.models.create_model(self.model, num_classes=0, global_pool="")
+            self.backbone = timm.models.create_model(
+                self.model, num_classes=0, global_pool=""
+            )
             out_features = self.backbone(torch.randn(1, 3, 112, 112))
             out_features = torch.flatten(out_features, 1).shape[1]
             self.fc = torch.nn.Linear(out_features, self.embedding_dim)
             self.bn = torch.nn.BatchNorm1d(
-                self.embedding_dim, eps=1e-5, momentum=0.1, affine=True  # default parmas
+                self.embedding_dim,
+                eps=1e-5,
+                momentum=0.1,
+                affine=True,  # default parmas
             )
             torch.nn.init.constant_(self.bn.weight, 1.0)
             self.bn.weight.requires_grad = False
@@ -90,15 +105,8 @@ class Model(pl.LightningModule):
         # Will I use another loss?
         if self.loss != "arcface":
             self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
-
+        
     def setup(self, stage):
-
-        self._init_metrics()
-        self._init_model()
-        self._init_loss()
-
-        print(self)
-
         # TODO: dont need to call super().setup?
         if stage == "fit":
             # for cooldown lr
@@ -128,6 +136,10 @@ class Model(pl.LightningModule):
             print(
                 f"train steps = {self.train_steps} in {train_batches} batches per epoch"
             )
+        elif stage == 'validate':
+            pass
+        else:
+            pass
 
     def configure_optimizers(self):
         if self.warmup > 0:
@@ -238,27 +250,9 @@ class Model(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         preds, loss = self.__base_step(batch)
         acc = self.train_accuracy(preds, batch[1])
-        prec = self.train_precision(preds, batch[1])
-        rec = self.train_recall(preds, batch[1])
         self.log(
             "train_acc",
             acc,
-            on_step=True,
-            on_epoch=False,
-            prog_bar=True,
-            logger=True,
-        )
-        self.log(
-            "train_prec",
-            prec,
-            on_step=True,
-            on_epoch=False,
-            prog_bar=True,
-            logger=True,
-        )
-        self.log(
-            "train_rec",
-            rec,
             on_step=True,
             on_epoch=False,
             prog_bar=True,
@@ -272,38 +266,41 @@ class Model(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        preds, loss = self.__base_step(batch)
-        acc = self.val_accuracy(preds, batch[1])
-        prec = self.val_precision(preds, batch[1])
-        rec = self.val_recall(preds, batch[1])
+        img1, img2, label = batch
+        embeddings1, _ = self(img1)
+        embeddings2, _ = self(img2)
+        similarity = F.cosine_similarity(embeddings1, embeddings2, dim=-1)
+        return similarity, label
+
+    def validation_epoch_end(self, outputs):
+        similarities, labels = map(lambda x: torch.cat(x, dim=0), zip(*outputs))
+
+        preds = (
+            similarities > 0.5
+        )  # add as attribute and update at each validation_epoch_end?
+        acc = self.val_accuracy(preds, labels)
+        fpr, tpr, _ = self.val_roc(similarities, labels)
+        fig = plot_roc(tpr.cpu(), fpr.cpu())
+        auc = self.val_auc(similarities, labels)
+
         self.log(
             "val_acc",
             acc,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             prog_bar=True,
             logger=True,
         )
+        self.logger.experiment.add_figure("ROC Curve", fig, self.current_epoch)
         self.log(
-            "val_prec",
-            prec,
-            on_step=True,
-            on_epoch=False,
+            "val_auc",
+            auc,
+            on_step=False,
+            on_epoch=True,
             prog_bar=True,
             logger=True,
         )
-        self.log(
-            "val_rec",
-            rec,
-            on_step=True,
-            on_epoch=False,
-            prog_bar=True,
-            logger=True,
-        )
-        self.log(
-            "val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True
-        )
-        return {"preds": preds}
+
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -368,7 +365,9 @@ class Model(pl.LightningModule):
             default=0.5,
             type=float,
         )
-        parser.add_argument("--model", default="vit_small_patch16_224", type=str)
+        parser.add_argument("--model", default="", type=str)
+        # TODO: use this flag for insightface?
+        parser.add_argument("--weights", help="Pretrained weights.", default="", type=str)
         parser.add_argument(
             "--normalize",
             action="store_true",
@@ -389,7 +388,6 @@ class Model(pl.LightningModule):
 
 
 class PretrainModel(Model):
-
     def __init__(self, args: ArgumentParser = None):
         super().__init__(args)
 

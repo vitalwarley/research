@@ -98,7 +98,7 @@ class FamiliesDataset(Dataset):
         img_path, family_idx, person_idx = self.seq[idx]
         img = cv2.imread(str(img_path))
         # TODO: timm needs it. how to improve?
-        img = cv2.resize(img, (224, 224))
+        # img = cv2.resize(img, (224, 224))
         if self._transform is not None:
             img = self._transform(img)
         return img, family_idx, person_idx
@@ -290,6 +290,9 @@ class PairDataset(Dataset):
         if not isinstance(img1, np.ndarray):
             img1 = cv2.imread(str(img1)).astype(np.float32)
             img2 = cv2.imread(str(img2)).astype(np.float32)
+        if self.families._transform is not None:
+            img1 = self.families._transform(img1)
+            img2 = self.families._transform(img2)
         return img1, img2, label
 
     def __len__(self) -> int:
@@ -307,19 +310,21 @@ class ImgDataset(Dataset):
         return cv2.imread(str(self.paths[idx])).transpose((2, 0, 1)).astype(np.float32)
 
 
-class FamiliesDataModule(LightningDataModule):
+class KinshipDataModule(LightningDataModule):
     def __init__(
         self,
         data_dir: str,
         transforms: List[torch.nn.Module],
         batch_size=32,
         num_workers=8,
+        num_pairs=10**4
     ):
         super().__init__()
-        self.data_dir = data_dir
+        self.data_dir = Path(data_dir)
         self.batch_size = batch_size
         self.train_transform, self.val_transform = transforms
         self.num_workers = num_workers
+        self.num_pairs = num_pairs
 
         # self.dims
 
@@ -328,17 +333,18 @@ class FamiliesDataModule(LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
 
-        # add pretrain on MS-Celeb-1M
-        if stage == "fit" or stage is None:
-            # self.data_dir should be 'fitw2020'
+        if stage == "fit":
             self.train_ds = FamiliesDataset(
                 self.data_dir / "train-faces-det", transform=self.train_transform
             )
-            self.val_ds = FamiliesDataset(
+        elif stage == "validate":
+            families_dataset = FamiliesDataset(
                 self.data_dir / "val-faces-det", transform=self.val_transform
             )
-
-        if stage == "test" or stage is None:
+            self.val_ds = PairDataset(
+                families_dataset, mining_strategy="balanced_random", num_pairs=self.num_pairs
+            )
+        else:
             raise NotImplementedError
 
     def train_dataloader(self):
@@ -422,8 +428,8 @@ class MS1MDataModule(LightningDataModule):
             self.lfw = EvalPretrainDataset(
                 self.data_dir, target="lfw", transform=self.val_transform
             )
-        
-        if stage == 'test':
+
+        if stage == "test":
             self.cfp_fp = EvalPretrainDataset(
                 self.data_dir, target="cfp_fp", transform=self.val_transform
             )
@@ -449,7 +455,7 @@ class MS1MDataModule(LightningDataModule):
             pin_memory=True,
         )
         return lfw_loader
-    
+
     def test_dataloader(self):
         cfp_fp_loader = DataLoader(
             self.cfp_fp,

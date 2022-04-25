@@ -1,14 +1,11 @@
 from types import SimpleNamespace
 
 DEFAULT_PARAMS_PRETRAIN = SimpleNamespace(
-    num_workers=512,
-    logger=True,
-    default_root_dir=None,
-    num_nodes=1,
-    devices=None,
+    num_workers=8,
+    devices=1,
     data_dir="../datasets/MS1M_v3/",
     gpus=1,
-    max_epochs=25,
+    max_epochs=40,
     task="pretrain",
     model="resnet101",
     num_classes=93430,
@@ -18,14 +15,15 @@ DEFAULT_PARAMS_PRETRAIN = SimpleNamespace(
     end_lr=1e-10,
     lr_factor=0,
     momentum=0.9,
-    scheduler='poly',
+    scheduler="poly",
     weight_decay=0.0005,
     clip_gradient=1.4,
     warmup=0,
     cooldown=0,
-    loss='arcface',
+    loss="arcface",
     arcface_s=64,
     arcface_m=0.5,
     precision=16,
+    normalize=False,
+    insightface_weights="",
 )
-

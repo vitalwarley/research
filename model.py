@@ -51,7 +51,8 @@ class Model(pl.LightningModule):
         self.loss = args.loss
         self.insightface = args.insightface_weights
 
-        # We need this here because .load_from_checkpoint
+        # We need this here because of .load_from_checkpoint,
+        # which needs to know the model architecture after __init__, I suppose.
         self._init_metrics()
         self._init_model()
         self._init_loss()
@@ -59,7 +60,10 @@ class Model(pl.LightningModule):
         self.save_hyperparameters()
 
         if args.weights:
-            self.load_state_dict(torch.load(args.weights))
+            state_dict = torch.load(args.weights)
+            if args.weights.endswith(".ckpt"):
+                state_dict = state_dict['state_dict']
+            self.load_state_dict(state_dict)
 
     def _init_loss(self):
         if self.loss == "arcface":

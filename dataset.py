@@ -216,7 +216,22 @@ class PairDataset(Dataset):
     ):
         super(PairDataset, self).__init__()
         self.families = families_dataset
-        if mining_strategy == "random":
+        if mining_strategy == "baseline":
+            self.seq = []
+            with open(self.families.families_root.parent / "val_pairs.csv", "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if len(line) < 1:
+                        continue
+                    img1, img2, label = line.split(",")
+                    self.seq.append(
+                        (
+                            self.families.families_root / img1,
+                            self.families.families_root / img2,
+                            int(label),
+                        )
+                    )
+        elif mining_strategy == "random":
             if num_pairs > len(self.families) ** 2:
                 logging.info(
                     f"number of mined pairs is greater than number of all pairs"
@@ -317,7 +332,8 @@ class KinshipDataModule(LightningDataModule):
         transforms: List[torch.nn.Module],
         batch_size=32,
         num_workers=8,
-        num_pairs=10**4
+        num_pairs=10**4,
+        mining_strategy="balanced_random",   
     ):
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -325,6 +341,7 @@ class KinshipDataModule(LightningDataModule):
         self.train_transform, self.val_transform = transforms
         self.num_workers = num_workers
         self.num_pairs = num_pairs
+        self.mining_strategy = mining_strategy  
 
         # self.dims
 
@@ -342,7 +359,9 @@ class KinshipDataModule(LightningDataModule):
                 self.data_dir / "val-faces-det", transform=self.val_transform
             )
             self.val_ds = PairDataset(
-                families_dataset, mining_strategy="balanced_random", num_pairs=self.num_pairs
+                families_dataset,
+                mining_strategy=self.mining_strategy,
+                num_pairs=self.num_pairs,
             )
         else:
             raise NotImplementedError

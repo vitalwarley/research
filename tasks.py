@@ -56,6 +56,9 @@ def init_parser():
         "--task", type=str, required=True, choices=["cifar", "pretrain", "finetune"]
     )
     parser.add_argument(
+        "--mining-strategy", type=str, choices=["baseline", "balanced_random", "random", "all"]
+    )
+    parser.add_argument(
         "--batch-size",
         default=48,
         type=int,
@@ -174,5 +177,6 @@ def init_fiw(args):
         transforms=[train_transforms, val_transforms],
         batch_size=args.batch_size,
         num_workers=args.num_workers,
+        mining_strategy=args.mining_strategy,
     )
     return datamodule

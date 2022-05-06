@@ -63,7 +63,7 @@ class Model(pl.LightningModule):
         if args.weights and not self.insightface:
             state_dict = torch.load(args.weights)
             if args.weights.endswith(".ckpt"):
-                state_dict = state_dict['state_dict']
+                state_dict = state_dict["state_dict"]
             self.load_state_dict(state_dict)
 
     def _init_loss(self):
@@ -109,7 +109,7 @@ class Model(pl.LightningModule):
         # Will I use another loss?
         if self.loss != "arcface":
             self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
-        
+
     def setup(self, stage):
         # TODO: dont need to call super().setup?
         if stage == "fit":
@@ -140,7 +140,7 @@ class Model(pl.LightningModule):
             print(
                 f"train steps = {self.train_steps} in {train_batches} batches per epoch"
             )
-        elif stage == 'validate':
+        elif stage == "validate":
             pass
         else:
             pass
@@ -305,18 +305,19 @@ class Model(pl.LightningModule):
             logger=True,
         )
 
-
     @staticmethod
     def add_model_specific_args(parent_parser):
+        # These default values are specific for pretraining.
+        # I think I should put them in PretrainModel.
         parser = parent_parser.add_argument_group("SiameseNet")
         parser.add_argument(
             "--num-classes",
-            default=93430,
+            default=85742,
             type=int,
         )
         parser.add_argument(
             "--lr",
-            default=1e-4,
+            default=0.1,
             type=float,
         )
         parser.add_argument(
@@ -336,12 +337,12 @@ class Model(pl.LightningModule):
         )
         parser.add_argument(
             "--weight-decay",
-            default=1e-4,
+            default=5e-4,
             type=float,
         )
         parser.add_argument(
             "--clip-gradient",
-            default=1.4,
+            default=1.5,
             type=float,
         )
         parser.add_argument(
@@ -369,9 +370,11 @@ class Model(pl.LightningModule):
             default=0.5,
             type=float,
         )
-        parser.add_argument("--model", default="", type=str)
+        parser.add_argument("--model", default="resnet101", type=str)
         # TODO: use this flag for insightface?
-        parser.add_argument("--weights", help="Pretrained weights.", default="", type=str)
+        parser.add_argument(
+            "--weights", help="Pretrained weights.", default="", type=str
+        )
         parser.add_argument(
             "--normalize",
             action="store_true",
@@ -386,7 +389,7 @@ class Model(pl.LightningModule):
             default=0.15,
             type=float,
         )
-        parser.add_argument("--scheduler", type=str)
+        parser.add_argument("--scheduler", type=str, default="poly")
         parser.add_argument("--loss", type=str, default="arcface")
         return parent_parser
 

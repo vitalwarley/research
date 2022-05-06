@@ -3,14 +3,14 @@ pretrain:
   sourcecode: 
     - '*.py'
   flags:
-    data-dir: /home/warley/dev/datasets/MS1M_v3
+    data-dir: /home/warley/dev/datasets/MS1M_v2
     devices: 2
     max_epochs: 50
     model: resnet101
     batch-size: 1024
     accumulate_grad_batches: 2 
     task: pretrain 
-    lr: 0.2 
+    lr: 0.1 
     momentum: 0.9 
     weight-decay: 5e-4 
     warmup: 0 

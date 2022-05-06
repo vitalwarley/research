@@ -35,7 +35,10 @@ def init_trainer(args):
 
     # instantiate trainer
     trainer = Trainer.from_argparse_args(
-        args, callbacks=callbacks, strategy=DDPStrategy(find_unused_parameters=False), accelerator='gpu'
+        args,
+        callbacks=callbacks,
+        strategy=DDPStrategy(find_unused_parameters=False),
+        accelerator="gpu",
     )
 
     return trainer
@@ -56,7 +59,9 @@ def init_parser():
         "--task", type=str, required=True, choices=["cifar", "pretrain", "finetune"]
     )
     parser.add_argument(
-        "--mining-strategy", type=str, choices=["baseline", "balanced_random", "random", "all"]
+        "--mining-strategy",
+        type=str,
+        choices=["baseline", "balanced_random", "random", "all"],
     )
     parser.add_argument(
         "--batch-size",
@@ -169,7 +174,12 @@ def init_fiw(args):
         ]
     )
 
-    val_transforms = transforms.Compose([transforms.ToTensor()])
+    val_transforms = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+        ]
+    )
 
     # add params from args
     datamodule = KinshipDataModule(

@@ -27,3 +27,33 @@ DEFAULT_PARAMS_PRETRAIN = SimpleNamespace(
     normalize=False,
     insightface_weights="",
 )
+
+FINETUNE_PARAMS_BASELINE = SimpleNamespace(
+    num_workers=8,
+    devices=1,
+    data_dir="../datasets/fiw/",
+    gpus=1,
+    max_epochs=1,
+    task="finetune",
+    model="resnet101",
+    num_classes=93430,
+    embedding_dim=512,
+    batch_size=256,
+    lr=0.2,
+    end_lr=1e-10,
+    lr_factor=0,
+    momentum=0.9,
+    scheduler="poly",
+    weight_decay=0.0005,
+    clip_gradient=1.4,
+    warmup=0,
+    cooldown=0,
+    loss="arcface",
+    arcface_s=64,
+    arcface_m=0.5,
+    precision=16,
+    normalize=False,
+    insightface_weights="",
+    weights="../training/research/lightning_logs/version_21/checkpoints/epoch=49-step=63250.ckpt",
+    mining_strategy="baseline"
+)

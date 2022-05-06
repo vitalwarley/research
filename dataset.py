@@ -168,6 +168,7 @@ class EvalPretrainDataset(Dataset):
             )
             self._data.append((_first, _second))
         # populate data array
+        # TODO: pass it to __getitem__
         for idx, (first, second) in enumerate(grouper(bins, 2)):
             if first is None or second is None:
                 continue

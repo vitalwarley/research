@@ -18,6 +18,7 @@ from utils import plot_roc
 
 
 class Model(pl.LightningModule):
+    # TODO: remove args and explicitly pass them in
     def __init__(self, args: ArgumentParser = None):
         """
 
@@ -59,7 +60,7 @@ class Model(pl.LightningModule):
 
         self.save_hyperparameters()
 
-        if args.weights:
+        if args.weights and not self.insightface:
             state_dict = torch.load(args.weights)
             if args.weights.endswith(".ckpt"):
                 state_dict = state_dict['state_dict']
@@ -81,12 +82,11 @@ class Model(pl.LightningModule):
     def _init_metrics(self):
         self.train_accuracy = tm.Accuracy()
         self.val_accuracy = tm.Accuracy()
-        self.val_roc = tm.ROC()
         self.val_auc = tm.AUROC()
 
     def _init_model(self):
         if self.insightface:
-            from insightface.recognition.arcface_torch.backbones import get_model
+            from insight_face.recognition.arcface_torch.backbones import get_model
 
             self.backbone = get_model(self.model, fp16=False)
             self.backbone.load_state_dict(torch.load(self.insightface))
@@ -283,8 +283,8 @@ class Model(pl.LightningModule):
             similarities > 0.5
         )  # add as attribute and update at each validation_epoch_end?
         acc = self.val_accuracy(preds, labels)
-        fpr, tpr, _ = self.val_roc(similarities, labels)
-        fig = plot_roc(tpr.cpu(), fpr.cpu())
+        fpr, tpr, _ = tm.functional.roc(similarities, labels)
+        fig = plot_roc(tpr.cpu(), fpr.cpu(), savedir=self.logger.log_dir)
         auc = self.val_auc(similarities, labels)
 
         self.log(

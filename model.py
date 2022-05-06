@@ -83,6 +83,7 @@ class Model(pl.LightningModule):
         self.train_accuracy = tm.Accuracy()
         self.val_accuracy = tm.Accuracy()
         self.val_auc = tm.AUROC()
+        self.val_roc = tm.ROC()
 
     def _init_model(self):
         if self.insightface:
@@ -283,7 +284,7 @@ class Model(pl.LightningModule):
             similarities > 0.5
         )  # add as attribute and update at each validation_epoch_end?
         acc = self.val_accuracy(preds, labels)
-        fpr, tpr, _ = tm.functional.roc(similarities, labels)
+        fpr, tpr, _ = self.val_roc(similarities, labels)
         fig = plot_roc(tpr.cpu(), fpr.cpu(), savedir=self.logger.log_dir)
         auc = self.val_auc(similarities, labels)
 

@@ -9,6 +9,7 @@ pretrain:
     model: resnet101
     batch-size: 1024
     accumulate_grad_batches: 2 
+    gradient_clip_val: 5
     task: pretrain 
     lr: 0.1 
     momentum: 0.9 

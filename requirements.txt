@@ -7,13 +7,11 @@ matplotlib
 numpy
 opencv-python            
 pandas                   
-pytest
 python-dotenv            
 pytorch-lightning==1.6.0
 pytorch-metric-learning
 timm
 tqdm                     
 virtualenv               
-wandb                    
 yolov5
 more_itertools

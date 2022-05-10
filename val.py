@@ -11,7 +11,7 @@ from torchvision import transforms, datasets
 from tqdm import tqdm
 
 import mytypes as t
-from callbacks import ModelInspectionCallback, MetricsCallback
+from callbacks import ModelInspectionCallback, MetricsCallback, EmbeddingsCallback
 from model import Model, PretrainModel
 from tasks import init_cifar, init_ms1m, init_fiw, init_parser
 
@@ -26,6 +26,7 @@ if __name__ == "__main__":
 
     trainer = Trainer.from_argparse_args(
         args,
+        callbacks=[EmbeddingsCallback()],
         devices=1,
         accelerator="gpu",
     )

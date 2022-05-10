@@ -11,7 +11,6 @@ import torch
 from torch import nn
 from pytorch_lightning import LightningDataModule
 from sklearn.model_selection import train_test_split
-from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 from more_itertools import grouper
 
@@ -152,6 +151,7 @@ class EvalPretrainDataset(Dataset):
 
         print(f"{target} dataset loaded.")
 
+    # TODO: refactor to make less expensive
     def _load_dataset(self, target):
         # read bin
         with open((self.root / target).with_suffix(".bin"), "rb") as f:
@@ -235,7 +235,7 @@ class PairDataset(Dataset):
         elif mining_strategy == "random":
             if num_pairs > len(self.families) ** 2:
                 logging.info(
-                    f"number of mined pairs is greater than number of all pairs"
+                    "number of mined pairs is greater than number of all pairs"
                 )
             first_elems = random.choices(self.families.seq, k=num_pairs)
             second_elems = random.choices(self.families.seq, k=num_pairs)
@@ -334,7 +334,7 @@ class KinshipDataModule(LightningDataModule):
         batch_size=32,
         num_workers=8,
         num_pairs=10**4,
-        mining_strategy="balanced_random",   
+        mining_strategy="balanced_random",
     ):
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -342,7 +342,7 @@ class KinshipDataModule(LightningDataModule):
         self.train_transform, self.val_transform = transforms
         self.num_workers = num_workers
         self.num_pairs = num_pairs
-        self.mining_strategy = mining_strategy  
+        self.mining_strategy = mining_strategy
 
         # self.dims
 
@@ -425,12 +425,13 @@ class MS1MDataModule(LightningDataModule):
         df = df.sample(frac=1.0)
         classes = df.target.unique()
 
-        if self.num_classes < len(classes):
+        if self.num_classes and self.num_classes < len(classes):
             classes = np.random.choice(classes, size=self.num_classes, replace=False)
             df = df[df.target.isin(classes)]
             df["target"] = df.target.astype("category").cat.codes
             classes = df.target.unique()
             assert max(df.target) == max(classes), "Mismatch between classes in data"
+            self.num_classes = len(classes)
 
         np.save(self.train_save_path, df.values)
 

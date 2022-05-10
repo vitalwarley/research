@@ -7,25 +7,16 @@ from typing import List, Tuple, Callable
 import cv2
 import numpy as np
 import mxnet as mx
+import onnxruntime as ort
 from tqdm import tqdm
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import roc_curve, auc, accuracy_score
 from matplotlib import pyplot as plt
 from more_itertools import grouper
 
 import mytypes as t
 from dataset import FamiliesDataset, PairDataset, ImgDataset
-
-
-def norm(emb):
-    return np.sqrt(np.sum(emb**2))
-
-
-def cosine(emb1, emb2):
-    return np.dot(emb1, emb2) / (norm(emb1) * norm(emb2))
-
-
-def euclidean(emb1, emb2):
-    return -norm(emb1 - emb2)
+from model import PretrainModel
+from tasks import init_ms1m
 
 
 def load_lfw(root: str, target: str, _image_size):
@@ -43,6 +34,18 @@ def load_lfw(root: str, target: str, _image_size):
         second = cv2.resize(second, _image_size)
         second = cv2.cvtColor(second, cv2.COLOR_BGR2RGB)
         yield (first, second), labels[idx]
+
+
+def predict_on_lfw_datamodule(model, datamodule):
+    similarities = []
+    labels = []
+    for first, second, label in tqdm(datamodule.val_dataloader()):
+        first = first[0]
+        second = second[0]
+        similarity = model(first, second)
+        similarities.append(similarity)
+        labels.append(label.numpy())
+    return np.concatenate(similarities), np.concatenate(labels)
 
 
 def predict_on_lfw(model):
@@ -67,15 +70,36 @@ def predict(
     return np.stack(predictions, axis=0)
 
 
-class CompareModelONNX(object):
-    def __init__(self, model_name: str = "model.onnx"):
-        model_name = str(model_name)
-        import onnxruntime as ort
+class CompareModel(object):
+    def __init__(self, model_name: str, transform: bool = True):
+        self.model_name = model_name
+        self.transform = transform
 
-        EP_list = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        self.session = ort.InferenceSession(model_name, providers=EP_list)
-        self.embeddings = dict()
-        self.metric = cosine
+    def _load_model(self):
+        raise NotImplementedError
+
+    def get_embedding(self, path: Path) -> np.ndarray:
+        raise NotImplementedError
+
+    def metric(self, emb1, emb2):
+        _sum = np.sum(emb1 * emb2, axis=-1)
+        _norms = np.linalg.norm(emb1, axis=-1) * np.linalg.norm(emb2, axis=-1)
+        return _sum / _norms
+
+    def __call__(self, path1: Path, path2: Path) -> float:
+        emb1 = self.get_embedding(path1)
+        emb2 = self.get_embedding(path2)
+        return self.metric(emb1, emb2)
+
+
+class CompareModelONNX(CompareModel):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        self._load_model()
+
+    def _load_model(self):
+        self.session = ort.InferenceSession(self.model_name, providers=self.providers)
         self.input_name = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
 
@@ -84,25 +108,28 @@ class CompareModelONNX(object):
             img = cv2.imread(str(im_path))
         else:
             img = im_path
-        img = img.transpose(2, 1, 0).reshape(1, 3, 112, 112).astype(np.float32)
-        # img = ((img / 255.0) - 0.5) / 0.5
-        return self.session.run([self.output_name], {self.input_name: img})[0].reshape(
-            -1,
-        )
-
-    def __call__(self, path1: Path, path2: Path) -> t.Labels:
-        emb1 = self.get_embedding(path1)
-        emb2 = self.get_embedding(path2)
-        return self.metric(emb1, emb2)
+        if self.transform:
+            # raw data
+            img = img.transpose(2, 1, 0).reshape(1, 3, 112, 112).astype(np.float32)
+            img = ((img / 255.0) - 0.5) / 0.5
+        else:
+            # datamodule
+            img = img.cpu().numpy()
+        return self.session.run([self.output_name], {self.input_name: img})[0]
 
 
-class CompareModel(object):
-    def __init__(self, model_name: str = "arcface_r100_v1", ctx: mx.Context = mx.cpu()):
+class CompareModelMXNet(CompareModel):
+    def __init__(self, ctx: mx.Context = mx.cpu(), **kwargs):
+        super().__init__(**kwargs)
         root = Path("fitw2020") / "models"
-        model_name = str(root / model_name)
-        sym, arg_params, aux_params = mx.model.load_checkpoint(model_name, 0)
+        self.model_name = str(root / self.model_name)
+        self.ctx = ctx
+        self._load_model()
+
+    def _load_model(self):
+        sym, arg_params, aux_params = mx.model.load_checkpoint(self.model_name, 0)
         sym = sym.get_internals()["fc1_output"]
-        model = mx.mod.Module(symbol=sym, context=ctx, label_names=None)
+        model = mx.mod.Module(symbol=sym, context=self.ctx, label_names=None)
         data_shape = (1, 3, 112, 112)
         model.bind(data_shapes=[("data", data_shape)], for_training=False)
         model.set_params(arg_params, aux_params)
@@ -112,8 +139,6 @@ class CompareModel(object):
         model.forward(db, is_train=False)
         _ = model.get_outputs()[0].asnumpy()
         self.model = model
-        self.embeddings = dict()
-        self.metric = cosine
 
     def get_embedding(self, im_path: Path) -> t.Embedding:
         if isinstance(im_path, Path):
@@ -124,20 +149,21 @@ class CompareModel(object):
                 .astype(np.float32)
             )
         else:
-            img = (
-                mx.nd.array(im_path)
-                .transpose((2, 0, 1))
-                .expand_dims(0)
-                .astype(np.float32)
-            )
+            if self.transform:
+                img = (
+                    mx.nd.array(im_path)
+                    .transpose((2, 0, 1))
+                    .expand_dims(0)
+                    .astype(np.float32)
+                )
+            else:
+                img = im_path
+                img = img.cpu().numpy()
+                img = mx.nd.array(img)
         batch = mx.io.DataBatch([img])
         self.model.forward(batch, is_train=False)
-        return self.model.get_outputs()[0][0].asnumpy()
-
-    def __call__(self, path1: Path, path2: Path) -> t.Labels:
-        emb1 = self.get_embedding(path1)
-        emb2 = self.get_embedding(path2)
-        return self.metric(emb1, emb2)
+        out = self.model.get_outputs()[0].asnumpy()
+        return out
 
 
 def load_pairs():
@@ -156,33 +182,48 @@ def load_pairs():
 
 
 if __name__ == "__main__":
-    print(mx.__version__)
     pair_list, y_true = load_pairs()
+    datamodule = init_ms1m(data_dir="/home/warley/dev/datasets/MS1M_v3")
+    datamodule.setup("validate")
 
-    model = CompareModelONNX(model_name="arcface_r100_v1.onnx")
-    model.metric = cosine
-    predictions, y_true = predict_on_lfw(model)
-    fpr, tpr, _ = roc_curve(y_true, predictions)
-    plt.plot(
-        fpr,
-        tpr,
-        color="b",
-        lw=1,
-        label=f"lfw AUC (insightface mxnet):{auc(fpr, tpr):.4f}",
-    )
-
+    model = CompareModelONNX(model_name="insightface_r100_from_torch.onnx")
     model = CompareModelONNX(model_name="my_pretrained_model.onnx")
-    model.metric = cosine
     predictions, y_true = predict_on_lfw(model)
-    fpr, tpr, _ = roc_curve(y_true, predictions)
-    plt.plot(
-        fpr, tpr, color="g", lw=1, label=f"lfw AUC (my torch model):{auc(fpr, tpr):.4f}"
-    )
+    y_pred = predictions > 0.5
+    print(f"Accuracy (torch as onnx) on raw images: {accuracy_score(y_true, y_pred)}")
+    model = CompareModelONNX(model_name="my_pretrained_model.onnx", transform=False)
+    predictions, y_true = predict_on_lfw_datamodule(model, datamodule)
+    y_pred = predictions > 0.5
+    print(f"Accuracy (torch as onxx) on datamodule: {accuracy_score(y_true, y_pred)}")
+    # fpr, tpr, _ = roc_curve(y_true, predictions)
+    # plt.plot(
+    #     fpr, tpr, color="g", lw=1, label=f"lfw AUC (my torch model):{auc(fpr, tpr):.4f}"
+    # )
+    # del model
 
-    plt.xlabel("Flase Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.title("ROC Curve (using ONNX models)")
-    plt.legend(loc="lower right")
-    plt.grid()
-    plt.savefig("roc.pdf", transparent=True, pad_inches=0, bbox_inches="tight")
-    plt.show()
+    model = CompareModelMXNet(model_name="arcface_r100_v1", ctx=mx.gpu())
+    predictions, y_true = predict_on_lfw(model)
+    y_pred = predictions > 0.5
+    print(f"Accuracy (mxnet) on raw data: {accuracy_score(y_true, y_pred)}")
+    model = CompareModelMXNet(
+        model_name="arcface_r100_v1", ctx=mx.gpu(), transform=False
+    )
+    predictions, y_true = predict_on_lfw_datamodule(model, datamodule)
+    y_pred = predictions > 0.5
+    print(f"Accuracy (mxnet) on datamodule: {accuracy_score(y_true, y_pred)}")
+    # fpr, tpr, _ = roc_curve(y_true, predictions)
+    # plt.plot(
+    #     fpr,
+    #     tpr,
+    #     color="b",
+    #     lw=1,
+    #     label=f"lfw AUC (insightface mxnet):{auc(fpr, tpr):.4f}",
+    # )
+
+    # plt.xlabel("Flase Positive Rate")
+    # plt.ylabel("True Positive Rate")
+    # plt.title("ROC Curve (using ONNX models)")
+    # plt.legend(loc="lower right")
+    # plt.grid()
+    # plt.savefig("roc.pdf", transparent=True, pad_inches=0, bbox_inches="tight")
+    # plt.show()

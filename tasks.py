@@ -18,7 +18,7 @@ def init_trainer(args):
     # lrm_cb = lr_monitor.LearningRateMonitor(logging_interval="step")
     mdm_cb = ModuleDataMonitor(submodules=True, log_every_n_steps=1)
     mi_cb = ModelInspectionCallback()
-    m_cb = MetricsCallback()
+    # m_cb = MetricsCallback()
 
     # callbacks = [lrm_cb]
     # callbacks = [m_cb]
@@ -112,23 +112,16 @@ def init_cifar(args):
         valset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers
     )
 
-    classes = (
-        "plane",
-        "car",
-        "bird",
-        "cat",
-        "deer",
-        "dog",
-        "frog",
-        "horse",
-        "ship",
-        "truck",
-    )
-
     return trainloader, valloader
 
 
-def init_ms1m(args):
+def init_ms1m(
+    num_samples: int = 0,
+    num_classes: int = 0,
+    data_dir: str = "../datasets/MS1M_v2",
+    batch_size: int = 256,
+    num_workers: int = 8,
+):
     train_transforms = transforms.Compose(
         [
             transforms.ToPILImage(),
@@ -145,12 +138,12 @@ def init_ms1m(args):
     )
 
     datamodule = MS1MDataModule(
-        num_samples=args.num_samples,
-        num_classes=args.num_classes,
-        data_dir=args.data_dir,
+        num_samples=num_samples,
+        num_classes=num_classes,
+        data_dir=data_dir,
         transforms=[train_transforms, val_transforms],
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
+        batch_size=batch_size,
+        num_workers=num_workers,
     )
     return datamodule
 

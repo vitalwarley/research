@@ -18,8 +18,30 @@ from utils import plot_roc
 
 
 class Model(pl.LightningModule):
-    # TODO: remove args and explicitly pass them in
-    def __init__(self, args: ArgumentParser = None):
+    # TODO: review params default for this Model
+    def __init__(
+        self,
+        num_classes: int = 85742,
+        embedding_dim: int = 512,
+        normalize: bool = False,
+        clip_gradient: float = 5.0,
+        lr: float = 0.01,
+        end_lr: float = 0.0001,
+        momentum: float = 0.9,
+        weight_decay: float = 0.0005,
+        scheduler: str = "multistep",
+        lr_steps: tuple = (8, 14, 25, 35, 40, 50, 60),
+        lr_factor: float = 0,
+        warmup: int = 0,
+        cooldown: int = 0,
+        loss: str = "arcface",
+        model: str = "resnet101",
+        arcface_m: float = 0.5,
+        arcface_s: float = 64,
+        weights: str = "",
+        insightface_weights: str = "",
+        **kwargs,
+    ):
         """
 
         Parameters
@@ -29,28 +51,28 @@ class Model(pl.LightningModule):
 
         """
         super().__init__()
-        self.num_classes = args.num_classes
+        self.num_classes = num_classes
 
-        self.normalize = args.normalize
-        self.embedding_dim = args.embedding_dim
-        self.clip_gradient = args.clip_gradient
+        self.normalize = normalize
+        self.embedding_dim = embedding_dim
+        self.clip_gradient = clip_gradient
 
-        self.lr = args.lr
-        self.end_lr = args.end_lr
-        self.lr_factor = args.lr_factor
-        self.momentum = args.momentum
-        self.weight_decay = args.weight_decay
-        self.warmup = args.warmup
-        self.cooldown = args.cooldown
-        self.lr_steps = [8, 14, 25, 35, 40, 50, 60]
-        self.scheduler = args.scheduler
+        self.lr = lr
+        self.end_lr = end_lr
+        self.lr_factor = lr_factor
+        self.momentum = momentum
+        self.weight_decay = weight_decay
+        self.warmup = warmup
+        self.cooldown = cooldown
+        self.lr_steps = lr_steps
+        self.scheduler = scheduler
 
-        self.margin = np.rad2deg(args.arcface_m)
-        self.scale = args.arcface_s
+        self.margin = np.rad2deg(arcface_m)
+        self.scale = arcface_s
 
-        self.model = args.model
-        self.loss = args.loss
-        self.insightface = args.insightface_weights
+        self.model = model
+        self.loss = loss
+        self.insightface = insightface_weights
 
         # We need this here because of .load_from_checkpoint,
         # which needs to know the model architecture after __init__, I suppose.
@@ -60,9 +82,9 @@ class Model(pl.LightningModule):
 
         self.save_hyperparameters()
 
-        if args.weights and not self.insightface:
-            state_dict = torch.load(args.weights)
-            if args.weights.endswith(".ckpt"):
+        if weights and not self.insightface:
+            state_dict = torch.load(weights)
+            if weights.endswith(".ckpt"):
                 state_dict = state_dict["state_dict"]
             self.load_state_dict(state_dict)
 
@@ -91,6 +113,7 @@ class Model(pl.LightningModule):
 
             self.backbone = get_model(self.model, fp16=False)
             self.backbone.load_state_dict(torch.load(self.insightface))
+            print("Loaded insightface model.")
         else:
             self.backbone = timm.models.create_model(
                 self.model, num_classes=0, global_pool=""
@@ -396,8 +419,8 @@ class Model(pl.LightningModule):
 
 
 class PretrainModel(Model):
-    def __init__(self, args: ArgumentParser = None):
-        super().__init__(args)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     def setup(self, stage: str):
         super().setup(stage)
@@ -442,7 +465,13 @@ class PretrainModel(Model):
         )
         norm = torch.linalg.norm(embeddings, dim=-1).mean()
 
-        return norm, dist, label
+        return {
+            "embs1": first_emb,
+            "embs2": second_emb,
+            "dist": dist,
+            "norm": norm,
+            "label": label,
+        }
 
     def _epoch_end(self, outputs, target):
 
@@ -450,7 +479,7 @@ class PretrainModel(Model):
         kfold = KFold(n_splits=n_folds, shuffle=False)
 
         # unpack output in norms, dists, labels from output list
-        norms, dists, labels = zip(*outputs)
+        _, _, norms, dists, labels = zip(*outputs.values())
 
         if torch.inf in norms:
             acc = 0.0

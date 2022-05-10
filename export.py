@@ -87,10 +87,10 @@ def convert_pytorch():
     )
 
     args.model = "resnet101" if not args.model else args.model
-    model = PretrainModel(args)
+    model = PretrainModel(**vars(args))
     model.eval()
 
-    x = torch.randn(1, 3, 112, 112, requires_grad=True)
+    x = torch.randn(args.batch_size, 3, 112, 112, requires_grad=True)
 
     # Export the model
     torch.onnx.export(
@@ -103,6 +103,9 @@ def convert_pytorch():
         input_names=["input"],  # the model's input names
         output_names=["embeddings", "logits"],  # the model's output names
         verbose=True,
+        dynamic_axes={
+            "input": [0],
+        },
     )
 
     # my_model_proto = onnx.load_model('my_pretrained_model.onnx')

@@ -111,6 +111,7 @@ class CompareModelONNX(CompareModel):
         if self.transform:
             # raw data
             img = img.transpose(2, 1, 0).reshape(1, 3, 112, 112).astype(np.float32)
+            # acc = 0.6 with it, but 0.5 without it
             img = ((img / 255.0) - 0.5) / 0.5
         else:
             # datamodule
@@ -159,6 +160,10 @@ class CompareModelMXNet(CompareModel):
             else:
                 img = im_path
                 img = img.cpu().numpy()
+                # acc = 0.88 with it, but 0.5 without it
+                # if img is not normalized (img - 0.5) / 0.5
+                # then acc goes to 0.987 (same as with original scheme)
+                img = np.clip(img * 255, 0, 255).astype(np.uint8)
                 img = mx.nd.array(img)
         batch = mx.io.DataBatch([img])
         self.model.forward(batch, is_train=False)

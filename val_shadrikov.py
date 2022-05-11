@@ -28,11 +28,15 @@ def load_lfw(root: str, target: str, _image_size):
         if first is None or second is None:
             continue
         first = cv2.imdecode(first, cv2.IMREAD_COLOR)
-        first = cv2.resize(first, _image_size)
         first = cv2.cvtColor(first, cv2.COLOR_BGR2RGB)
+        first = cv2.resize(first, _image_size)
         second = cv2.imdecode(second, cv2.IMREAD_COLOR)
-        second = cv2.resize(second, _image_size)
         second = cv2.cvtColor(second, cv2.COLOR_BGR2RGB)
+        second = cv2.resize(second, _image_size)
+        # in EvalPretrainDataset I return the scaled image,
+        # but here I return the original image.
+        # For my onnx, I perform scaling on get_embeddings
+        # for the mxnet, we don't need scaling.
         yield (first, second), labels[idx]
 
 
@@ -110,7 +114,7 @@ class CompareModelONNX(CompareModel):
             img = im_path
         if self.transform:
             # raw data
-            img = img.transpose(2, 1, 0).reshape(1, 3, 112, 112).astype(np.float32)
+            img = img.transpose(2, 0, 1).reshape(1, 3, 112, 112).astype(np.float32)
             # acc = 0.6 with it, but 0.5 without it
             img = ((img / 255.0) - 0.5) / 0.5
         else:
@@ -163,7 +167,7 @@ class CompareModelMXNet(CompareModel):
                 # acc = 0.88 with it, but 0.5 without it
                 # if img is not normalized (img - 0.5) / 0.5
                 # then acc goes to 0.987 (same as with original scheme)
-                img = np.clip(img * 255, 0, 255).astype(np.uint8)
+                img = np.clip((img * 0.5 + 0.5) * 255, 0, 255).astype(np.uint8)
                 img = mx.nd.array(img)
         batch = mx.io.DataBatch([img])
         self.model.forward(batch, is_train=False)
@@ -191,44 +195,58 @@ if __name__ == "__main__":
     datamodule = init_ms1m(data_dir="/home/warley/dev/datasets/MS1M_v3")
     datamodule.setup("validate")
 
-    model = CompareModelONNX(model_name="insightface_r100_from_torch.onnx")
     model = CompareModelONNX(model_name="my_pretrained_model.onnx")
     predictions, y_true = predict_on_lfw(model)
     y_pred = predictions > 0.5
-    print(f"Accuracy (torch as onnx) on raw images: {accuracy_score(y_true, y_pred)}")
+    print(f"Accuracy (torch as onnx) on raw data: {accuracy_score(y_true, y_pred)}")
+    fpr, tpr, _ = roc_curve(y_true, predictions)
+    plt.plot(fpr, tpr, "-r", lw=1, label=f"lfw AUC (my onnx model):{auc(fpr, tpr):.4f}")
+
     model = CompareModelONNX(model_name="my_pretrained_model.onnx", transform=False)
     predictions, y_true = predict_on_lfw_datamodule(model, datamodule)
     y_pred = predictions > 0.5
     print(f"Accuracy (torch as onxx) on datamodule: {accuracy_score(y_true, y_pred)}")
-    # fpr, tpr, _ = roc_curve(y_true, predictions)
-    # plt.plot(
-    #     fpr, tpr, color="g", lw=1, label=f"lfw AUC (my torch model):{auc(fpr, tpr):.4f}"
-    # )
-    # del model
+    fpr, tpr, _ = roc_curve(y_true, predictions)
+    plt.plot(
+        fpr,
+        tpr,
+        "--r",
+        lw=1,
+        label=f"lfw datamodule AUC (my onnx model):{auc(fpr, tpr):.4f}",
+    )
 
     model = CompareModelMXNet(model_name="arcface_r100_v1", ctx=mx.gpu())
     predictions, y_true = predict_on_lfw(model)
     y_pred = predictions > 0.5
     print(f"Accuracy (mxnet) on raw data: {accuracy_score(y_true, y_pred)}")
+    fpr, tpr, _ = roc_curve(y_true, predictions)
+    plt.plot(
+        fpr,
+        tpr,
+        "b",
+        lw=1,
+        label=f"lfw AUC (insightface mxnet):{auc(fpr, tpr):.4f}",
+    )
+
     model = CompareModelMXNet(
         model_name="arcface_r100_v1", ctx=mx.gpu(), transform=False
     )
     predictions, y_true = predict_on_lfw_datamodule(model, datamodule)
     y_pred = predictions > 0.5
     print(f"Accuracy (mxnet) on datamodule: {accuracy_score(y_true, y_pred)}")
-    # fpr, tpr, _ = roc_curve(y_true, predictions)
-    # plt.plot(
-    #     fpr,
-    #     tpr,
-    #     color="b",
-    #     lw=1,
-    #     label=f"lfw AUC (insightface mxnet):{auc(fpr, tpr):.4f}",
-    # )
+    fpr, tpr, _ = roc_curve(y_true, predictions)
+    plt.plot(
+        fpr,
+        tpr,
+        "--b",
+        lw=1,
+        label=f"lfw datamodule AUC (insightface mxnet):{auc(fpr, tpr):.4f}",
+    )
 
-    # plt.xlabel("Flase Positive Rate")
-    # plt.ylabel("True Positive Rate")
-    # plt.title("ROC Curve (using ONNX models)")
-    # plt.legend(loc="lower right")
-    # plt.grid()
-    # plt.savefig("roc.pdf", transparent=True, pad_inches=0, bbox_inches="tight")
-    # plt.show()
+    plt.xlabel("Flase Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("ROC Curve")
+    plt.legend(loc="lower right")
+    plt.grid()
+    plt.savefig("roc.pdf", transparent=True, pad_inches=0, bbox_inches="tight")
+    plt.show()

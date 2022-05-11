@@ -148,17 +148,24 @@ def init_ms1m(
     return datamodule
 
 
-def init_fiw(args):
+def init_fiw(
+    data_dir: str = "../datasets/fiw",
+    batch_size: int = 256,
+    num_workers: int = 8,
+    mining_strategy: str = "balanced_random",
+    jitter_param: float = 0.15,
+    lighting_param: float = 0.15,
+):
     train_transforms = transforms.Compose(
         [
             transforms.ToPILImage(),
             transforms.ColorJitter(
-                brightness=args.jitter_param,
-                contrast=args.jitter_param,
-                saturation=args.jitter_param,
+                brightness=jitter_param,
+                contrast=jitter_param,
+                saturation=jitter_param,
             ),
             mytransforms.Lightning(
-                args.lighting_param,
+                lighting_param,
                 mytransforms._IMAGENET_PCA["eigval"],
                 mytransforms._IMAGENET_PCA["eigvec"],
             ),
@@ -176,10 +183,10 @@ def init_fiw(args):
 
     # add params from args
     datamodule = KinshipDataModule(
-        args.data_dir,
+        data_dir,
         transforms=[train_transforms, val_transforms],
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        mining_strategy=args.mining_strategy,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        mining_strategy=mining_strategy,
     )
     return datamodule

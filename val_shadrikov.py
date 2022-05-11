@@ -1,3 +1,4 @@
+import argparse
 import os
 import pickle
 import shutil
@@ -16,7 +17,7 @@ from more_itertools import grouper
 import mytypes as t
 from dataset import FamiliesDataset, PairDataset, ImgDataset
 from model import PretrainModel
-from tasks import init_ms1m
+from tasks import init_ms1m, init_fiw
 
 
 def load_lfw(root: str, target: str, _image_size):
@@ -40,12 +41,14 @@ def load_lfw(root: str, target: str, _image_size):
         yield (first, second), labels[idx]
 
 
-def predict_on_lfw_datamodule(model, datamodule):
+def predict_on_datamodule(model, datamodule, is_lfw: bool):
     similarities = []
     labels = []
     for first, second, label in tqdm(datamodule.val_dataloader()):
-        first = first[0]
-        second = second[0]
+        if is_lfw:
+            # unflipped images
+            first = first[0]
+            second = second[0]
         similarity = model(first, second)
         similarities.append(similarity)
         labels.append(label.numpy())
@@ -75,7 +78,7 @@ def predict(
 
 
 class CompareModel(object):
-    def __init__(self, model_name: str, transform: bool = True):
+    def __init__(self, model_name: str, transform: bool):
         self.model_name = model_name
         self.transform = transform
 
@@ -110,6 +113,7 @@ class CompareModelONNX(CompareModel):
     def get_embedding(self, im_path: Path) -> t.Embedding:
         if isinstance(im_path, Path):
             img = cv2.imread(str(im_path))
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         else:
             img = im_path
         if self.transform:
@@ -191,59 +195,66 @@ def load_pairs():
 
 
 if __name__ == "__main__":
-    pair_list, y_true = load_pairs()
-    datamodule = init_ms1m(data_dir="/home/warley/dev/datasets/MS1M_v3")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=str)
+    parser.add_argument("--datamodule", action="store_true")
+    args = parser.parse_args()
+
+    if args.dataset == "fiw":
+        pair_list, y_true = load_pairs()
+        datamodule = init_fiw(data_dir="/home/warley/dev/datasets/fiw")
+    elif args.dataset == "lfw":
+        datamodule = init_ms1m(data_dir="/home/warley/dev/datasets/MS1M_v3")
+
     datamodule.setup("validate")
 
-    model = CompareModelONNX(model_name="my_pretrained_model.onnx")
-    predictions, y_true = predict_on_lfw(model)
-    y_pred = predictions > 0.5
-    print(f"Accuracy (torch as onnx) on raw data: {accuracy_score(y_true, y_pred)}")
-    fpr, tpr, _ = roc_curve(y_true, predictions)
-    plt.plot(fpr, tpr, "-r", lw=1, label=f"lfw AUC (my onnx model):{auc(fpr, tpr):.4f}")
-
-    model = CompareModelONNX(model_name="my_pretrained_model.onnx", transform=False)
-    predictions, y_true = predict_on_lfw_datamodule(model, datamodule)
-    y_pred = predictions > 0.5
-    print(f"Accuracy (torch as onxx) on datamodule: {accuracy_score(y_true, y_pred)}")
-    fpr, tpr, _ = roc_curve(y_true, predictions)
-    plt.plot(
-        fpr,
-        tpr,
-        "--r",
-        lw=1,
-        label=f"lfw datamodule AUC (my onnx model):{auc(fpr, tpr):.4f}",
+    model = CompareModelONNX(
+        model_name="my_pretrained_model.onnx", transform=not args.datamodule
     )
-
-    model = CompareModelMXNet(model_name="arcface_r100_v1", ctx=mx.gpu())
-    predictions, y_true = predict_on_lfw(model)
+    if args.datamodule:
+        predictions, y_true = predict_on_datamodule(
+            model, datamodule, is_lfw=(args.dataset == "lfw")
+        )
+    else:
+        # TODO: fix for lfw
+        predictions = predict(model, pair_list)
     y_pred = predictions > 0.5
-    print(f"Accuracy (mxnet) on raw data: {accuracy_score(y_true, y_pred)}")
+    print(
+        f"Accuracy (torch as onxx) on {args.dataset} (datamodule={args.datamodule}): {accuracy_score(y_true, y_pred)}"
+    )
     fpr, tpr, _ = roc_curve(y_true, predictions)
     plt.plot(
         fpr,
         tpr,
-        "b",
+        "-r",
         lw=1,
-        label=f"lfw AUC (insightface mxnet):{auc(fpr, tpr):.4f}",
+        label=f"AUC | {args.dataset} (datamodule={args.datamodule})| ArcFace R100 (torch): {auc(fpr, tpr):.4f}",
     )
 
     model = CompareModelMXNet(
-        model_name="arcface_r100_v1", ctx=mx.gpu(), transform=False
+        model_name="arcface_r100_v1", ctx=mx.gpu(), transform=not args.datamodule
     )
-    predictions, y_true = predict_on_lfw_datamodule(model, datamodule)
+    if args.datamodule:
+        predictions, y_true = predict_on_datamodule(
+            model, datamodule, is_lfw=(args.dataset == "lfw")
+        )
+    else:
+        # TODO: fix for lfw
+        predictions = predict(model, pair_list)
     y_pred = predictions > 0.5
-    print(f"Accuracy (mxnet) on datamodule: {accuracy_score(y_true, y_pred)}")
+    print(
+        f"Accuracy (mxnet) on {args.dataset} (datamodule={args.datamodule}): {accuracy_score(y_true, y_pred)}"
+    )
     fpr, tpr, _ = roc_curve(y_true, predictions)
     plt.plot(
         fpr,
         tpr,
         "--b",
         lw=1,
-        label=f"lfw datamodule AUC (insightface mxnet):{auc(fpr, tpr):.4f}",
+        label=f"AUC | {args.dataset} (datamodule={args.datamodule}) | ArcFace R100 (mxnet): {auc(fpr, tpr):.4f}",
     )
 
-    plt.xlabel("Flase Positive Rate")
+    plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
     plt.title("ROC Curve")
     plt.legend(loc="lower right")

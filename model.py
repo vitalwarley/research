@@ -463,13 +463,14 @@ class PretrainModel(Model):
         embeddings = torch.cat(
             [first_emb, first_flipped_emb, second_emb, second_flipped_emb], dim=0
         )
-        norm = torch.linalg.norm(embeddings, dim=-1).mean()
+        norm = torch.linalg.norm(embeddings, dim=-1)
+        norm = torch.mean(norm, dim=0, keepdim=True)  # to make norm.dim = 1
 
         return {
             "embs1": first_emb,
             "embs2": second_emb,
-            "dist": dist,
             "norm": norm,
+            "dist": dist,
             "label": label,
         }
 
@@ -479,29 +480,10 @@ class PretrainModel(Model):
         kfold = KFold(n_splits=n_folds, shuffle=False)
 
         # unpack output in norms, dists, labels from output list
-        _, _, norms, dists, labels = zip(*outputs.values())
+        _, _, norms, dists, labels = zip(*[batch.values() for batch in outputs])
 
-        if torch.inf in norms:
-            acc = 0.0
-            norm = torch.inf
-            self.log(
-                f"{target}_acc",
-                acc,
-                on_epoch=True,
-                prog_bar=True,
-                logger=True,
-            )
-            self.log(
-                f"{target}_norm",
-                norm,
-                on_epoch=True,
-                prog_bar=True,
-                logger=True,
-            )
-            return
-
-        # stack batches
-        norm = torch.cat([norm.unsqueeze(0) for norm in norms], dim=0).mean()
+        # stack batches alonge batch_dim
+        norm = torch.cat(norms, dim=0).mean()
         dists = torch.cat(dists, dim=0)
         labels = torch.cat(labels, dim=0)
 

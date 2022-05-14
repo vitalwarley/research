@@ -121,6 +121,7 @@ def init_ms1m(
     data_dir: str = "../datasets/MS1M_v2",
     batch_size: int = 256,
     num_workers: int = 8,
+    **kwargs
 ):
     train_transforms = transforms.Compose(
         [

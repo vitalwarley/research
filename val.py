@@ -31,14 +31,16 @@ if __name__ == "__main__":
         accelerator="gpu",
     )
 
+    print(args)
+
     if args.task == "cifar":
         raise NotImplementedError("CIFAR validation not implemented.")
     elif args.task == "pretrain":
         # instantiate model
-        model = PretrainModel(args)
+        model = PretrainModel(**vars(args))
         model.eval()
         print(model)
-        datamodule = init_ms1m(args)
+        datamodule = init_ms1m(**vars(args))
     elif args.task == "finetune":
         args.model = "resnet101" if not args.model else args.model
         model = Model(args)

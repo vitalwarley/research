@@ -43,10 +43,10 @@ if __name__ == "__main__":
         datamodule = init_ms1m(**vars(args))
     elif args.task == "finetune":
         args.model = "resnet101" if not args.model else args.model
-        model = Model(args)
+        model = Model(**vars(args))
         model.eval()
         print(model)
-        datamodule = init_fiw(args)
+        datamodule = init_fiw(**vars(args))
 
     if not args.test:
         trainer.validate(model, datamodule, ckpt_path=args.ckpt_path)

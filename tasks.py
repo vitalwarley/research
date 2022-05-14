@@ -156,6 +156,7 @@ def init_fiw(
     mining_strategy: str = "balanced_random",
     jitter_param: float = 0.15,
     lighting_param: float = 0.15,
+    **kwargs
 ):
     train_transforms = transforms.Compose(
         [

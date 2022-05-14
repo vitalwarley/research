@@ -298,10 +298,20 @@ class Model(pl.LightningModule):
         embeddings1, _ = self(img1)
         embeddings2, _ = self(img2)
         similarity = F.cosine_similarity(embeddings1, embeddings2, dim=-1)
-        return similarity, label
+
+        return {
+            "embs1": embeddings1,
+            "embs2": embeddings2,
+            "label": label,
+            "similarity": similarity,
+        }
 
     def validation_epoch_end(self, outputs):
-        similarities, labels = map(lambda x: torch.cat(x, dim=0), zip(*outputs))
+
+        # TODO: works for FIW with Model. Test it for LFW and others with PretrainModel.
+        _, _, labels, similarities = zip(*[batch.values() for batch in outputs])
+        similarities = torch.cat(similarities, dim=0)
+        labels = torch.cat(labels, dim=0)
 
         preds = (
             similarities > 0.5

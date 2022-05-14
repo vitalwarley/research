@@ -49,21 +49,22 @@ class EmbeddingsCallback(Callback):
         self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx
     ):
         img1, img2, label = batch
-        embs1, embs2, *_ = outputs.values()
+        # TODO: works for FIW with Model. Test it for LFW and others with PretrainModel.
+        embs1, embs2, labels, sims = outputs.values()
 
         bs = len(label)
 
         trainer.logger.experiment.add_embedding(
             embs1,
             metadata=torch.arange(0, bs),
-            label_img=img1[0],
+            label_img=img1,
             global_step=batch_idx,
             tag="embs1",
         )
         trainer.logger.experiment.add_embedding(
             embs2,
             metadata=torch.arange(0, bs),
-            label_img=img2[0],
+            label_img=img2,
             global_step=batch_idx,
             tag="embs2",
         )

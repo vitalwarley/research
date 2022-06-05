@@ -14,7 +14,6 @@ from model import Model, PretrainModel
 from tasks import init_cifar, init_ms1m, init_fiw, init_parser, init_trainer
 
 
-
 if __name__ == "__main__":
     seed_everything(42, workers=True)
 
@@ -36,12 +35,12 @@ if __name__ == "__main__":
         trainer.fit(model, trainloader, valloader)
     elif args.task == "pretrain":
         # instantiate model
-        model = PretrainModel(args)
+        model = PretrainModel(**vars(args))
         model.train()
 
         print(model)
 
-        datamodule = init_ms1m(args)
+        datamodule = init_ms1m(**vars(args))
         trainer.fit(model, datamodule)
     elif args.task == "finetune":
         # instantiate model

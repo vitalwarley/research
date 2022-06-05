@@ -11,6 +11,7 @@ import numpy as np
 import mxnet as mx
 import onnxruntime as ort
 import pandas as pd
+import torch
 from tqdm import tqdm
 from sklearn.metrics import roc_curve, auc, accuracy_score
 from matplotlib import pyplot as plt
@@ -18,7 +19,7 @@ from more_itertools import grouper
 
 import mytypes as t
 from dataset import FamiliesDataset, PairDataset, ImgDataset
-from model import PretrainModel
+from model import Model
 from tasks import init_ms1m, init_fiw
 
 
@@ -143,6 +144,30 @@ class CompareModel(object):
         return sim
 
 
+class CompareModelTorch(CompareModel):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.model = Model(weights=self.model_name)
+        self.model.eval()
+        self.model.to(torch.device(self.device))
+
+    def get_embedding(self, im_path: Path) -> t.Embedding:
+        if isinstance(im_path, Path):
+            img = cv2.imread(str(im_path))
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        else:
+            img = im_path
+        if self.transform:
+            # raw data
+            img = img.transpose(2, 0, 1).astype(np.float32)
+            img = np.expand_dims(img, 0)
+            # acc = 0.6 with it, but 0.5 without it
+            # because my model was training with images scaled in this way
+            img = ((img / 255.0) - 0.5) / 0.5
+        embs, _ = self.model(img.to(torch.device(self.device)))
+        return embs.detach().cpu().numpy()
+
+
 class CompareModelONNX(CompareModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -239,6 +264,8 @@ if __name__ == "__main__":
 
     plt.figure(figsize=(10, 10))
 
+    # TODO: refactor inference for each module in separated functions
+
     if args.dataset == "fiw":
         pair_list, y_true = load_pairs()
         datamodule = init_fiw(
@@ -248,8 +275,49 @@ if __name__ == "__main__":
             num_workers=8,
         )
     elif args.dataset == "lfw":
-        datamodule = init_ms1m(data_dir="/home/warley/dev/datasets/MS1M_v3")
+        datamodule = init_ms1m(
+            data_dir="/home/warley/dev/datasets/MS1M_v3", batch_size=128
+        )
 
+    ### TORCH
+
+    model = CompareModelTorch(
+        model_name="../training/research/lightning_logs/version_24/checkpoints/epoch=34-step=49770.ckpt",
+        transform=not args.datamodule,
+        device=args.device,
+    )
+    if args.datamodule:
+        datamodule.setup("validate")
+        predictions, y_true = predict_on_datamodule(
+            model, datamodule, is_lfw=(args.dataset == "lfw")
+        )
+    else:
+        # TODO: fix for lfw
+        predictions = predict(model, pair_list)
+    y_pred = predictions > 0.5
+    print(
+        f"Accuracy (torch) on {args.dataset} (datamodule={args.datamodule}):"
+        f" {accuracy_score(y_true, y_pred)}"
+    )
+    fpr, tpr, _ = roc_curve(y_true, predictions)
+    plt.plot(
+        fpr,
+        tpr,
+        "--g",
+        lw=1,
+        label=(
+            f"AUC | {args.dataset} (datamodule={args.datamodule})| ArcFace R100"
+            f" (torch): {auc(fpr, tpr):.4f}"
+        ),
+    )
+    print("Saving embeddings for both pairs for torch model...")
+    if args.dataset == "fiw":
+        write_embeddings(model, output_dir)
+
+    del model
+    torch.cuda.empty_cache()
+
+    ### ONNNX
     model = CompareModelONNX(
         model_name="my_pretrained_model.onnx",
         transform=not args.datamodule,
@@ -276,11 +344,12 @@ if __name__ == "__main__":
         lw=1,
         label=(
             f"AUC | {args.dataset} (datamodule={args.datamodule})| ArcFace R100"
-            f" (torch): {auc(fpr, tpr):.4f}"
+            f" (onnx): {auc(fpr, tpr):.4f}"
         ),
     )
     print("Saving embeddings for both pairs for onnx model...")
-    write_embeddings(model, output_dir)
+    if args.dataset == "fiw":
+        write_embeddings(model, output_dir)
 
     del model
     model = CompareModelMXNet(
@@ -310,7 +379,8 @@ if __name__ == "__main__":
         ),
     )
     print("Saving embeddings for both pairs for mxnet model...")
-    write_embeddings(model, output_dir)
+    if args.dataset == "fiw":
+        write_embeddings(model, output_dir)
 
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")

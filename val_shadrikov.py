@@ -1,3 +1,4 @@
+import time
 import argparse
 import os
 import pickle
@@ -9,6 +10,7 @@ import cv2
 import numpy as np
 import mxnet as mx
 import onnxruntime as ort
+import pandas as pd
 from tqdm import tqdm
 from sklearn.metrics import roc_curve, auc, accuracy_score
 from matplotlib import pyplot as plt
@@ -18,6 +20,21 @@ import mytypes as t
 from dataset import FamiliesDataset, PairDataset, ImgDataset
 from model import PretrainModel
 from tasks import init_ms1m, init_fiw
+
+
+def load_pairs():
+    pairs = []
+    root_path = Path("/home/warley/dev/datasets/fiw/val-faces-det")
+    with open("/home/warley/dev/datasets/fiw/val_pairs.csv", "r") as f:
+        for line in f:
+            line = line.strip()
+            if len(line) < 1:
+                continue
+            img1, img2, label = line.split(",")
+            pairs.append((root_path / img1, root_path / img2, int(label)))
+    y_true = [label for _, _, label in pairs]
+    pair_list = [(img1, img2) for img1, img2, _ in pairs]
+    return pair_list, y_true
 
 
 def load_lfw(root: str, target: str, _image_size):
@@ -77,10 +94,33 @@ def predict(
     return np.stack(predictions, axis=0)
 
 
+def write_embeddings(model, output_dir):
+    embs1, embs2 = model.embeddings.values()
+    embs1, embs2 = np.concatenate(embs1), np.concatenate(embs2)
+    embs1_df = pd.DataFrame(embs1)
+    embs2_df = pd.DataFrame(embs2)
+    metadata_df = pd.read_csv(
+        "/home/warley/dev/datasets/fiw/val_pairs.csv", names=["img1", "img2", "label"]
+    )
+    metadata_df["similarities"] = np.concatenate(model.similarities)
+    metadata_df["predictions"] = metadata_df.similarities > 0.5
+
+    model_name = model.__class__.__name__
+    csvname = f"val_embs1_{model_name}.csv"
+    embs1_df.to_csv(f"{output_dir / csvname}", index=False, sep="\t", header=False)
+    csvname = f"val_embs2_{model_name}.csv"
+    embs2_df.to_csv(f"{output_dir / csvname}", index=False, sep="\t", header=False)
+    csvname = f"metadata_{model_name}.csv"
+    metadata_df.to_csv(f"{output_dir / csvname}", index=False, sep="\t")
+
+
 class CompareModel(object):
-    def __init__(self, model_name: str, transform: bool):
+    def __init__(self, model_name: str, transform: bool, device: str):
         self.model_name = model_name
         self.transform = transform
+        self.device = device
+        self.embeddings = {"first": [], "second": []}
+        self.similarities = []
 
     def _load_model(self):
         raise NotImplementedError
@@ -96,13 +136,21 @@ class CompareModel(object):
     def __call__(self, path1: Path, path2: Path) -> float:
         emb1 = self.get_embedding(path1)
         emb2 = self.get_embedding(path2)
-        return self.metric(emb1, emb2)
+        self.embeddings["first"].append(emb1)
+        self.embeddings["second"].append(emb2)
+        sim = self.metric(emb1, emb2)
+        self.similarities.append(sim)
+        return sim
 
 
 class CompareModelONNX(CompareModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        self.providers = (
+            ["CUDAExecutionProvider"]
+            if self.device == "cuda"
+            else ["CPUExecutionProvider"]
+        )
         self._load_model()
 
     def _load_model(self):
@@ -118,21 +166,24 @@ class CompareModelONNX(CompareModel):
             img = im_path
         if self.transform:
             # raw data
-            img = img.transpose(2, 0, 1).reshape(1, 3, 112, 112).astype(np.float32)
+            img = img.transpose(2, 0, 1).astype(np.float32)
+            img = np.expand_dims(img, 0)
             # acc = 0.6 with it, but 0.5 without it
+            # because my model was training with images scaled in this way
             img = ((img / 255.0) - 0.5) / 0.5
         else:
             # datamodule
             img = img.cpu().numpy()
-        return self.session.run([self.output_name], {self.input_name: img})[0]
+        embs = self.session.run([self.output_name], {self.input_name: img})[0]
+        return embs
 
 
 class CompareModelMXNet(CompareModel):
-    def __init__(self, ctx: mx.Context = mx.cpu(), **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
         root = Path("fitw2020") / "models"
         self.model_name = str(root / self.model_name)
-        self.ctx = ctx
+        self.ctx = mx.cpu() if self.device == "cpu" else mx.gpu()
         self._load_model()
 
     def _load_model(self):
@@ -151,67 +202,61 @@ class CompareModelMXNet(CompareModel):
 
     def get_embedding(self, im_path: Path) -> t.Embedding:
         if isinstance(im_path, Path):
-            img = (
-                mx.img.imread(str(im_path))
-                .transpose((2, 0, 1))
-                .expand_dims(0)
-                .astype(np.float32)
-            )
+            img = mx.img.imread(str(im_path))
         else:
-            if self.transform:
-                img = (
-                    mx.nd.array(im_path)
-                    .transpose((2, 0, 1))
-                    .expand_dims(0)
-                    .astype(np.float32)
-                )
-            else:
-                img = im_path
-                img = img.cpu().numpy()
-                # acc = 0.88 with it, but 0.5 without it
-                # if img is not normalized (img - 0.5) / 0.5
-                # then acc goes to 0.987 (same as with original scheme)
-                img = np.clip((img * 0.5 + 0.5) * 255, 0, 255).astype(np.uint8)
-                img = mx.nd.array(img)
+            img = im_path
+        if self.transform:
+            # it seems that the model was trained with images on scale (0, 255)
+            img = (
+                mx.nd.array(img).transpose((2, 0, 1)).expand_dims(0).astype(np.float32)
+            )
+        else:  # for datamodule samples
+            img = img.cpu().numpy()
+            # acc = 0.88 with it, but 0.5 without it
+            # if img is not normalized (img - 0.5) / 0.5
+            # then acc goes to 0.987 (same as with original scheme)
+            img = np.clip((img * 0.5 + 0.5) * 255, 0, 255).astype(
+                np.uint8
+            )  # in datamodule i scale, therefore here i scale back
+            img = mx.nd.array(img)
         batch = mx.io.DataBatch([img])
         self.model.forward(batch, is_train=False)
         out = self.model.get_outputs()[0].asnumpy()
         return out
 
 
-def load_pairs():
-    pairs = []
-    root_path = Path("/home/warley/dev/datasets/fiw/val-faces-det")
-    with open("/home/warley/dev/datasets/fiw/val_pairs.csv", "r") as f:
-        for line in f:
-            line = line.strip()
-            if len(line) < 1:
-                continue
-            img1, img2, label = line.split(",")
-            pairs.append((root_path / img1, root_path / img2, int(label)))
-    y_true = [label for _, _, label in pairs]
-    pair_list = [(img1, img2) for img1, img2, _ in pairs]
-    return pair_list, y_true
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str)
     parser.add_argument("--datamodule", action="store_true")
+    parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"])
     args = parser.parse_args()
+
+    # add time.time() to outputs path
+    time_str = str(int(time.time()))
+    output_dir = Path("outputs", "datamodule" if args.datamodule else "raw", time_str)
+    output_dir.mkdir(exist_ok=True, parents=True)
+
+    plt.figure(figsize=(10, 10))
 
     if args.dataset == "fiw":
         pair_list, y_true = load_pairs()
-        datamodule = init_fiw(data_dir="/home/warley/dev/datasets/fiw")
+        datamodule = init_fiw(
+            data_dir="/home/warley/dev/datasets/fiw",
+            batch_size=128,
+            mining_strategy="baseline",
+            num_workers=8,
+        )
     elif args.dataset == "lfw":
         datamodule = init_ms1m(data_dir="/home/warley/dev/datasets/MS1M_v3")
 
-    datamodule.setup("validate")
-
     model = CompareModelONNX(
-        model_name="my_pretrained_model.onnx", transform=not args.datamodule
+        model_name="my_pretrained_model.onnx",
+        transform=not args.datamodule,
+        device=args.device,
     )
     if args.datamodule:
+        datamodule.setup("validate")
         predictions, y_true = predict_on_datamodule(
             model, datamodule, is_lfw=(args.dataset == "lfw")
         )
@@ -220,7 +265,8 @@ if __name__ == "__main__":
         predictions = predict(model, pair_list)
     y_pred = predictions > 0.5
     print(
-        f"Accuracy (torch as onxx) on {args.dataset} (datamodule={args.datamodule}): {accuracy_score(y_true, y_pred)}"
+        f"Accuracy (torch as onxx) on {args.dataset} (datamodule={args.datamodule}):"
+        f" {accuracy_score(y_true, y_pred)}"
     )
     fpr, tpr, _ = roc_curve(y_true, predictions)
     plt.plot(
@@ -228,11 +274,17 @@ if __name__ == "__main__":
         tpr,
         "-r",
         lw=1,
-        label=f"AUC | {args.dataset} (datamodule={args.datamodule})| ArcFace R100 (torch): {auc(fpr, tpr):.4f}",
+        label=(
+            f"AUC | {args.dataset} (datamodule={args.datamodule})| ArcFace R100"
+            f" (torch): {auc(fpr, tpr):.4f}"
+        ),
     )
+    print("Saving embeddings for both pairs for onnx model...")
+    write_embeddings(model, output_dir)
 
+    del model
     model = CompareModelMXNet(
-        model_name="arcface_r100_v1", ctx=mx.gpu(), transform=not args.datamodule
+        model_name="arcface_r100_v1", transform=not args.datamodule, device=args.device
     )
     if args.datamodule:
         predictions, y_true = predict_on_datamodule(
@@ -243,7 +295,8 @@ if __name__ == "__main__":
         predictions = predict(model, pair_list)
     y_pred = predictions > 0.5
     print(
-        f"Accuracy (mxnet) on {args.dataset} (datamodule={args.datamodule}): {accuracy_score(y_true, y_pred)}"
+        f"Accuracy (mxnet) on {args.dataset} (datamodule={args.datamodule}):"
+        f" {accuracy_score(y_true, y_pred)}"
     )
     fpr, tpr, _ = roc_curve(y_true, predictions)
     plt.plot(
@@ -251,13 +304,18 @@ if __name__ == "__main__":
         tpr,
         "--b",
         lw=1,
-        label=f"AUC | {args.dataset} (datamodule={args.datamodule}) | ArcFace R100 (mxnet): {auc(fpr, tpr):.4f}",
+        label=(
+            f"AUC | {args.dataset} (datamodule={args.datamodule}) | ArcFace R100"
+            f" (mxnet): {auc(fpr, tpr):.4f}"
+        ),
     )
+    print("Saving embeddings for both pairs for mxnet model...")
+    write_embeddings(model, output_dir)
 
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
     plt.title("ROC Curve")
     plt.legend(loc="lower right")
     plt.grid()
-    plt.savefig("roc.pdf", transparent=True, pad_inches=0, bbox_inches="tight")
+    plt.savefig("roc.png", pad_inches=0, bbox_inches="tight")
     plt.show()

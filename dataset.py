@@ -96,6 +96,7 @@ class FamiliesDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[t.Img, int, int]:
         img_path, family_idx, person_idx = self.seq[idx]
         img = cv2.imread(str(img_path))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         # TODO: timm needs it. how to improve?
         # img = cv2.resize(img, (224, 224))
         if self._transform is not None:
@@ -304,8 +305,10 @@ class PairDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[t.Img, t.Img, int]:
         img1, img2, label = self.seq[idx]
         if not isinstance(img1, np.ndarray):
-            img1 = cv2.imread(str(img1)).astype(np.float32)
-            img2 = cv2.imread(str(img2)).astype(np.float32)
+            img1 = cv2.imread(str(img1))
+            img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2RGB)
+            img2 = cv2.imread(str(img2))
+            img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
         if self.families._transform is not None:
             img1 = self.families._transform(img1)
             img2 = self.families._transform(img2)

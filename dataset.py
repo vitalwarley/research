@@ -119,6 +119,7 @@ class MS1MDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[t.Img, int, int]:
         img_path, celebrity_idx = self.seq[idx]
         img = cv2.imread(str(Path(self.root) / img_path))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         # TODO: timm needs it. how to improve?
         # img = cv2.resize(img, (112, 112))
         # img = np.moveaxis(img, 2, 0)

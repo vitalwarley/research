@@ -264,7 +264,7 @@ if __name__ == "__main__":
 
     plt.figure(figsize=(10, 10))
 
-    # TODO: refactor inference for each module in separated functions
+    # TODO: refactor inference for each model in separated functions
 
     if args.dataset == "fiw":
         pair_list, y_true = load_pairs()
@@ -324,7 +324,6 @@ if __name__ == "__main__":
         device=args.device,
     )
     if args.datamodule:
-        datamodule.setup("validate")
         predictions, y_true = predict_on_datamodule(
             model, datamodule, is_lfw=(args.dataset == "lfw")
         )

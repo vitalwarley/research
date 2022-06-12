@@ -12,54 +12,59 @@ import mxnet as mx
 import onnxruntime as ort
 import pandas as pd
 import torch
+import torchmetrics as tm
+import seaborn as sns
 from tqdm import tqdm
-from sklearn.metrics import roc_curve, auc, accuracy_score
 from matplotlib import pyplot as plt
+from torch.utils.tensorboard import SummaryWriter
 from more_itertools import grouper
 
 import mytypes as t
 from dataset import FamiliesDataset, PairDataset, ImgDataset
 from model import Model
 from tasks import init_ms1m, init_fiw
+from utils import load_pairs, load_lfw, make_accuracy_vs_threshold_plot, make_roc_plot
 
 
-def load_pairs():
-    pairs = []
-    root_path = Path("/home/warley/dev/datasets/fiw/val-faces-det")
-    with open("/home/warley/dev/datasets/fiw/val_pairs.csv", "r") as f:
-        for line in f:
-            line = line.strip()
-            if len(line) < 1:
-                continue
-            img1, img2, label = line.split(",")
-            pairs.append((root_path / img1, root_path / img2, int(label)))
-    y_true = [label for _, _, label in pairs]
-    pair_list = [(img1, img2) for img1, img2, _ in pairs]
-    return pair_list, y_true
+def log_results(writer, model_name, distances, similarities, y_true):
+    writer.add_histogram(
+        f"{model_name}/distances", distances[y_true == 0], global_step=0
+    )
+    writer.add_histogram(
+        f"{model_name}/distances", distances[y_true == 1], global_step=1
+    )
+    writer.add_histogram(
+        f"{model_name}/similarities", similarities[y_true == 0], global_step=0
+    )
+    writer.add_histogram(
+        f"{model_name}/similarities", similarities[y_true == 1], global_step=1
+    )
 
+    fig = make_accuracy_vs_threshold_plot(
+        distances, y_true, fn=lambda x, thresh: x < thresh
+    )
+    writer.add_figure(
+        f"{model_name}/distances/accuracy vs threshold", fig, global_step=0
+    )
+    fig = make_accuracy_vs_threshold_plot(
+        similarities, y_true, fn=lambda x, thresh: x > thresh
+    )  # high sim, low dist
+    writer.add_figure(
+        f"{model_name}/similarities/accuracy vs threshold", fig, global_step=0
+    )
 
-def load_lfw(root: str, target: str, _image_size):
-    bin_path = Path(root) / target
-    # read bin
-    with open(bin_path, "rb") as f:
-        bins, labels = pickle.load(f, encoding="bytes")
-    for idx, (first, second) in enumerate(grouper(bins, 2)):
-        if first is None or second is None:
-            continue
-        first = cv2.imdecode(first, cv2.IMREAD_COLOR)
-        first = cv2.cvtColor(first, cv2.COLOR_BGR2RGB)
-        first = cv2.resize(first, _image_size)
-        second = cv2.imdecode(second, cv2.IMREAD_COLOR)
-        second = cv2.cvtColor(second, cv2.COLOR_BGR2RGB)
-        second = cv2.resize(second, _image_size)
-        # in EvalPretrainDataset I return the scaled image,
-        # but here I return the original image.
-        # For my onnx, I perform scaling on get_embeddings
-        # for the mxnet, we don't need scaling.
-        yield (first, second), labels[idx]
+    fig, auc_score = make_roc_plot(similarities, y_true)
+    writer.add_scalar(f"roc_auc/{model_name}", auc_score, global_step=0)
+    # writer.add_figure(f"{model_name}/roc", fig, global_step=0)
+
+    similarities[similarities <= 0] = 0  # for plotting PR curve
+    writer.add_pr_curve(
+        f"{model_name}/similarities/pr curve", y_true, similarities, global_step=0
+    )
 
 
 def predict_on_datamodule(model, datamodule, is_lfw: bool):
+    distances = []
     similarities = []
     labels = []
     for first, second, label in tqdm(datamodule.val_dataloader()):
@@ -67,10 +72,14 @@ def predict_on_datamodule(model, datamodule, is_lfw: bool):
             # unflipped images
             first = first[0]
             second = second[0]
-        similarity = model(first, second)
+        distance, similarity = model(first, second)
+        distances.append(distance)
         similarities.append(similarity)
         labels.append(label.numpy())
-    return np.concatenate(similarities), np.concatenate(labels)
+    distances = np.concatenate(distances)
+    similarities = np.concatenate(similarities)
+    labels = np.concatenate(labels)
+    return distances, similarities, labels
 
 
 def predict_on_lfw(model):
@@ -88,31 +97,15 @@ def predict_on_lfw(model):
 def predict(
     model: Callable[[Path, Path], t.Labels], pair_list: List[t.PairPath]
 ) -> t.Labels:
-    predictions = []
+    distances = []
+    similarities = []
     for idx, (path1, path2) in tqdm(enumerate(pair_list), total=len(pair_list)):
-        cur_prediction = model(path1, path2)
-        predictions.append(cur_prediction)
-    return np.stack(predictions, axis=0)
-
-
-def write_embeddings(model, output_dir):
-    embs1, embs2 = model.embeddings.values()
-    embs1, embs2 = np.concatenate(embs1), np.concatenate(embs2)
-    embs1_df = pd.DataFrame(embs1)
-    embs2_df = pd.DataFrame(embs2)
-    metadata_df = pd.read_csv(
-        "/home/warley/dev/datasets/fiw/val_pairs.csv", names=["img1", "img2", "label"]
-    )
-    metadata_df["similarities"] = np.concatenate(model.similarities)
-    metadata_df["predictions"] = metadata_df.similarities > 0.5
-
-    model_name = model.__class__.__name__
-    csvname = f"val_embs1_{model_name}.csv"
-    embs1_df.to_csv(f"{output_dir / csvname}", index=False, sep="\t", header=False)
-    csvname = f"val_embs2_{model_name}.csv"
-    embs2_df.to_csv(f"{output_dir / csvname}", index=False, sep="\t", header=False)
-    csvname = f"metadata_{model_name}.csv"
-    metadata_df.to_csv(f"{output_dir / csvname}", index=False, sep="\t")
+        distance, similarity = model(path1, path2)
+        distances.append(distance)
+        similarities.append(similarity)
+    distances = np.concatenate(distances)
+    similarities = np.concatenate(similarities)
+    return distances, similarities
 
 
 class CompareModel(object):
@@ -121,7 +114,6 @@ class CompareModel(object):
         self.transform = transform
         self.device = device
         self.embeddings = {"first": [], "second": []}
-        self.similarities = []
 
     def _load_model(self):
         raise NotImplementedError
@@ -140,8 +132,11 @@ class CompareModel(object):
         self.embeddings["first"].append(emb1)
         self.embeddings["second"].append(emb2)
         sim = self.metric(emb1, emb2)
-        self.similarities.append(sim)
-        return sim
+        normed_emb1 = emb1 / np.linalg.norm(emb1, axis=-1, keepdims=True)
+        normed_emb2 = emb2 / np.linalg.norm(emb2, axis=-1, keepdims=True)
+        diff = normed_emb1 - normed_emb2
+        dist = np.linalg.norm(diff, axis=-1)
+        return dist, sim
 
 
 class CompareModelTorch(CompareModel):
@@ -164,43 +159,13 @@ class CompareModelTorch(CompareModel):
             # acc = 0.6 with it, but 0.5 without it
             # because my model was training with images scaled in this way
             img = ((img / 255.0) - 0.5) / 0.5
-        embs, _ = self.model(img.to(torch.device(self.device)))
+        if not isinstance(img, torch.Tensor):
+            img = torch.from_numpy(img).to(torch.device(self.device))
+            embs, _ = self.model(img)
+        else:
+            embs, _ = self.model(img.to(torch.device(self.device)))
+
         return embs.detach().cpu().numpy()
-
-
-class CompareModelONNX(CompareModel):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.providers = (
-            ["CUDAExecutionProvider"]
-            if self.device == "cuda"
-            else ["CPUExecutionProvider"]
-        )
-        self._load_model()
-
-    def _load_model(self):
-        self.session = ort.InferenceSession(self.model_name, providers=self.providers)
-        self.input_name = self.session.get_inputs()[0].name
-        self.output_name = self.session.get_outputs()[0].name
-
-    def get_embedding(self, im_path: Path) -> t.Embedding:
-        if isinstance(im_path, Path):
-            img = cv2.imread(str(im_path))
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        else:
-            img = im_path
-        if self.transform:
-            # raw data
-            img = img.transpose(2, 0, 1).astype(np.float32)
-            img = np.expand_dims(img, 0)
-            # acc = 0.6 with it, but 0.5 without it
-            # because my model was training with images scaled in this way
-            img = ((img / 255.0) - 0.5) / 0.5
-        else:
-            # datamodule
-            img = img.cpu().numpy()
-        embs = self.session.run([self.output_name], {self.input_name: img})[0]
-        return embs
 
 
 class CompareModelMXNet(CompareModel):
@@ -259,10 +224,12 @@ if __name__ == "__main__":
 
     # add time.time() to outputs path
     time_str = str(int(time.time()))
-    output_dir = Path("outputs", "datamodule" if args.datamodule else "raw", time_str)
+    output_dir = Path(
+        "outputs", args.dataset, "datamodule" if args.datamodule else "raw", time_str
+    )
     output_dir.mkdir(exist_ok=True, parents=True)
 
-    plt.figure(figsize=(10, 10))
+    writer = SummaryWriter(str(output_dir))
 
     # TODO: refactor inference for each model in separated functions
 
@@ -279,112 +246,41 @@ if __name__ == "__main__":
             data_dir="/home/warley/dev/datasets/MS1M_v3", batch_size=128
         )
 
-    ### TORCH
+    # TODO: accumulate results and log all at once?
 
+    ### TORCH
     model = CompareModelTorch(
         model_name="../training/research/lightning_logs/version_24/checkpoints/epoch=34-step=49770.ckpt",
         transform=not args.datamodule,
         device=args.device,
     )
     if args.datamodule:
+        # TODO: add arg to use both images if lfw
         datamodule.setup("validate")
-        predictions, y_true = predict_on_datamodule(
+        distances, similarities, y_true = predict_on_datamodule(
             model, datamodule, is_lfw=(args.dataset == "lfw")
         )
+        log_results(writer, "torch", distances, similarities, y_true)
     else:
         # TODO: fix for lfw
-        predictions = predict(model, pair_list)
-    y_pred = predictions > 0.5
-    print(
-        f"Accuracy (torch) on {args.dataset} (datamodule={args.datamodule}):"
-        f" {accuracy_score(y_true, y_pred)}"
-    )
-    fpr, tpr, _ = roc_curve(y_true, predictions)
-    plt.plot(
-        fpr,
-        tpr,
-        "--g",
-        lw=1,
-        label=(
-            f"AUC | {args.dataset} (datamodule={args.datamodule})| ArcFace R100"
-            f" (torch): {auc(fpr, tpr):.4f}"
-        ),
-    )
-    print("Saving embeddings for both pairs for torch model...")
-    if args.dataset == "fiw":
-        write_embeddings(model, output_dir)
+        distances, similarities = predict(model, pair_list)
+        log_results(writer, "torch", distances, similarities, y_true)
 
     del model
     torch.cuda.empty_cache()
 
-    ### ONNNX
-    model = CompareModelONNX(
-        model_name="my_pretrained_model.onnx",
-        transform=not args.datamodule,
-        device=args.device,
-    )
-    if args.datamodule:
-        predictions, y_true = predict_on_datamodule(
-            model, datamodule, is_lfw=(args.dataset == "lfw")
-        )
-    else:
-        # TODO: fix for lfw
-        predictions = predict(model, pair_list)
-    y_pred = predictions > 0.5
-    print(
-        f"Accuracy (torch as onxx) on {args.dataset} (datamodule={args.datamodule}):"
-        f" {accuracy_score(y_true, y_pred)}"
-    )
-    fpr, tpr, _ = roc_curve(y_true, predictions)
-    plt.plot(
-        fpr,
-        tpr,
-        "-r",
-        lw=1,
-        label=(
-            f"AUC | {args.dataset} (datamodule={args.datamodule})| ArcFace R100"
-            f" (onnx): {auc(fpr, tpr):.4f}"
-        ),
-    )
-    print("Saving embeddings for both pairs for onnx model...")
-    if args.dataset == "fiw":
-        write_embeddings(model, output_dir)
-
-    del model
+    # MXNET
     model = CompareModelMXNet(
         model_name="arcface_r100_v1", transform=not args.datamodule, device=args.device
     )
     if args.datamodule:
-        predictions, y_true = predict_on_datamodule(
+        distances, similarities, y_true = predict_on_datamodule(
             model, datamodule, is_lfw=(args.dataset == "lfw")
         )
+        log_results(writer, "mxnet", distances, similarities, y_true)
     else:
         # TODO: fix for lfw
-        predictions = predict(model, pair_list)
-    y_pred = predictions > 0.5
-    print(
-        f"Accuracy (mxnet) on {args.dataset} (datamodule={args.datamodule}):"
-        f" {accuracy_score(y_true, y_pred)}"
-    )
-    fpr, tpr, _ = roc_curve(y_true, predictions)
-    plt.plot(
-        fpr,
-        tpr,
-        "--b",
-        lw=1,
-        label=(
-            f"AUC | {args.dataset} (datamodule={args.datamodule}) | ArcFace R100"
-            f" (mxnet): {auc(fpr, tpr):.4f}"
-        ),
-    )
-    print("Saving embeddings for both pairs for mxnet model...")
-    if args.dataset == "fiw":
-        write_embeddings(model, output_dir)
+        distances, similarities = predict(model, pair_list)
+        log_results(writer, "mxnet", distances, similarities, y_true)
 
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.title("ROC Curve")
-    plt.legend(loc="lower right")
-    plt.grid()
-    plt.savefig("roc.png", pad_inches=0, bbox_inches="tight")
-    plt.show()
+    writer.close()

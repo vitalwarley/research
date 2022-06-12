@@ -318,20 +318,28 @@ class Model(pl.LightningModule):
         )  # add as attribute and update at each validation_epoch_end?
         acc = self.val_accuracy(preds, labels)
         fpr, tpr, _ = self.val_roc(similarities, labels)
+        # TODO: add self.logger.experiment.add_pr_curve?
         fig = plot_roc(tpr.cpu(), fpr.cpu(), savedir=self.logger.log_dir)
         auc = self.val_auc(similarities, labels)
 
+        self.logger.experiment.add_histogram(
+            "similarities/negatives", similarities[labels == 0], self.global_step
+        )
+        self.logger.experiment.add_histogram(
+            "similarities/positives", similarities[labels == 1], self.global_step
+        )
+
         self.log(
-            "val_acc",
+            "val/accuracy",
             acc,
             on_step=False,
             on_epoch=True,
             prog_bar=True,
             logger=True,
         )
-        self.logger.experiment.add_figure("ROC Curve", fig, self.current_epoch)
+        self.logger.experiment.add_figure("val/ROC Curve", fig, self.current_epoch)
         self.log(
-            "val_auc",
+            "val/auc",
             auc,
             on_step=False,
             on_epoch=True,
@@ -444,6 +452,30 @@ class PretrainModel(Model):
     def validation_step(self, batch, batch_idx):
         return self._step(batch, batch_idx)
 
+    def on_validation_batch_end(self, outputs, batch, batch_idx, dataloader_idx):
+        first, second, label = batch
+        img1, img2 = first[0], second[0]
+        images = torch.cat((img1, img2), dim=0)
+        bs = len(label)
+
+        embs1 = outputs["embs1"]
+        embs2 = outputs["embs2"]
+        # cat embeddings
+        embs = torch.cat([embs1, embs2], dim=0)
+        # create labels for all embeddings
+        pair_names = np.array(["img1", "img2"]).repeat(bs)
+        sample_idx_str_arr = np.tile([f"_{i}" for i in range(bs)], 2)
+        labels = np.char.add(pair_names, sample_idx_str_arr)
+        # TODO: add label to labels strings
+
+        self.logger.experiment.add_embedding(
+            embs,
+            metadata=labels,
+            label_img=images,
+            global_step=self.global_step,
+            tag=f"embeddings/{batch_idx}",
+        )
+
     def validation_epoch_end(self, outputs):
         return self._epoch_end(outputs, self.val_targets[0])
 
@@ -493,14 +525,16 @@ class PretrainModel(Model):
         _, _, norms, dists, labels = zip(*[batch.values() for batch in outputs])
 
         # stack batches alonge batch_dim
-        norm = torch.cat(norms, dim=0).mean()
+        norms = torch.cat(norms, dim=0)
         dists = torch.cat(dists, dim=0)
         labels = torch.cat(labels, dim=0)
 
         # init vars
         n_pairs = dists.shape[0]
         accuracy = torch.zeros((n_folds), dtype=torch.float32)
+        # i think i got this end=4 from insightface, which makes sense with clip_grad_val.
         thresholds = torch.arange(0.0, 4, 0.01, dtype=torch.float32)
+        best_thresholds = torch.zeros((n_folds), dtype=torch.float32)
         indexes = torch.arange(n_pairs, dtype=torch.int32)
         acc_train = torch.zeros((thresholds.shape[0]), dtype=torch.float32)
 
@@ -520,18 +554,40 @@ class PretrainModel(Model):
             threshold = thresholds[best_threshold_index]
             predicted = test_dists < threshold
             accuracy[fold] = tm.functional.accuracy(predicted, test_labels)
+            best_thresholds[fold] = threshold
 
         acc = torch.mean(accuracy).item()
+        norm = norms.mean()
+        best_threshold = torch.mean(best_thresholds).item()
+
+        self.logger.experiment.add_histogram(
+            "distances/negative samples distribution",
+            dists[labels == 0],
+            self.global_step,
+        )
+        self.logger.experiment.add_histogram(
+            "distances/positive samples distribution",
+            dists[labels == 1],
+            self.global_step,
+        )
 
         self.log(
-            f"{target}_acc",
+            f"{target}/threshold",
+            best_threshold,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
+        self.log(
+            f"{target}/acc",
             acc,
             on_epoch=True,
             prog_bar=True,
             logger=True,
         )
         self.log(
-            f"{target}_norm",
+            f"{target}/norm",
             norm,
             on_epoch=True,
             prog_bar=True,

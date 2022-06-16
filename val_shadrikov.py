@@ -1,29 +1,29 @@
-import time
 import argparse
 import os
 import pickle
 import shutil
+import time
 from pathlib import Path
-from typing import List, Tuple, Callable
+from typing import Callable, List, Tuple
 
 import cv2
-import numpy as np
 import mxnet as mx
+import numpy as np
 import onnxruntime as ort
 import pandas as pd
+import seaborn as sns
 import torch
 import torchmetrics as tm
-import seaborn as sns
-from tqdm import tqdm
 from matplotlib import pyplot as plt
-from torch.utils.tensorboard import SummaryWriter
 from more_itertools import grouper
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 import mytypes as t
-from dataset import FamiliesDataset, PairDataset, ImgDataset
+from dataset import FamiliesDataset, ImgDataset, PairDataset
 from model import Model
-from tasks import init_ms1m, init_fiw
-from utils import load_pairs, load_lfw, make_accuracy_vs_threshold_plot, make_roc_plot
+from tasks import init_fiw, init_ms1m
+from utils import load_lfw, load_pairs, make_accuracy_vs_threshold_plot, make_roc_plot
 
 
 def log_results(writer, model_name, distances, similarities, y_true):
@@ -63,16 +63,18 @@ def log_results(writer, model_name, distances, similarities, y_true):
     )
 
 
-def predict_on_datamodule(model, datamodule, is_lfw: bool):
+def predict(model, datamodule, is_lfw: bool):
     distances = []
     similarities = []
     labels = []
-    for first, second, label in tqdm(datamodule.val_dataloader()):
+    for batch_idx, (first, second, label) in enumerate(
+        tqdm(datamodule.val_dataloader())
+    ):
         if is_lfw:
             # unflipped images
             first = first[0]
             second = second[0]
-        distance, similarity = model(first, second)
+        distance, similarity = model(first, second, label, batch_idx)
         distances.append(distance)
         similarities.append(similarity)
         labels.append(label.numpy())
@@ -82,38 +84,11 @@ def predict_on_datamodule(model, datamodule, is_lfw: bool):
     return distances, similarities, labels
 
 
-def predict_on_lfw(model):
-    similarities = []
-    labels = []
-    for (first, second), label in tqdm(
-        load_lfw("/home/warley/dev/datasets/MS1M_v3", "lfw.bin", (112, 112)), total=6000
-    ):
-        similarity = model(first, second)
-        similarities.append(similarity)
-        labels.append(label)
-    return np.stack(similarities, axis=0), np.stack(labels, axis=0)
-
-
-def predict(
-    model: Callable[[Path, Path], t.Labels], pair_list: List[t.PairPath]
-) -> t.Labels:
-    distances = []
-    similarities = []
-    for idx, (path1, path2) in tqdm(enumerate(pair_list), total=len(pair_list)):
-        distance, similarity = model(path1, path2)
-        distances.append(distance)
-        similarities.append(similarity)
-    distances = np.concatenate(distances)
-    similarities = np.concatenate(similarities)
-    return distances, similarities
-
-
 class CompareModel(object):
-    def __init__(self, model_name: str, transform: bool, device: str):
+    def __init__(self, model_name: str, device: str):
         self.model_name = model_name
-        self.transform = transform
         self.device = device
-        self.embeddings = {"first": [], "second": []}
+        self.writer = None
 
     def _load_model(self):
         raise NotImplementedError
@@ -126,16 +101,40 @@ class CompareModel(object):
         _norms = np.linalg.norm(emb1, axis=-1) * np.linalg.norm(emb2, axis=-1)
         return _sum / _norms
 
-    def __call__(self, path1: Path, path2: Path) -> float:
-        emb1 = self.get_embedding(path1)
-        emb2 = self.get_embedding(path2)
-        self.embeddings["first"].append(emb1)
-        self.embeddings["second"].append(emb2)
+    def _log_embeddings(self, images, labels, embeddings, batch_idx):
+        bs = len(labels)
+        pair_names = np.array(["IMG1", "IMG2"]).repeat(bs)
+        sample_idx_str_arr = np.tile([f"_SAMPLE_{i}" for i in range(bs)], 2)
+        label_str_arr = np.tile([f"_LABEL_{i.item()}" for i in labels], 2)
+        labels = np.char.add(np.char.add(pair_names, sample_idx_str_arr), label_str_arr)
+        writer.add_embedding(
+            embeddings,
+            metadata=labels,
+            label_img=images,
+            global_step=batch_idx,
+            tag=f"{self.__class__.__name__}/embeddings",
+        )
+
+    def __call__(
+        self,
+        img1: torch.Tensor,
+        img2: torch.Tensor,
+        label: torch.Tensor,
+        batch_idx: int,
+    ) -> float:
+        emb1 = self.get_embedding(img1)
+        emb2 = self.get_embedding(img2)
         sim = self.metric(emb1, emb2)
         normed_emb1 = emb1 / np.linalg.norm(emb1, axis=-1, keepdims=True)
         normed_emb2 = emb2 / np.linalg.norm(emb2, axis=-1, keepdims=True)
         diff = normed_emb1 - normed_emb2
         dist = np.linalg.norm(diff, axis=-1)
+
+        if batch_idx % 5 == 0:
+            embs = np.concatenate([emb1, emb2])
+            imgs = torch.cat([img1, img2])
+            self._log_embeddings(imgs, label.numpy(), embs, batch_idx)
+
         return dist, sim
 
 
@@ -146,25 +145,8 @@ class CompareModelTorch(CompareModel):
         self.model.eval()
         self.model.to(torch.device(self.device))
 
-    def get_embedding(self, im_path: Path) -> t.Embedding:
-        if isinstance(im_path, Path):
-            img = cv2.imread(str(im_path))
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        else:
-            img = im_path
-        if self.transform:
-            # raw data
-            img = img.transpose(2, 0, 1).astype(np.float32)
-            img = np.expand_dims(img, 0)
-            # acc = 0.6 with it, but 0.5 without it
-            # because my model was training with images scaled in this way
-            img = ((img / 255.0) - 0.5) / 0.5
-        if not isinstance(img, torch.Tensor):
-            img = torch.from_numpy(img).to(torch.device(self.device))
-            embs, _ = self.model(img)
-        else:
-            embs, _ = self.model(img.to(torch.device(self.device)))
-
+    def get_embedding(self, img: torch.Tensor) -> t.Embedding:
+        embs, _ = self.model(img.to(torch.device(self.device)))
         return embs.detach().cpu().numpy()
 
 
@@ -190,25 +172,11 @@ class CompareModelMXNet(CompareModel):
         _ = model.get_outputs()[0].asnumpy()
         self.model = model
 
-    def get_embedding(self, im_path: Path) -> t.Embedding:
-        if isinstance(im_path, Path):
-            img = mx.img.imread(str(im_path))
-        else:
-            img = im_path
-        if self.transform:
-            # it seems that the model was trained with images on scale (0, 255)
-            img = (
-                mx.nd.array(img).transpose((2, 0, 1)).expand_dims(0).astype(np.float32)
-            )
-        else:  # for datamodule samples
-            img = img.cpu().numpy()
-            # acc = 0.88 with it, but 0.5 without it
-            # if img is not normalized (img - 0.5) / 0.5
-            # then acc goes to 0.987 (same as with original scheme)
-            img = np.clip((img * 0.5 + 0.5) * 255, 0, 255).astype(
-                np.uint8
-            )  # in datamodule i scale, therefore here i scale back
-            img = mx.nd.array(img)
+    def get_embedding(self, img) -> t.Embedding:
+        img = img.cpu().numpy()
+        # revert transform because baseline model was trained on np.uint8 images
+        img = np.clip((img * 0.5 + 0.5) * 255, 0, 255).astype(np.uint8)
+        img = mx.nd.array(img)
         batch = mx.io.DataBatch([img])
         self.model.forward(batch, is_train=False)
         out = self.model.get_outputs()[0].asnumpy()
@@ -218,15 +186,12 @@ class CompareModelMXNet(CompareModel):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str)
-    parser.add_argument("--datamodule", action="store_true")
     parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"])
     args = parser.parse_args()
 
     # add time.time() to outputs path
     time_str = str(int(time.time()))
-    output_dir = Path(
-        "outputs", args.dataset, "datamodule" if args.datamodule else "raw", time_str
-    )
+    output_dir = Path("outputs", args.dataset, time_str)
     output_dir.mkdir(exist_ok=True, parents=True)
 
     writer = SummaryWriter(str(output_dir))
@@ -234,7 +199,6 @@ if __name__ == "__main__":
     # TODO: refactor inference for each model in separated functions
 
     if args.dataset == "fiw":
-        pair_list, y_true = load_pairs()
         datamodule = init_fiw(
             data_dir="/home/warley/dev/datasets/fiw",
             batch_size=128,
@@ -245,42 +209,31 @@ if __name__ == "__main__":
         datamodule = init_ms1m(
             data_dir="/home/warley/dev/datasets/MS1M_v3", batch_size=128
         )
+    datamodule.setup("validate")
 
     # TODO: accumulate results and log all at once?
 
     ### TORCH
     model = CompareModelTorch(
         model_name="../training/research/lightning_logs/version_24/checkpoints/epoch=34-step=49770.ckpt",
-        transform=not args.datamodule,
         device=args.device,
     )
-    if args.datamodule:
-        # TODO: add arg to use both images if lfw
-        datamodule.setup("validate")
-        distances, similarities, y_true = predict_on_datamodule(
-            model, datamodule, is_lfw=(args.dataset == "lfw")
-        )
-        log_results(writer, "torch", distances, similarities, y_true)
-    else:
-        # TODO: fix for lfw
-        distances, similarities = predict(model, pair_list)
-        log_results(writer, "torch", distances, similarities, y_true)
+    model.writer = writer  # skip save_hyperparams error
+    # TODO: add arg to use both images if lfw?
+    distances, similarities, y_true = predict(
+        model, datamodule, is_lfw=(args.dataset == "lfw")
+    )
+    log_results(writer, "torch", distances, similarities, y_true)
 
     del model
     torch.cuda.empty_cache()
 
     # MXNET
-    model = CompareModelMXNet(
-        model_name="arcface_r100_v1", transform=not args.datamodule, device=args.device
+    model = CompareModelMXNet(model_name="arcface_r100_v1", device=args.device)
+    model.writer = writer
+    distances, similarities, y_true = predict(
+        model, datamodule, is_lfw=(args.dataset == "lfw")
     )
-    if args.datamodule:
-        distances, similarities, y_true = predict_on_datamodule(
-            model, datamodule, is_lfw=(args.dataset == "lfw")
-        )
-        log_results(writer, "mxnet", distances, similarities, y_true)
-    else:
-        # TODO: fix for lfw
-        distances, similarities = predict(model, pair_list)
-        log_results(writer, "mxnet", distances, similarities, y_true)
+    log_results(writer, "mxnet", distances, similarities, y_true)
 
     writer.close()

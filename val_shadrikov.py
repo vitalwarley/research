@@ -106,14 +106,44 @@ class CompareModel(object):
         pair_names = np.array(["IMG1", "IMG2"]).repeat(bs)
         sample_idx_str_arr = np.tile([f"_SAMPLE_{i}" for i in range(bs)], 2)
         label_str_arr = np.tile([f"_LABEL_{i.item()}" for i in labels], 2)
-        labels = np.char.add(np.char.add(pair_names, sample_idx_str_arr), label_str_arr)
+        labels_str = np.char.add(
+            np.char.add(pair_names, sample_idx_str_arr), label_str_arr
+        )
+        model_name = self.__class__.__name__
         writer.add_embedding(
             embeddings,
-            metadata=labels,
+            metadata=labels_str,
             label_img=images,
             global_step=batch_idx,
-            tag=f"{self.__class__.__name__}/embeddings",
+            tag=f"{model_name}/embeddings",
         )
+
+        positive_samples = labels == 1
+        negative_samples = labels == 0
+
+        if any(positive_samples):
+            writer.add_histogram(
+                f"{model_name}/embeddings distribution/postive samples/image 1",
+                embeddings[:bs][labels == 1],
+                global_step=batch_idx,
+            )
+            writer.add_histogram(
+                f"{model_name}/embeddings distribution/positive samples/image 2",
+                embeddings[bs:][labels == 1],
+                global_step=batch_idx,
+            )
+
+        if any(negative_samples):
+            writer.add_histogram(
+                f"{model_name}/embeddings distribution/negative samples/image 1",
+                embeddings[:bs][labels == 0],
+                global_step=batch_idx,
+            )
+            writer.add_histogram(
+                f"{model_name}/embeddings distribution/negative samples/image 2",
+                embeddings[bs:][labels == 0],
+                global_step=batch_idx,
+            )
 
     def __call__(
         self,

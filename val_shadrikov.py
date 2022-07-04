@@ -169,9 +169,9 @@ class CompareModel(object):
 
 
 class CompareModelTorch(CompareModel):
-    def __init__(self, **kwargs):
+    def __init__(self, insightface: bool = False, **kwargs):
         super().__init__(**kwargs)
-        self.model = Model(weights=self.model_name)
+        self.model = Model(weights=self.model_name, insightface=insightface)
         self.model.eval()
         self.model.to(torch.device(self.device))
 
@@ -215,7 +215,12 @@ class CompareModelMXNet(CompareModel):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--run-models", type=str, default="both", choices=["both", "torch", "mxnet"]
+    )
+    parser.add_argument("--torch-model", type=str)
     parser.add_argument("--dataset", type=str)
+    parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"])
     args = parser.parse_args()
 
@@ -231,7 +236,7 @@ if __name__ == "__main__":
     if args.dataset == "fiw":
         datamodule = init_fiw(
             data_dir="/home/warley/dev/datasets/fiw",
-            batch_size=128,
+            batch_size=args.batch_size,
             mining_strategy="baseline",
             num_workers=8,
         )
@@ -243,27 +248,36 @@ if __name__ == "__main__":
 
     # TODO: accumulate results and log all at once?
 
-    ### TORCH
-    model = CompareModelTorch(
-        model_name="../training/research/lightning_logs/version_24/checkpoints/epoch=34-step=49770.ckpt",
-        device=args.device,
-    )
-    model.writer = writer  # skip save_hyperparams error
-    # TODO: add arg to use both images if lfw?
-    distances, similarities, y_true = predict(
-        model, datamodule, is_lfw=(args.dataset == "lfw")
-    )
-    log_results(writer, "torch", distances, similarities, y_true)
+    if args.run_models in ["both", "torch"]:
+        ### TORCH
+        if args.torch_model:
+            model = CompareModelTorch(
+                model_name=args.torch_model,
+                device=args.device,
+                insightface=True,
+            )
+        else:
+            model = CompareModelTorch(
+                model_name="../training/research/lightning_logs/version_24/checkpoints/epoch=34-step=49770.ckpt",
+                device=args.device,
+            )
+        model.writer = writer  # skip save_hyperparams error
+        # TODO: add arg to use both images if lfw?
+        distances, similarities, y_true = predict(
+            model, datamodule, is_lfw=(args.dataset == "lfw")
+        )
+        log_results(writer, "torch", distances, similarities, y_true)
 
-    del model
-    torch.cuda.empty_cache()
+        del model
+        torch.cuda.empty_cache()
 
-    # MXNET
-    model = CompareModelMXNet(model_name="arcface_r100_v1", device=args.device)
-    model.writer = writer
-    distances, similarities, y_true = predict(
-        model, datamodule, is_lfw=(args.dataset == "lfw")
-    )
-    log_results(writer, "mxnet", distances, similarities, y_true)
+    if args.run_models in ["both", "mxnet"]:
+        # MXNET
+        model = CompareModelMXNet(model_name="arcface_r100_v1", device=args.device)
+        model.writer = writer
+        distances, similarities, y_true = predict(
+            model, datamodule, is_lfw=(args.dataset == "lfw")
+        )
+        log_results(writer, "mxnet", distances, similarities, y_true)
 
     writer.close()

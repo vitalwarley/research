@@ -6,12 +6,12 @@ import pytorch_lightning as pl
 import timm
 import torch
 import torchmetrics as tm
-from torch import nn
 from pytorch_metric_learning import losses
-from torch.nn import functional as F
-from torch.optim import Adam, SGD
-from torch.optim.lr_scheduler import StepLR, MultiStepLR
 from sklearn.model_selection import KFold
+from torch import nn
+from torch.nn import functional as F
+from torch.optim import SGD, Adam
+from torch.optim.lr_scheduler import MultiStepLR, StepLR
 
 from lr_scheduler import PolyScheduler
 from utils import plot_roc
@@ -39,7 +39,7 @@ class Model(pl.LightningModule):
         arcface_m: float = 0.5,
         arcface_s: float = 64,
         weights: str = "",
-        insightface_weights: str = "",
+        insightface: bool = False,
         **kwargs,
     ):
         """
@@ -70,9 +70,10 @@ class Model(pl.LightningModule):
         self.margin = np.rad2deg(arcface_m)
         self.scale = arcface_s
 
+        self.weights = weights
+        self.insightface = insightface
         self.model = model
         self.loss = loss
-        self.insightface = insightface_weights
 
         # We need this here because of .load_from_checkpoint,
         # which needs to know the model architecture after __init__, I suppose.
@@ -82,9 +83,11 @@ class Model(pl.LightningModule):
 
         self.save_hyperparameters()
 
-        if weights and not self.insightface:
-            state_dict = torch.load(weights)
-            if weights.endswith(".ckpt"):
+        # if passed weights is not from insightface, load it
+        # otherwise, it was loaded in _init_model
+        if self.weights and not self.insightface:
+            state_dict = torch.load(self.weights)
+            if self.weights.endswith(".ckpt"):
                 state_dict = state_dict["state_dict"]
             self.load_state_dict(state_dict)
 
@@ -111,8 +114,8 @@ class Model(pl.LightningModule):
         if self.insightface:
             from insight_face.recognition.arcface_torch.backbones import get_model
 
-            self.backbone = get_model(self.model, fp16=False)
-            self.backbone.load_state_dict(torch.load(self.insightface))
+            self.backbone = get_model("r100", fp16=False)
+            self.backbone.load_state_dict(torch.load(self.weights))
             print("Loaded insightface model.")
         else:
             self.backbone = timm.models.create_model(

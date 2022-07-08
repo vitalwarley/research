@@ -127,3 +127,11 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# folders
+docs/
+fitw2020/
+insight_face/
+weights/
+outputs/
+plots/

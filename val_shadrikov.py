@@ -219,6 +219,7 @@ if __name__ == "__main__":
         "--run-models", type=str, default="both", choices=["both", "torch", "mxnet"]
     )
     parser.add_argument("--torch-model", type=str)
+    parser.add_argument("--insightface", action="store_true")
     parser.add_argument("--dataset", type=str)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"])
@@ -250,17 +251,11 @@ if __name__ == "__main__":
 
     if args.run_models in ["both", "torch"]:
         ### TORCH
-        if args.torch_model:
-            model = CompareModelTorch(
-                model_name=args.torch_model,
-                device=args.device,
-                insightface=True,
-            )
-        else:
-            model = CompareModelTorch(
-                model_name="../training/research/lightning_logs/version_24/checkpoints/epoch=34-step=49770.ckpt",
-                device=args.device,
-            )
+        model = CompareModelTorch(
+            model_name=args.torch_model,
+            device=args.device,
+            insightface=args.insightface,
+        )
         model.writer = writer  # skip save_hyperparams error
         # TODO: add arg to use both images if lfw?
         distances, similarities, y_true = predict(

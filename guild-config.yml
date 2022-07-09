@@ -1,0 +1,8 @@
+remotes:
+  rig-3:
+    type: ssh
+    description: RIG3
+    host: localhost
+    user: warley
+    port: 8023
+    guild-env: ~/.virtualenvs/research

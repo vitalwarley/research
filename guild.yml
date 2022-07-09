@@ -1,7 +1,4 @@
-pretrain:
-  main: train
-  sourcecode: 
-    - '*.py'
+- config: train-flags
   flags:
     data-dir: /home/warley/dev/datasets/MS1M_v2
     devices: 2
@@ -22,23 +19,29 @@ pretrain:
     loss: arcface 
     scheduler: poly
 
-finetune:
-  main: train
-  flags:
-    data-dir: /home/warley/dev/datasets/MS1M_v3
-    devices: 2
-    max_epochs: 50
-    model: resnet101
-    batch-size: 1024
-    accumulate_grad_batches: 2 
-    task: finetune 
-    lr: 0.2 
-    momentum: 0.9 
-    weight-decay: 5e-4 
-    warmup: 0 
-    cooldown: 0 
-    arcface-s: 64 
-    arcface-m: 0.5 
-    precision: 16 
-    loss: arcface 
-    scheduler: poly
+
+- model: tcc
+  sourcecode: 
+    - '*.py'
+  operations:
+    pretrain:
+      main: train
+      flags:
+        $include: train-flags
+
+    finetune:
+      main: train
+      flags:
+        $include: train-flags
+        data-dir: /home/warley/dev/datasets/MS1M_v3
+        task: finetune 
+
+    pretrain-ddp:
+      exec: torchrun --nnodes=1 --nproc_per_node=${nprocs} train.py --task=${task} --data-dir=${data-dir} --devices=${devices} --max_epochs=${max_epochs} --model=${model} --batch-size=${batch-size} --accumulate_grad_batches=${accumulate_grad_batches} --gradient_clip_val=${gradient_clip_val} --lr=${lr} --momentum=${momentum} --weight-decay=${weight-decay} --warmup=${warmup} --cooldown=${cooldown} --arcface-s=${arcface-s} --arcface-m=${arcface-m} --precision=${precision} --loss=${loss} --scheduler=${scheduler}
+      flags:
+        $include: train-flags
+        devices: 2
+        nprocs: 2
+      requires:
+        - file: train.py
+    

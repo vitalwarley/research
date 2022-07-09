@@ -13,6 +13,7 @@ from torch.nn import functional as F
 from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import MultiStepLR, StepLR
 
+from config import LOGGER
 from lr_scheduler import PolyScheduler
 from utils import plot_roc
 
@@ -178,6 +179,9 @@ class Model(pl.LightningModule):
             }
 
         print(f"optimizers config = {config}")
+        LOGGER.info(
+            "Model will train for steps=%s", self.trainer.estimated_stepping_batches
+        )
         return config
 
     def optimizer_step(
@@ -201,8 +205,13 @@ class Model(pl.LightningModule):
                 # pg["lr"] = lr_scale * self.hparams.learning_rate
                 pg["lr"] = cur_lr
         # cool down lr
-        elif self.trainer.global_step > self.train_steps - self.cooldown:
-            cur_lr = (self.train_steps - self.trainer.global_step) * (
+        elif (
+            self.trainer.global_step
+            > self.trainer.estimated_stepping_batches - self.cooldown
+        ):
+            cur_lr = (
+                self.trainer.estimated_stepping_batches - self.trainer.global_step
+            ) * (
                 optimizer.param_groups[0]["lr"] - self.end_lr
             ) / self.cooldown + self.end_lr
             optimizer.param_groups[0]["lr"] = cur_lr
@@ -531,16 +540,21 @@ class PretrainModel(Model):
         norm = norms.mean()
         best_threshold = torch.mean(best_thresholds).item()
 
-        self.logger.experiment.add_histogram(
-            "distances/negative samples distribution",
-            dists[labels == 0],
-            self.global_step,
-        )
-        self.logger.experiment.add_histogram(
-            "distances/positive samples distribution",
-            dists[labels == 1],
-            self.global_step,
-        )
+        positive_samples = labels == 1
+        negative_samples = labels == 0
+
+        if any(negative_samples):
+            self.logger.experiment.add_histogram(
+                "distances/negative samples distribution",
+                dists[labels == 0],
+                self.global_step,
+            )
+        if any(positive_samples):
+            self.logger.experiment.add_histogram(
+                "distances/positive samples distribution",
+                dists[labels == 1],
+                self.global_step,
+            )
 
         self.log(
             f"{target}/threshold",

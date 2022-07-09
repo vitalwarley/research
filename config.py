@@ -1,4 +1,12 @@
+import logging
 from types import SimpleNamespace
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s:%(funcName)s:%(lineno)d - %(message)s",
+    datefmt="%d-%b-%y %H:%M:%S",
+    level=logging.INFO,
+)
+LOGGER = logging.getLogger(__name__)
 
 DEFAULT_PARAMS_PRETRAIN = SimpleNamespace(
     num_workers=8,
@@ -55,5 +63,5 @@ FINETUNE_PARAMS_BASELINE = SimpleNamespace(
     normalize=False,
     insightface_weights="",
     weights="../training/research/lightning_logs/version_21/checkpoints/epoch=49-step=63250.ckpt",
-    mining_strategy="baseline"
+    mining_strategy="baseline",
 )

@@ -138,39 +138,7 @@ class Model(pl.LightningModule):
             self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
 
     def setup(self, stage):
-        # TODO: dont need to call super().setup?
-        if stage == "fit":
-            # for cooldown lr
-            # src: https://github.com/PyTorchLightning/pytorch-lightning/issues/3115#issuecomment-678824664
-            # 1.5.11 will include this in trainer, I think. My version is 1.5.10
-            if isinstance(self.trainer.gpus, int):
-                gpus = 1 if self.trainer.gpus else 0
-                if self.trainer.gpus == -1:
-                    gpus = torch.cuda.device_count()
-            else:
-                # TODO: improve-me
-                gpus = len(self.trainer.gpus.split(","))
-            total_devices = gpus * self.trainer.num_nodes
-            total_devices = total_devices if total_devices else 1
-            # train_batches = len(self.train_dataloader()) // total_devices
-            if self.trainer.datamodule is not None:
-                train_batches = (
-                    len(self.trainer.datamodule.train_dataloader()) // total_devices
-                )
-            else:
-                train_batches = len(self.train_dataloader) // total_devices
-
-            self.train_steps = (
-                self.trainer.max_epochs * train_batches
-            ) // self.trainer.accumulate_grad_batches
-
-            print(
-                f"train steps = {self.train_steps} in {train_batches} batches per epoch"
-            )
-        elif stage == "validate":
-            pass
-        else:
-            pass
+        pass
 
     def configure_optimizers(self):
         if self.warmup > 0:
@@ -202,7 +170,7 @@ class Model(pl.LightningModule):
                 "scheduler": PolyScheduler(
                     optimizer,
                     base_lr=self.lr,
-                    max_steps=self.train_steps,
+                    max_steps=self.trainer.estimated_stepping_batches,
                     warmup_steps=self.warmup,
                 ),
                 "interval": "step",

@@ -1,15 +1,15 @@
 from argparse import ArgumentParser
 
-import numpy as np
 import mxnet as mx
+import numpy as np
 import onnx
+import onnx_graphsurgeon as gs
 import torch
 from onnx import checker
-import onnx_graphsurgeon as gs
+from pytorch_lightning import Trainer, seed_everything
 
 from model import Model, PretrainModel
 from tasks import init_fiw, init_parser
-from pytorch_lightning import Trainer, seed_everything
 
 
 def convert_mxnet():

@@ -433,6 +433,11 @@ class PretrainModel(Model):
         return self._step(batch, batch_idx)
 
     def on_validation_batch_end(self, outputs, batch, batch_idx, dataloader_idx):
+
+        # TODO: test it
+        if batch_idx % 10 != 0:
+            return
+
         first, second, label = batch
         img1, img2 = first[0], second[0]
         images = torch.cat((img1, img2), dim=0)

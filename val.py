@@ -7,14 +7,12 @@ from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import lr_monitor
 from pytorch_lightning.strategies.ddp import DDPStrategy
 from torch import nn, utils
-from torchvision import transforms, datasets
+from torchvision import datasets, transforms
 from tqdm import tqdm
 
 import mytypes as t
-from callbacks import ModelInspectionCallback, MetricsCallback
 from model import Model, PretrainModel
-from tasks import init_cifar, init_ms1m, init_fiw, init_parser
-
+from tasks import init_cifar, init_fiw, init_ms1m, init_parser
 
 if __name__ == "__main__":
     seed_everything(42, workers=True)

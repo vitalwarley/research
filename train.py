@@ -6,13 +6,12 @@ import numpy as np
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import lr_monitor
 from torch import nn, utils
-from torchvision import transforms, datasets
+from torchvision import datasets, transforms
 from tqdm import tqdm
 
 import mytypes as t
 from model import Model, PretrainModel
-from tasks import init_cifar, init_ms1m, init_fiw, init_parser, init_trainer
-
+from tasks import init_cifar, init_fiw, init_ms1m, init_parser, init_trainer
 
 if __name__ == "__main__":
     seed_everything(42, workers=True)
@@ -41,7 +40,7 @@ if __name__ == "__main__":
         print(model)
 
         datamodule = init_ms1m(**vars(args))
-        trainer.fit(model, datamodule)
+        trainer.fit(model, datamodule, ckpt_path=args.ckpt_path)
     elif args.task == "finetune":
         # instantiate model
         model = Model(args)

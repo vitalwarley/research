@@ -1,10 +1,10 @@
 from argparse import ArgumentParser
 
-from torch import utils
-from torchvision import transforms, datasets
+from pl_bolts.callbacks import ModuleDataMonitor
 from pytorch_lightning import Trainer
 from pytorch_lightning.strategies.ddp import DDPStrategy
-from pl_bolts.callbacks import ModuleDataMonitor
+from torch import utils
+from torchvision import datasets, transforms
 
 import transforms as mytransforms
 from callbacks import ModelInspectionCallback
@@ -59,6 +59,7 @@ def init_parser():
     parser.add_argument(
         "--mining-strategy",
         type=str,
+        default="baseline",
         choices=["baseline", "balanced_random", "random", "all"],
     )
     parser.add_argument(

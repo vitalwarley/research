@@ -19,6 +19,34 @@
     loss: arcface 
     scheduler: poly
 
+- config: train-flags-finetune
+  flags:
+    accumulate_grad_batches: 1 
+    batch-size: 64
+    cooldown: 400 
+    data-dir: /home/warley/dev/datasets/fiw
+    devices: 2
+    end-lr: 1e-10
+    embedding-dim: 512
+    gradient_clip_val: 1.5
+    loss: ce 
+    lr: 1e-10 
+    lr-factor: 0.75
+    lr-steps:
+      default: "8, 14, 25, 35, 40, 50, 60"  
+      arg-split: yes
+    max_epochs: 50
+    momentum: 0.9 
+    model: resnet101
+    normalize: 
+      type: boolean
+      default: no
+      arg-switch: yes
+    precision: 16 
+    task: finetune 
+    scheduler: multistep
+    warmup: 200 
+    weight-decay: 1e-4 
 
 - model: tcc
   sourcecode: 
@@ -29,17 +57,19 @@
       flags:
         $include: train-flags
 
-    finetune:
-      main: train
-      flags:
-        $include: train-flags
-        data-dir: /home/warley/dev/datasets/MS1M_v3
-        task: finetune 
-
     pretrain-ddp:
       exec: torchrun --nnodes=1 --nproc_per_node=${nprocs} train.py --task=${task} --data-dir=${data-dir} --devices=${devices} --max_epochs=${max_epochs} --model=${model} --batch-size=${batch-size} --accumulate_grad_batches=${accumulate_grad_batches} --gradient_clip_val=${gradient_clip_val} --lr=${lr} --momentum=${momentum} --weight-decay=${weight-decay} --warmup=${warmup} --cooldown=${cooldown} --arcface-s=${arcface-s} --arcface-m=${arcface-m} --precision=${precision} --loss=${loss} --scheduler=${scheduler}
       flags:
         $include: train-flags
+        devices: 2
+        nprocs: 2
+      requires:
+        - file: train.py
+    
+    finetune:
+      exec: torchrun --nnodes=1 --nproc_per_node=${nprocs} train.py --task=${task} --data-dir=${data-dir} --devices=${devices} --max_epochs=${max_epochs} --model=${model} --batch-size=${batch-size} --accumulate_grad_batches=${accumulate_grad_batches} --gradient_clip_val=${gradient_clip_val} --lr=${lr} --end-lr=${end-lr} --lr-steps=${lr-steps} --lr-factor=${lr-factor} --momentum=${momentum} --weight-decay=${weight-decay} --warmup=${warmup} --cooldown=${cooldown} --precision=${precision} --loss=${loss} --scheduler=${scheduler} --embedding-dim=${embedding-dim} --normalize
+      flags:
+        $include: train-flags-finetune
         devices: 2
         nprocs: 2
       requires:

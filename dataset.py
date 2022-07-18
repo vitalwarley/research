@@ -1,21 +1,21 @@
 import logging
-import random
 import pickle
+import random
 from itertools import combinations, starmap
 from pathlib import Path
+from typing import Any, Callable, Generator, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
 import pandas as pd
 import torch
-from torch import nn
+from more_itertools import grouper
 from pytorch_lightning import LightningDataModule
 from sklearn.model_selection import train_test_split
-from torch.utils.data import Dataset, DataLoader
-from more_itertools import grouper
+from torch import nn
+from torch.utils.data import DataLoader, Dataset
 
 import mytypes as t
-from typing import Tuple, Optional, Generator, Any, List, Union, Callable
 
 
 class TestPairs(Dataset):
@@ -214,7 +214,7 @@ class PairDataset(Dataset):
     def __init__(
         self,
         families_dataset: FamiliesDataset,
-        mining_strategy: str = "random",
+        mining_strategy: str = "baseline",
         num_pairs: Optional[int] = 10**5,
     ):
         super(PairDataset, self).__init__()
@@ -355,11 +355,12 @@ class KinshipDataModule(LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
 
-        if stage == "fit":
+        if stage in ("fit", None):
             self.train_ds = FamiliesDataset(
                 self.data_dir / "train-faces-det", transform=self.train_transform
             )
-        elif stage == "validate":
+
+        if stage in ("fit", "validate", None):
             families_dataset = FamiliesDataset(
                 self.data_dir / "val-faces-det", transform=self.val_transform
             )
@@ -368,8 +369,6 @@ class KinshipDataModule(LightningDataModule):
                 mining_strategy=self.mining_strategy,
                 num_pairs=self.num_pairs,
             )
-        else:
-            raise NotImplementedError
 
     def train_dataloader(self):
         return DataLoader(

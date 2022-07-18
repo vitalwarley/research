@@ -19,23 +19,21 @@ from utils import plot_roc
 
 
 class Model(pl.LightningModule):
-    # TODO: review params default for this Model
     def __init__(
         self,
-        num_classes: int = 85742,
+        num_classes: int = 763,  # FIW families
         embedding_dim: int = 512,
         normalize: bool = False,
-        clip_gradient: float = 5.0,
-        lr: float = 0.01,
-        end_lr: float = 0.0001,
+        lr: float = 1e-10,
+        end_lr: float = 1e-10,
         momentum: float = 0.9,
-        weight_decay: float = 0.0005,
+        weight_decay: float = 1e-4,
         scheduler: str = "multistep",
         lr_steps: tuple = (8, 14, 25, 35, 40, 50, 60),
-        lr_factor: float = 0,
-        warmup: int = 0,
-        cooldown: int = 0,
-        loss: str = "arcface",
+        lr_factor: float = 0.75,
+        warmup: int = 200,
+        cooldown: int = 400,
+        loss: str = "ce",
         model: str = "resnet101",
         arcface_m: float = 0.5,
         arcface_s: float = 64,
@@ -56,7 +54,6 @@ class Model(pl.LightningModule):
 
         self.normalize = normalize
         self.embedding_dim = embedding_dim
-        self.clip_gradient = clip_gradient
 
         self.lr = lr
         self.end_lr = end_lr
@@ -90,7 +87,8 @@ class Model(pl.LightningModule):
             state_dict = torch.load(self.weights)
             if self.weights.endswith(".ckpt"):
                 state_dict = state_dict["state_dict"]
-            self.load_state_dict(state_dict)
+            # task=finetune doesn't load loss.W and loss.b for arcface loss
+            self.load_state_dict(state_dict, strict=False)
 
     def _init_loss(self):
         if self.loss == "arcface":
@@ -123,8 +121,9 @@ class Model(pl.LightningModule):
                 self.model, num_classes=0, global_pool=""
             )
             out_features = self.backbone(torch.randn(1, 3, 112, 112))
-            out_features = torch.flatten(out_features, 1).shape[1]
-            self.fc = torch.nn.Linear(out_features, self.embedding_dim)
+            self._out_features = torch.flatten(out_features, 1).shape[1]
+            # TODO: rename fc to embeddings/features
+            self.fc = torch.nn.Linear(self._out_features, self.embedding_dim)
             self.bn = torch.nn.BatchNorm1d(
                 self.embedding_dim,
                 eps=1e-5,
@@ -134,18 +133,20 @@ class Model(pl.LightningModule):
             torch.nn.init.constant_(self.bn.weight, 1.0)
             self.bn.weight.requires_grad = False
 
-        # Will I use another loss?
         if self.loss != "arcface":
-            self.fc = torch.nn.Linear(self.embedding_dim, self.num_classes)
+            # Classification layer
+            # TODO: temporary name
+            self.classification = torch.nn.Linear(self.embedding_dim, self.num_classes)
 
     def setup(self, stage):
         pass
 
     def configure_optimizers(self):
-        if self.warmup > 0:
-            self.start_lr = 1e-10
-        else:
-            self.start_lr = self.lr
+        # if self.warmup > 0:
+        #     self.start_lr = 1e-10
+        # else:
+        #     self.start_lr = self.lr
+        self.start_lr = self.lr
 
         optimizer = SGD(
             # loss params are already included (ref. ArcFaceLoss)
@@ -235,7 +236,7 @@ class Model(pl.LightningModule):
         if isinstance(self.loss, losses.ArcFaceLoss):
             logits = self.loss.get_logits(x)
         else:
-            logits = self.fc(x)
+            logits = self.classification(x)
         return logits
 
     def forward(self, x):
@@ -259,7 +260,7 @@ class Model(pl.LightningModule):
         preds, loss = self.__base_step(batch)
         acc = self.train_accuracy(preds, batch[1])
         self.log(
-            "train_acc",
+            "train/accuracy",
             acc,
             on_step=True,
             on_epoch=False,
@@ -267,7 +268,7 @@ class Model(pl.LightningModule):
             logger=True,
         )
         self.log(
-            "train_loss", loss, on_step=True, on_epoch=False, prog_bar=True, logger=True
+            "train/loss", loss, on_step=True, on_epoch=False, prog_bar=True, logger=True
         )
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
         self.log("lr", cur_lr, prog_bar=True, on_step=True)
@@ -288,10 +289,17 @@ class Model(pl.LightningModule):
 
     def validation_epoch_end(self, outputs):
 
+        # TODO: is there a better way?
+        # Without it, plot_roc raises an error because of logger.log_dir
+        if self.trainer.fast_dev_run:
+            return
+
         # TODO: works for FIW with Model. Test it for LFW and others with PretrainModel.
         _, _, labels, similarities = zip(*[batch.values() for batch in outputs])
         similarities = torch.cat(similarities, dim=0)
         labels = torch.cat(labels, dim=0)
+
+        # TODO: get val_shadrikov::log_results here
 
         preds = (
             similarities > 0.5
@@ -302,12 +310,21 @@ class Model(pl.LightningModule):
         fig = plot_roc(tpr.cpu(), fpr.cpu(), savedir=self.logger.log_dir)
         auc = self.val_auc(similarities, labels)
 
-        self.logger.experiment.add_histogram(
-            "similarities/negatives", similarities[labels == 0], self.global_step
-        )
-        self.logger.experiment.add_histogram(
-            "similarities/positives", similarities[labels == 1], self.global_step
-        )
+        negative_samples = labels == 0
+        positive_samples = labels == 1
+
+        if any(negative_samples):
+            self.logger.experiment.add_histogram(
+                "val/similarities/negatives",
+                similarities[negative_samples],
+                self.global_step,
+            )
+        if any(positive_samples):
+            self.logger.experiment.add_histogram(
+                "val/similarities/positives",
+                similarities[positive_samples],
+                self.global_step,
+            )
 
         self.log(
             "val/accuracy",
@@ -317,7 +334,7 @@ class Model(pl.LightningModule):
             prog_bar=True,
             logger=True,
         )
-        self.logger.experiment.add_figure("val/ROC Curve", fig, self.current_epoch)
+        self.logger.experiment.add_figure("val/roc", fig, self.current_epoch)
         self.log(
             "val/auc",
             auc,
@@ -334,12 +351,12 @@ class Model(pl.LightningModule):
         parser = parent_parser.add_argument_group("SiameseNet")
         parser.add_argument(
             "--num-classes",
-            default=85742,
+            default=763,
             type=int,
         )
         parser.add_argument(
             "--lr",
-            default=0.1,
+            default=1e-10,
             type=float,
         )
         parser.add_argument(
@@ -349,8 +366,14 @@ class Model(pl.LightningModule):
         )
         parser.add_argument(
             "--lr-factor",
-            default=0,
+            default=0.75,
             type=float,
+        )
+        parser.add_argument(
+            "--lr-steps",
+            default=("8, 14, 25, 35, 40, 50, 60"),
+            type=str,
+            nargs="+",
         )
         parser.add_argument(
             "--momentum",
@@ -360,11 +383,6 @@ class Model(pl.LightningModule):
         parser.add_argument(
             "--weight-decay",
             default=5e-4,
-            type=float,
-        )
-        parser.add_argument(
-            "--clip-gradient",
-            default=1.5,
             type=float,
         )
         parser.add_argument(
@@ -411,8 +429,8 @@ class Model(pl.LightningModule):
             default=0.15,
             type=float,
         )
-        parser.add_argument("--scheduler", type=str, default="poly")
-        parser.add_argument("--loss", type=str, default="arcface")
+        parser.add_argument("--scheduler", type=str, default="multistep")
+        parser.add_argument("--loss", type=str, default="ce")
         return parent_parser
 
 
@@ -551,13 +569,13 @@ class PretrainModel(Model):
         if any(negative_samples):
             self.logger.experiment.add_histogram(
                 "distances/negative samples distribution",
-                dists[labels == 0],
+                dists[negative_samples],
                 self.global_step,
             )
         if any(positive_samples):
             self.logger.experiment.add_histogram(
                 "distances/positive samples distribution",
-                dists[labels == 1],
+                dists[positive_samples],
                 self.global_step,
             )
 

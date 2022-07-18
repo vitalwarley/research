@@ -16,8 +16,6 @@ from tasks import init_cifar, init_fiw, init_ms1m, init_parser, init_trainer
 if __name__ == "__main__":
     seed_everything(42, workers=True)
 
-    # TODO: add to argparse
-
     parser = init_parser()
     args = parser.parse_args(None)
     trainer = init_trainer(args)
@@ -43,10 +41,10 @@ if __name__ == "__main__":
         trainer.fit(model, datamodule, ckpt_path=args.ckpt_path)
     elif args.task == "finetune":
         # instantiate model
-        model = Model(args)
+        model = Model(**vars(args))
         model.train()
 
         print(model)
 
-        datamodule = init_fiw(args)
-        trainer.fit(model, datamodule)
+        datamodule = init_fiw(**vars(args))
+        trainer.fit(model, datamodule, ckpt_path=args.ckpt_path)

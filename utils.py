@@ -1,14 +1,14 @@
-from pathlib import Path
 import pickle
+from pathlib import Path
 
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
-import matplotlib.pyplot as plt
-import cv2
-import numpy as np
 from more_itertools import grouper
+from sklearn.metrics import accuracy_score, auc, roc_curve
 from sklearn.model_selection import KFold
-from sklearn.metrics import roc_curve, auc, accuracy_score
 
 
 def plot_roc(tpr, fpr, savedir=None):
@@ -116,7 +116,7 @@ def make_accuracy_vs_threshold_plot(values, y_true, fn):
     ax.annotate(
         f"({best_threshold:.2f},{best_accuracy:.2f})", (best_threshold, best_accuracy)
     )
-    return fig
+    return fig, best_threshold, best_accuracy
 
 
 def make_roc_plot(values, y_true):
@@ -129,3 +129,69 @@ def make_roc_plot(values, y_true):
     ax.set_xlabel("False Positive Rate")
     ax.set_ylabel("True Positive Rate")
     return fig, auc_score
+
+
+def log_results(
+    writer, base_tag, distances, similarities, y_true, global_step: int = -1
+):
+    positive_samples = y_true == 1
+    negative_samples = y_true == 0
+
+    if any(positive_samples):
+        writer.add_histogram(
+            f"{base_tag}/distances/positive",
+            distances[positive_samples],
+            global_step=global_step if global_step >= 0 else 1,
+        )
+        writer.add_histogram(
+            f"{base_tag}/similarities/negative",
+            similarities[positive_samples],
+            global_step=global_step if global_step >= 0 else 1,
+        )
+    if any(negative_samples):
+        writer.add_histogram(
+            f"{base_tag}/distances/negative",
+            distances[negative_samples],
+            global_step=global_step if global_step >= 0 else 0,
+        )
+        writer.add_histogram(
+            f"{base_tag}/similarities/negative",
+            similarities[negative_samples],
+            global_step=global_step if global_step >= 0 else 0,
+        )
+
+    fig, *_ = make_accuracy_vs_threshold_plot(
+        distances, y_true, fn=lambda x, thresh: x < thresh
+    )
+    writer.add_figure(
+        f"{base_tag}/distances/accuracy vs threshold",
+        fig,
+        global_step=0,  # replaces figure
+    )
+    fig, best_threshold, best_accuracy = make_accuracy_vs_threshold_plot(
+        similarities, y_true, fn=lambda x, thresh: x > thresh
+    )  # high sim, low dist
+    writer.add_figure(
+        f"{base_tag}/similarities/accuracy vs threshold",
+        fig,
+        global_step=0,  # replaecs figure
+    )
+
+    fig, auc_score = make_roc_plot(similarities, y_true)
+    if not np.isnan(auc_score):
+        writer.add_scalar(
+            f"{base_tag}/roc/auc",
+            auc_score,
+            global_step=global_step if global_step >= 0 else 0,
+        )
+        writer.add_figure(f"{base_tag}/roc/plot", fig, global_step=0)  # replaces figure
+
+    similarities[similarities <= 0] = 0  # for plotting PR curve
+    writer.add_pr_curve(
+        f"{base_tag}/similarities/pr curve",
+        y_true,
+        similarities,
+        global_step=global_step if global_step >= 0 else 0,  # testing this
+    )
+
+    return best_threshold, best_accuracy

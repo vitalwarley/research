@@ -15,7 +15,7 @@ from torch.optim.lr_scheduler import MultiStepLR, StepLR
 
 from config import LOGGER
 from lr_scheduler import PolyScheduler
-from utils import plot_roc
+from utils import log_results
 
 
 class Model(pl.LightningModule):
@@ -107,9 +107,6 @@ class Model(pl.LightningModule):
 
     def _init_metrics(self):
         self.train_accuracy = tm.Accuracy()
-        self.val_accuracy = tm.Accuracy()
-        self.val_auc = tm.AUROC()
-        self.val_roc = tm.ROC()
 
     def _init_model(self):
         if self.insightface:
@@ -296,49 +293,38 @@ class Model(pl.LightningModule):
             return
 
         # TODO: works for FIW with Model. Test it for LFW and others with PretrainModel.
-        _, _, labels, similarities = zip(*[batch.values() for batch in outputs])
+        embs1, embs2, labels, similarities = zip(*[batch.values() for batch in outputs])
         similarities = torch.cat(similarities, dim=0)
         labels = torch.cat(labels, dim=0)
+        embs1 = torch.cat(embs1, dim=0)
+        embs2 = torch.cat(embs2, dim=0)
+        diff = embs1 - embs2
+        distances = torch.linalg.norm(diff, dim=-1)
 
-        # TODO: get val_shadrikov::log_results here
-
-        preds = (
-            similarities > 0.5
-        )  # add as attribute and update at each validation_epoch_end?
-        acc = self.val_accuracy(preds, labels)
-        fpr, tpr, _ = self.val_roc(similarities, labels)
-        # TODO: add self.logger.experiment.add_pr_curve?
-        fig = plot_roc(tpr.cpu(), fpr.cpu(), savedir=self.logger.log_dir)
-        auc = self.val_auc(similarities, labels)
-
-        negative_samples = labels == 0
-        positive_samples = labels == 1
-
-        if any(negative_samples):
-            self.logger.experiment.add_histogram(
-                "val/similarities/negatives",
-                similarities[negative_samples],
-                self.global_step,
-            )
-        if any(positive_samples):
-            self.logger.experiment.add_histogram(
-                "val/similarities/positives",
-                similarities[positive_samples],
-                self.global_step,
-            )
+        # logs histograms of distances and similarities,
+        # plots accuracy vs thresholds for distances and similarities
+        # plots pr curve, roc, and computes and logs auc
+        # at last, computs best accuracy in a KFold scheme
+        best_threshold, best_accuracy = log_results(
+            self.logger.experiment,
+            "val",
+            distances.cpu().numpy(),
+            similarities.cpu().numpy(),
+            labels.cpu().numpy(),
+            self.trainer.global_step,
+        )
 
         self.log(
             "val/accuracy",
-            acc,
+            best_accuracy,
             on_step=False,
             on_epoch=True,
             prog_bar=True,
             logger=True,
         )
-        self.logger.experiment.add_figure("val/roc", fig, self.current_epoch)
         self.log(
-            "val/auc",
-            auc,
+            "val/threshold",
+            best_threshold,
             on_step=False,
             on_epoch=True,
             prog_bar=True,

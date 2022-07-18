@@ -24,7 +24,8 @@ class Model(pl.LightningModule):
         num_classes: int = 763,  # FIW families
         embedding_dim: int = 512,
         normalize: bool = False,
-        lr: float = 1e-10,
+        lr: float = 1e-4,
+        start_lr: float = 1e-10,
         end_lr: float = 1e-10,
         momentum: float = 0.9,
         weight_decay: float = 1e-4,
@@ -56,6 +57,7 @@ class Model(pl.LightningModule):
         self.embedding_dim = embedding_dim
 
         self.lr = lr
+        self.start_lr = start_lr
         self.end_lr = end_lr
         self.lr_factor = lr_factor
         self.momentum = momentum
@@ -142,11 +144,10 @@ class Model(pl.LightningModule):
         pass
 
     def configure_optimizers(self):
-        # if self.warmup > 0:
-        #     self.start_lr = 1e-10
-        # else:
-        #     self.start_lr = self.lr
-        self.start_lr = self.lr
+        if self.warmup > 0:
+            self.start_lr = self.start_lr
+        else:
+            self.start_lr = self.lr
 
         optimizer = SGD(
             # loss params are already included (ref. ArcFaceLoss)
@@ -357,6 +358,11 @@ class Model(pl.LightningModule):
         parser.add_argument(
             "--lr",
             default=1e-10,
+            type=float,
+        )
+        parser.add_argument(
+            "--start-lr",
+            default=1e-4,
             type=float,
         )
         parser.add_argument(

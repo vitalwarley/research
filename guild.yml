@@ -29,6 +29,8 @@
     end-lr: 1e-10
     embedding-dim: 512
     gradient_clip_val: 1.5
+    insightface: 
+      arg-switch: yes
     loss: ce 
     lr: 1e-4 
     lr-factor: 0.75
@@ -49,6 +51,7 @@
     start-lr: 1e-10
     warmup: 200 
     weight-decay: 1e-4 
+    weights: ''
 
 - model: tcc
   sourcecode: 

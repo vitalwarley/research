@@ -50,9 +50,8 @@ def init_parser():
         "--data-dir",
         type=str,
     )
-    # parser.add_argument("--insightface", action='store_true')
+    parser.add_argument("--insightface", action="store_true")
     parser.add_argument("--ckpt-path", type=str)  # ptl ckpt
-    parser.add_argument("--insightface-weights", type=str)  # insightface
     parser.add_argument(
         "--task", type=str, required=True, choices=["cifar", "pretrain", "finetune"]
     )

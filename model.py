@@ -225,6 +225,8 @@ class Model(pl.LightningModule):
         embeddings = torch.flatten(embeddings, 1)
         embeddings = self.fc(embeddings)
         embeddings = self.bn(embeddings)
+
+        # TODO: refactor -- if I want to use this for insightface, I couldn't
         if self.normalize:
             # For ArcFaceLoss we normalize the embeddings and weights internally.
             embeddings = F.normalize(embeddings, p=2, dim=1)
@@ -363,8 +365,8 @@ class Model(pl.LightningModule):
         )
         parser.add_argument(
             "--lr-steps",
-            default=("8, 14, 25, 35, 40, 50, 60"),
-            type=str,
+            default=(8, 14, 25, 35, 40, 50, 60),
+            type=int,
             nargs="+",
         )
         parser.add_argument(

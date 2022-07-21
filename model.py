@@ -306,7 +306,7 @@ class Model(pl.LightningModule):
         # plots accuracy vs thresholds for distances and similarities
         # plots pr curve, roc, and computes and logs auc
         # at last, computs best accuracy in a KFold scheme
-        best_threshold, best_accuracy = log_results(
+        best_threshold, best_accuracy, _ = log_results(
             self.logger.experiment,
             "val",
             distances.cpu().numpy(),

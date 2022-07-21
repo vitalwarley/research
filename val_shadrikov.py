@@ -23,44 +23,7 @@ import mytypes as t
 from dataset import FamiliesDataset, ImgDataset, PairDataset
 from model import Model
 from tasks import init_fiw, init_ms1m
-from utils import load_lfw, load_pairs, make_accuracy_vs_threshold_plot, make_roc_plot
-
-
-def log_results(writer, model_name, distances, similarities, y_true):
-    writer.add_histogram(
-        f"{model_name}/distances", distances[y_true == 0], global_step=0
-    )
-    writer.add_histogram(
-        f"{model_name}/distances", distances[y_true == 1], global_step=1
-    )
-    writer.add_histogram(
-        f"{model_name}/similarities", similarities[y_true == 0], global_step=0
-    )
-    writer.add_histogram(
-        f"{model_name}/similarities", similarities[y_true == 1], global_step=1
-    )
-
-    fig = make_accuracy_vs_threshold_plot(
-        distances, y_true, fn=lambda x, thresh: x < thresh
-    )
-    writer.add_figure(
-        f"{model_name}/distances/accuracy vs threshold", fig, global_step=0
-    )
-    fig = make_accuracy_vs_threshold_plot(
-        similarities, y_true, fn=lambda x, thresh: x > thresh
-    )  # high sim, low dist
-    writer.add_figure(
-        f"{model_name}/similarities/accuracy vs threshold", fig, global_step=0
-    )
-
-    fig, auc_score = make_roc_plot(similarities, y_true)
-    writer.add_scalar(f"roc_auc/{model_name}", auc_score, global_step=0)
-    # writer.add_figure(f"{model_name}/roc", fig, global_step=0)
-
-    similarities[similarities <= 0] = 0  # for plotting PR curve
-    writer.add_pr_curve(
-        f"{model_name}/similarities/pr curve", y_true, similarities, global_step=0
-    )
+from utils import load_lfw, load_pairs, log_results
 
 
 def predict(model, datamodule, is_lfw: bool):
@@ -183,8 +146,6 @@ class CompareModelTorch(CompareModel):
 class CompareModelMXNet(CompareModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        root = Path("fitw2020") / "models"
-        self.model_name = str(root / self.model_name)
         self.ctx = mx.cpu() if self.device == "cpu" else mx.gpu()
         self._load_model()
 
@@ -219,6 +180,7 @@ if __name__ == "__main__":
         "--run-models", type=str, default="both", choices=["both", "torch", "mxnet"]
     )
     parser.add_argument("--torch-model", type=str)
+    parser.add_argument("--mxnet-model", type=str)
     parser.add_argument("--insightface", action="store_true")
     parser.add_argument("--dataset", type=str)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -261,18 +223,30 @@ if __name__ == "__main__":
         distances, similarities, y_true = predict(
             model, datamodule, is_lfw=(args.dataset == "lfw")
         )
-        log_results(writer, "torch", distances, similarities, y_true)
+        best_threshold, best_accuracy, auc_score = log_results(
+            writer, "torch", distances, similarities, y_true
+        )
+        print("Torch results:")
+        print(f"\tbest_threshold: {best_threshold}")
+        print(f"\tbest_accuracy: {best_accuracy}")
+        print(f"\tauc_score: {auc_score}")
 
         del model
         torch.cuda.empty_cache()
 
     if args.run_models in ["both", "mxnet"]:
         # MXNET
-        model = CompareModelMXNet(model_name="arcface_r100_v1", device=args.device)
+        model = CompareModelMXNet(model_name=args.mxnet_model, device=args.device)
         model.writer = writer
         distances, similarities, y_true = predict(
             model, datamodule, is_lfw=(args.dataset == "lfw")
         )
-        log_results(writer, "mxnet", distances, similarities, y_true)
+        best_threshold, best_accuracy, auc_score = log_results(
+            writer, "mxnet", distances, similarities, y_true
+        )
+        print("MXNET results:")
+        print(f"\tbest_threshold: {best_threshold}")
+        print(f"\tbest_accuracy: {best_accuracy}")
+        print(f"\tauc_score: {auc_score}")
 
     writer.close()

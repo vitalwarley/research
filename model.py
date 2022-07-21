@@ -135,15 +135,16 @@ class Model(pl.LightningModule):
         if self.loss != "arcface":
             # Classification layer
             # TODO: temporary name
-            self.classification = torch.nn.Linear(self.embedding_dim, self.num_classes)
+            self.classification = torch.nn.Linear(
+                self.embedding_dim, self.num_classes
+            )  # init?
+            torch.nn.init.normal_(self.classification.weight, std=0.01)
 
     def setup(self, stage):
         pass
 
     def configure_optimizers(self):
-        if self.warmup > 0:
-            self.start_lr = self.start_lr
-        else:
+        if not self.warmup:
             self.start_lr = self.lr
 
         optimizer = SGD(
@@ -199,14 +200,12 @@ class Model(pl.LightningModule):
             cur_lr = (self.trainer.global_step + 1) * (
                 self.lr - self.start_lr
             ) / self.warmup + self.start_lr
-            # lr_scale = min(1.0, float(self.trainer.global_step + 1) / self.warmup)
             for pg in optimizer.param_groups:
-                # pg["lr"] = lr_scale * self.hparams.learning_rate
                 pg["lr"] = cur_lr
         # cool down lr
         elif (
             self.trainer.global_step
-            > self.trainer.estimated_stepping_batches - self.cooldown
+            > self.trainer.estimated_stepping_batches - self.cooldown  # cooldown start
         ):
             cur_lr = (
                 self.trainer.estimated_stepping_batches - self.trainer.global_step

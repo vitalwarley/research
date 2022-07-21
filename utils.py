@@ -194,4 +194,4 @@ def log_results(
         global_step=global_step if global_step >= 0 else 0,  # testing this
     )
 
-    return best_threshold, best_accuracy
+    return best_threshold, best_accuracy, auc_score

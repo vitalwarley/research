@@ -86,4 +86,16 @@
         nprocs: 2
       requires:
         - file: train.py
-    
+
+- model: shadrikov
+  sourcecode:
+    select:
+      - 'fitw2020/*.py'
+  operations:
+    classification:
+      main: fitw2020.train_
+      flags-dest: globals
+      flags-import: all
+      requires:
+        - file: fitw2020/models/
+        - file: ../datasets/fiw

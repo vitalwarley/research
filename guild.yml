@@ -45,6 +45,7 @@
       type: boolean
       default: no
       arg-switch: yes
+    num-classes: 570
     precision: 16 
     task: finetune 
     scheduler: multistep

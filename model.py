@@ -14,6 +14,7 @@ from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import MultiStepLR, StepLR
 
 from config import LOGGER
+from insight_face.recognition.arcface_torch.backbones import get_model
 from lr_scheduler import PolyScheduler
 from utils import log_results
 
@@ -110,8 +111,6 @@ class Model(pl.LightningModule):
 
     def _init_model(self):
         if self.insightface:
-            from insight_face.recognition.arcface_torch.backbones import get_model
-
             self.backbone = get_model("r100", fp16=False)
             self.backbone.load_state_dict(torch.load(self.weights))
             print("Loaded insightface model.")
@@ -261,16 +260,16 @@ class Model(pl.LightningModule):
         self.log(
             "train/accuracy",
             acc,
-            on_step=True,
-            on_epoch=False,
+            on_step=False,
+            on_epoch=True,
             prog_bar=True,
             logger=True,
         )
         self.log(
-            "train/loss", loss, on_step=True, on_epoch=False, prog_bar=True, logger=True
+            "train/loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True
         )
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
-        self.log("lr", cur_lr, prog_bar=True, on_step=True)
+        self.log("lr", cur_lr, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
 
     def validation_step(self, batch, batch_idx):

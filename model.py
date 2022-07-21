@@ -217,17 +217,16 @@ class Model(pl.LightningModule):
         optimizer.step(closure=optimizer_closure)
 
     def _forward_features(self, x):
-        if self.insightface:
-            return self.backbone(x)
         embeddings = self.backbone(x)
-        embeddings = torch.flatten(embeddings, 1)
-        embeddings = self.fc(embeddings)
-        embeddings = self.bn(embeddings)
 
-        # TODO: refactor -- if I want to use this for insightface, I couldn't
+        if not self.insightface:
+            embeddings = torch.flatten(embeddings, 1)
+            embeddings = self.fc(embeddings)
+            embeddings = self.bn(embeddings)
+
         if self.normalize:
-            # For ArcFaceLoss we normalize the embeddings and weights internally.
             embeddings = F.normalize(embeddings, p=2, dim=1)
+
         return embeddings
 
     def _get_logits(self, x):

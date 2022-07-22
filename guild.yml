@@ -94,7 +94,7 @@
       - 'fitw2020/*.py'
   operations:
     classification:
-      main: fitw2020.train_
+      main: fitw2020.train
       flags-dest: globals
       flags-import: all
       requires:

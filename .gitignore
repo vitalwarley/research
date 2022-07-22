@@ -130,7 +130,6 @@ dmypy.json
 
 # folders
 docs/
-fitw2020/
 insight_face/
 weights/
 outputs/

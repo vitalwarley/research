@@ -18,6 +18,7 @@ from tqdm import tqdm
 from fitw2020 import mytypes as t
 from fitw2020.dataset import FamiliesDataset
 
+gpu = 0
 jitter_param = 0.15
 lighting_param = 0.15
 batch_size = 32
@@ -72,7 +73,7 @@ def train(normalize: bool = False):
     # sets num families
     num_families = len(train_dataset.families)
     # sets device
-    ctx_list = [mx.gpu(0)]
+    ctx_list = [mx.gpu(gpu)]
     # sets transforms
     transform_img_train = transforms.Compose(
         [

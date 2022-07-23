@@ -22,7 +22,7 @@ from utils import log_results
 class Model(pl.LightningModule):
     def __init__(
         self,
-        num_classes: int = 763,  # FIW families
+        num_classes: int = 570,  # FIW train families
         embedding_dim: int = 512,
         normalize: bool = False,
         lr: float = 1e-4,
@@ -337,7 +337,7 @@ class Model(pl.LightningModule):
         parser = parent_parser.add_argument_group("SiameseNet")
         parser.add_argument(
             "--num-classes",
-            default=763,
+            default=570,  # num_families in fiw train set
             type=int,
         )
         parser.add_argument(

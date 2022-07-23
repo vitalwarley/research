@@ -210,6 +210,7 @@ def train():
                     [cur_loss(o, l) for (o, l) in zip(outputs, gts)]
                     for _, cur_loss in all_losses
                 ]
+                metric.update(gts, outputs)
                 combined_losses = [cur[0] for cur in zip(*cur_losses)]
                 if np.any(
                     [np.any(np.isnan(loss_.asnumpy())) for loss_ in cur_losses[0]]

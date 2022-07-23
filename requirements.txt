@@ -15,3 +15,11 @@ tqdm
 virtualenv               
 yolov5
 more_itertools
+
+# shadrikov (fitw2020)
+gluonfr
+mxnet-cu112
+Cython
+cmake
+insightface
+

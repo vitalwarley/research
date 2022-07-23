@@ -144,7 +144,7 @@ def log_results(
             global_step=global_step if global_step >= 0 else 1,
         )
         writer.add_histogram(
-            f"{base_tag}/similarities/positive_samples",
+            f"{base_tag}/similarities/positive",
             similarities[positive_samples],
             global_step=global_step if global_step >= 0 else 1,
         )

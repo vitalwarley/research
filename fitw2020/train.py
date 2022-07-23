@@ -275,8 +275,10 @@ def train():
         similarities = np.concatenate(similarities)
         labels = np.concatenate(labels)
         best_threshold, best_accuracy, auc_score = log_results(
-            writer, "val", distances, similarities, labels
+            writer, "val", distances, similarities, labels, epoch
         )
+        writer.add_scalar("val/accuracy", best_accuracy, epoch)
+        writer.add_scalar("val/threshold", best_threshold, epoch)
 
     net.export(str(snapshots_path / "net"))
 

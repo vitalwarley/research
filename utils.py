@@ -144,7 +144,7 @@ def log_results(
             global_step=global_step if global_step >= 0 else 1,
         )
         writer.add_histogram(
-            f"{base_tag}/similarities/negative",
+            f"{base_tag}/similarities/positive_samples",
             similarities[positive_samples],
             global_step=global_step if global_step >= 0 else 1,
         )
@@ -166,7 +166,7 @@ def log_results(
     writer.add_figure(
         f"{base_tag}/distances/accuracy vs threshold",
         fig,
-        global_step=0,  # replaces figure
+        global_step=global_step if global_step >= 0 else 0,
     )
     fig, best_threshold, best_accuracy = make_accuracy_vs_threshold_plot(
         similarities, y_true, fn=lambda x, thresh: x > thresh
@@ -174,7 +174,7 @@ def log_results(
     writer.add_figure(
         f"{base_tag}/similarities/accuracy vs threshold",
         fig,
-        global_step=0,  # replaecs figure
+        global_step=global_step if global_step >= 0 else 0,
     )
 
     fig, auc_score = make_roc_plot(similarities, y_true)
@@ -184,7 +184,11 @@ def log_results(
             auc_score,
             global_step=global_step if global_step >= 0 else 0,
         )
-        writer.add_figure(f"{base_tag}/roc/plot", fig, global_step=0)  # replaces figure
+        writer.add_figure(
+            f"{base_tag}/roc/plot",
+            fig,
+            global_step=global_step if global_step >= 0 else 0,
+        )
 
     similarities[similarities <= 0] = 0  # for plotting PR curve
     writer.add_pr_curve(

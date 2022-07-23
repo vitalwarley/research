@@ -92,6 +92,7 @@
   sourcecode:
     select:
       - 'fitw2020/*.py'
+      - '*.py'
   operations:
     classification:
       main: fitw2020.train

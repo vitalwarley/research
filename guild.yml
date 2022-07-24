@@ -88,6 +88,15 @@
       requires:
         - file: train.py
 
+    finetune-test:
+      main: val
+      flags:
+        $include: train-flags-finetune
+        test:
+          arg-switch: yes
+          default: no
+
+
 - model: shadrikov
   sourcecode:
     select:

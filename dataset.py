@@ -355,12 +355,12 @@ class KinshipDataModule(LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
 
-        if stage in ("fit", None):
+        if stage in ("fit", "test", None):
             self.train_ds = FamiliesDataset(
                 self.data_dir / "train-faces-det", transform=self.train_transform
             )
 
-        if stage in ("fit", "validate", None):
+        if stage in ("fit", "validate", "test", None):
             families_dataset = FamiliesDataset(
                 self.data_dir / "val-faces-det", transform=self.val_transform
             )
@@ -387,6 +387,26 @@ class KinshipDataModule(LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
         )
+
+    def test_dataloader(self):
+        fam_ds = FamiliesDataset(
+            self.data_dir / "train-faces-det", transform=self.val_transform
+        )
+        fam_loader = DataLoader(
+            fam_ds,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )
+        pair_loader = DataLoader(
+            self.val_ds,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )
+        return fam_loader, pair_loader
 
 
 class MS1MDataModule(LightningDataModule):

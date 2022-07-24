@@ -82,16 +82,9 @@ class Model(pl.LightningModule):
         self._init_model()
         self._init_loss()
 
-        self.save_hyperparameters()
+        self._load_model()
 
-        # if passed weights is not from insightface, load it
-        # otherwise, it was loaded in _init_model
-        if self.weights and not self.insightface:
-            state_dict = torch.load(self.weights)
-            if self.weights.endswith(".ckpt"):
-                state_dict = state_dict["state_dict"]
-            # task=finetune doesn't load loss.W and loss.b for arcface loss
-            self.load_state_dict(state_dict, strict=False)
+        self.save_hyperparameters()
 
     def _init_loss(self):
         if self.loss == "arcface":
@@ -110,10 +103,9 @@ class Model(pl.LightningModule):
         self.train_accuracy = tm.Accuracy()
 
     def _init_model(self):
+
         if self.insightface:
             self.backbone = get_model("r100", fp16=False)
-            self.backbone.load_state_dict(torch.load(self.weights))
-            print("Loaded insightface model.")
         else:
             self.backbone = timm.models.create_model(
                 self.model, num_classes=0, global_pool=""
@@ -138,6 +130,29 @@ class Model(pl.LightningModule):
                 self.embedding_dim, self.num_classes
             )  # init?
             torch.nn.init.normal_(self.classification.weight, std=0.01)
+
+    def _load_model(self):
+        # if passed weights is not from insightface, load it
+        # otherwise, it was loaded in _init_model
+        if self.weights:
+            # load checkpoint without insightface
+            if not self.insightface:
+                state_dict = torch.load(self.weights)
+                if self.weights.endswith(".ckpt"):
+                    state_dict = state_dict["state_dict"]
+                # task=finetune doesn't load loss.W and loss.b for arcface loss
+                self.load_state_dict(state_dict, strict=False)
+            else:
+                # load checkpoint after finetuning
+                if self.weights.endswith(".ckpt"):
+                    state_dict = torch.load(self.weights)["state_dict"]
+                    self.load_state_dict(state_dict, strict=False)
+                    print("Loaded insightface model from ckpt.")
+                else:
+                    # load insightface checkpoint for pretraining
+                    self.backbone = get_model("r100", fp16=False)
+                    self.backbone.load_state_dict(torch.load(self.weights))
+                    print("Loaded insightface model.")
 
     def setup(self, stage):
         pass
@@ -241,7 +256,7 @@ class Model(pl.LightningModule):
         logits = self._get_logits(embeddings)
         return embeddings, logits
 
-    def __base_step(self, batch):
+    def _base_step(self, batch):
         images, labels = batch[0], batch[1]
         embeddings, logits = self(images)
 
@@ -254,7 +269,7 @@ class Model(pl.LightningModule):
         return preds, loss
 
     def training_step(self, batch, batch_idx):
-        preds, loss = self.__base_step(batch)
+        preds, loss = self._base_step(batch)
         acc = self.train_accuracy(preds, batch[1])
         self.log(
             "train/accuracy",
@@ -284,33 +299,43 @@ class Model(pl.LightningModule):
             "similarity": similarity,
         }
 
-    def validation_epoch_end(self, outputs):
-
-        # TODO: is there a better way?
-        # Without it, plot_roc raises an error because of logger.log_dir
-        if self.trainer.fast_dev_run:
-            return
-
+    def _compute_validation_dist(self, outputs):
         # TODO: works for FIW with Model. Test it for LFW and others with PretrainModel.
         embs1, embs2, labels, similarities = zip(*[batch.values() for batch in outputs])
         similarities = torch.cat(similarities, dim=0)
         labels = torch.cat(labels, dim=0)
+        # TODO: normalize embs?
         embs1 = torch.cat(embs1, dim=0)
         embs2 = torch.cat(embs2, dim=0)
         diff = embs1 - embs2
         distances = torch.linalg.norm(diff, dim=-1)
 
+        return distances, similarities, labels
+
+    def _log_validation_metrics(self, distances, similarities, labels):
+        # TODO: change tag names for 'verification'
         # logs histograms of distances and similarities,
         # plots accuracy vs thresholds for distances and similarities
         # plots pr curve, roc, and computes and logs auc
         # at last, computs best accuracy in a KFold scheme
-        best_threshold, best_accuracy, _ = log_results(
+
+        best_threshold, best_accuracy, auc = log_results(
             self.logger.experiment,
             "val",
             distances.cpu().numpy(),
             similarities.cpu().numpy(),
             labels.cpu().numpy(),
             self.trainer.global_step,
+            log_auc=False,
+        )
+
+        self.log(
+            "val/auc",
+            auc,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
         )
 
         self.log(
@@ -329,6 +354,46 @@ class Model(pl.LightningModule):
             prog_bar=True,
             logger=True,
         )
+
+    def validation_epoch_end(self, outputs):
+
+        # TODO: is there a better way?
+        # Without it, plot_roc raises an error because of logger.log_dir
+        if self.trainer.fast_dev_run:
+            return
+
+        distances, similarities, labels = self._compute_validation_dist(outputs)
+        self._log_validation_metrics(distances, similarities, labels)
+
+    def test_step(self, batch, batch_idx, dataloader_idx):
+        if dataloader_idx == 0:
+            preds, loss = self._base_step(batch)
+            acc = self.train_accuracy(preds, batch[1])
+            self.log(
+                "train/accuracy",
+                acc,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+            )
+            self.log(
+                "train/loss",
+                loss,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+                logger=True,
+            )
+        elif dataloader_idx == 1:
+            return self.validation_step(batch, batch_idx)
+
+    def test_epoch_end(self, outputs):
+        # outputs is a list of outputs for each dataloader
+
+        # verification metrics
+        distances, similarities, labels = self._compute_validation_dist(outputs[1])
+        self._log_validation_metrics(distances, similarities, labels)
 
     @staticmethod
     def add_model_specific_args(parent_parser):

@@ -16,6 +16,7 @@ import torch
 import torchmetrics as tm
 from matplotlib import pyplot as plt
 from more_itertools import grouper
+from sklearn.metrics import accuracy_score
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -26,18 +27,29 @@ from tasks import init_fiw, init_ms1m
 from utils import load_lfw, load_pairs, log_results
 
 
-def predict(model, datamodule, is_lfw: bool):
+def predict_for_classification(model, dataloader):
+    preds = []
+    labels = []
+    for image, label, _ in tqdm(dataloader):
+        outs = model(image)
+        preds.append(outs)
+        labels.append(label.numpy())
+
+    preds = np.concatenate(preds)
+    labels = np.concatenate(labels)
+    return preds, labels
+
+
+def predict_for_verification(model, dataloader, is_lfw: bool):
     distances = []
     similarities = []
     labels = []
-    for batch_idx, (first, second, label) in enumerate(
-        tqdm(datamodule.val_dataloader())
-    ):
+    for batch_idx, (first, second, label) in enumerate(tqdm(dataloader)):
         if is_lfw:
             # unflipped images
             first = first[0]
             second = second[0]
-        distance, similarity = model(first, second, label, batch_idx)
+        distance, similarity = model((first, second, label), batch_idx)
         distances.append(distance)
         similarities.append(similarity)
         labels.append(label.numpy())
@@ -48,15 +60,16 @@ def predict(model, datamodule, is_lfw: bool):
 
 
 class CompareModel(object):
-    def __init__(self, model_name: str, device: str):
+    def __init__(self, task: str, model_name: str, device: str):
         self.model_name = model_name
         self.device = device
         self.writer = None
+        self.task = task
 
     def _load_model(self):
         raise NotImplementedError
 
-    def get_embedding(self, path: Path) -> np.ndarray:
+    def get_outputs(self, path: Path) -> np.ndarray:
         raise NotImplementedError
 
     def metric(self, emb1, emb2):
@@ -110,37 +123,47 @@ class CompareModel(object):
 
     def __call__(
         self,
-        img1: torch.Tensor,
-        img2: torch.Tensor,
-        label: torch.Tensor,
-        batch_idx: int,
+        batch,
+        batch_idx: int = None,
     ) -> float:
-        emb1 = self.get_embedding(img1)
-        emb2 = self.get_embedding(img2)
-        sim = self.metric(emb1, emb2)
-        normed_emb1 = emb1 / np.linalg.norm(emb1, axis=-1, keepdims=True)
-        normed_emb2 = emb2 / np.linalg.norm(emb2, axis=-1, keepdims=True)
-        diff = normed_emb1 - normed_emb2
-        dist = np.linalg.norm(diff, axis=-1)
+        if self.task == "verification":
+            img1, img2, label = batch
+            emb1, _ = self.get_outputs(img1)
+            emb2, _ = self.get_outputs(img2)
+            sim = self.metric(emb1, emb2)
+            normed_emb1 = emb1 / np.linalg.norm(emb1, axis=-1, keepdims=True)
+            normed_emb2 = emb2 / np.linalg.norm(emb2, axis=-1, keepdims=True)
+            diff = normed_emb1 - normed_emb2
+            dist = np.linalg.norm(diff, axis=-1)
 
-        if batch_idx % 5 == 0:
-            embs = np.concatenate([emb1, emb2])
-            imgs = torch.cat([img1, img2])
-            self._log_embeddings(imgs, label.numpy(), embs, batch_idx)
+            if batch_idx % 5 == 0:
+                embs = np.concatenate([emb1, emb2])
+                imgs = torch.cat([img1, img2])
+                self._log_embeddings(imgs, label.numpy(), embs, batch_idx)
 
-        return dist, sim
+            return dist, sim
+        elif self.task == "classification":
+            outputs = self.get_outputs(batch)
+            if len(outputs) == 2:  # torch
+                logits = outputs[1]
+            else:  # mxnet
+                logits = outputs
+            preds = logits.argmax(axis=1)
+            return preds
 
 
 class CompareModelTorch(CompareModel):
     def __init__(self, insightface: bool = False, **kwargs):
         super().__init__(**kwargs)
+        # default Model params are for finetuning,
+        # therefore we will have a classification layer
         self.model = Model(weights=self.model_name, insightface=insightface)
         self.model.eval()
         self.model.to(torch.device(self.device))
 
-    def get_embedding(self, img: torch.Tensor) -> t.Embedding:
-        embs, _ = self.model(img.to(torch.device(self.device)))
-        return embs.detach().cpu().numpy()
+    def get_outputs(self, img: torch.Tensor) -> t.Embedding:
+        embs, logits = self.model(img.to(torch.device(self.device)))
+        return embs.detach().cpu().numpy(), logits.detach().cpu().numpy()
 
 
 class CompareModelMXNet(CompareModel):
@@ -151,7 +174,10 @@ class CompareModelMXNet(CompareModel):
 
     def _load_model(self):
         sym, arg_params, aux_params = mx.model.load_checkpoint(self.model_name, 0)
-        sym = sym.get_internals()["fc1_output"]
+        if self.task == "verification":
+            sym = sym.get_internals()["fc1_output"]
+        elif self.task == "classification":
+            sym = sym.get_internals()["fc_classification_output"]
         model = mx.mod.Module(symbol=sym, context=self.ctx, label_names=None)
         data_shape = (1, 3, 112, 112)
         model.bind(data_shapes=[("data", data_shape)], for_training=False)
@@ -163,7 +189,7 @@ class CompareModelMXNet(CompareModel):
         _ = model.get_outputs()[0].asnumpy()
         self.model = model
 
-    def get_embedding(self, img) -> t.Embedding:
+    def get_outputs(self, img) -> t.Embedding:
         img = img.cpu().numpy()
         # revert transform because baseline model was trained on np.uint8 images
         img = np.clip((img * 0.5 + 0.5) * 255, 0, 255).astype(np.uint8)
@@ -183,6 +209,12 @@ if __name__ == "__main__":
     parser.add_argument("--mxnet-model", type=str)
     parser.add_argument("--insightface", action="store_true")
     parser.add_argument("--dataset", type=str)
+    parser.add_argument(
+        "--task",
+        type=str,
+        default="verification",
+        choices=["verification", "classification"],
+    )
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"])
     args = parser.parse_args()
@@ -207,46 +239,65 @@ if __name__ == "__main__":
         datamodule = init_ms1m(
             data_dir="/home/warley/dev/datasets/MS1M_v3", batch_size=128
         )
-    datamodule.setup("validate")
+
+    datamodule.setup("test")
+    loaders = datamodule.test_dataloader()
+    if args.task == "classification":
+        dataloader = loaders[0]
+    elif args.task == "verification":
+        dataloader = loaders[1]
 
     # TODO: accumulate results and log all at once?
 
     if args.run_models in ["both", "torch"]:
         ### TORCH
         model = CompareModelTorch(
+            task=args.task,
             model_name=args.torch_model,
             device=args.device,
             insightface=args.insightface,
         )
         model.writer = writer  # skip save_hyperparams error
         # TODO: add arg to use both images if lfw?
-        distances, similarities, y_true = predict(
-            model, datamodule, is_lfw=(args.dataset == "lfw")
-        )
-        best_threshold, best_accuracy, auc_score = log_results(
-            writer, "torch", distances, similarities, y_true
-        )
-        print("Torch results:")
-        print(f"\tbest_threshold: {best_threshold}")
-        print(f"\tbest_accuracy: {best_accuracy}")
-        print(f"\tauc_score: {auc_score}")
+        if args.task == "classification":
+            preds, y_true = predict_for_classification(model, dataloader)
+            print("Torch results:")
+            print(f"\taccuracy: {accuracy_score(y_true, preds)}")
+        elif args.task == "verification":
+            distances, similarities, y_true = predict_for_verification(
+                model, datamodule, is_lfw=(args.dataset == "lfw")
+            )
+            best_threshold, best_accuracy, auc_score = log_results(
+                writer, "torch", distances, similarities, y_true
+            )
+            print("Torch results:")
+            print(f"\tbest_threshold: {best_threshold}")
+            print(f"\tbest_accuracy: {best_accuracy}")
+            print(f"\tauc_score: {auc_score}")
 
-        del model
-        torch.cuda.empty_cache()
+            del model
+            torch.cuda.empty_cache()
 
     if args.run_models in ["both", "mxnet"]:
         # MXNET
-        model = CompareModelMXNet(model_name=args.mxnet_model, device=args.device)
+        model = CompareModelMXNet(
+            task=args.task, model_name=args.mxnet_model, device=args.device
+        )
         model.writer = writer
-        distances, similarities, y_true = predict(
-            model, datamodule, is_lfw=(args.dataset == "lfw")
-        )
-        best_threshold, best_accuracy, auc_score = log_results(
-            writer, "mxnet", distances, similarities, y_true
-        )
-        print("MXNET results:")
-        print(f"\tbest_threshold: {best_threshold}")
-        print(f"\tbest_accuracy: {best_accuracy}")
-        print(f"\tauc_score: {auc_score}")
+        if args.task == "classification":
+            preds, y_true = predict_for_classification(model, dataloader)
+            print("MXNet results:")
+            print(f"\taccuracy: {accuracy_score(y_true, preds)}")
+        elif args.task == "verification":
+            distances, similarities, y_true = predict_for_verification(
+                model, dataloader, is_lfw=(args.dataset == "lfw")
+            )
+            best_threshold, best_accuracy, auc_score = log_results(
+                writer, "mxnet", distances, similarities, y_true
+            )
+            print("MXNET results:")
+            print(f"\tbest_threshold: {best_threshold}")
+            print(f"\tbest_accuracy: {best_accuracy}")
+            print(f"\tauc_score: {auc_score}")
 
     writer.close()

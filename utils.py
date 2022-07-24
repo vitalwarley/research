@@ -132,7 +132,13 @@ def make_roc_plot(values, y_true):
 
 
 def log_results(
-    writer, base_tag, distances, similarities, y_true, global_step: int = -1
+    writer,
+    base_tag,
+    distances,
+    similarities,
+    y_true,
+    global_step: int = -1,
+    log_auc: bool = True,
 ):
     positive_samples = y_true == 1
     negative_samples = y_true == 0
@@ -179,11 +185,12 @@ def log_results(
 
     fig, auc_score = make_roc_plot(similarities, y_true)
     if not np.isnan(auc_score):
-        writer.add_scalar(
-            f"{base_tag}/roc/auc",
-            auc_score,
-            global_step=global_step if global_step >= 0 else 0,
-        )
+        if log_auc:
+            writer.add_scalar(
+                f"{base_tag}/roc/auc",
+                auc_score,
+                global_step=global_step if global_step >= 0 else 0,
+            )
         writer.add_figure(
             f"{base_tag}/roc/plot",
             fig,

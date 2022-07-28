@@ -11,6 +11,7 @@ from torchvision import datasets, transforms
 from tqdm import tqdm
 
 import mytypes as t
+from callbacks import ModelInspectionCallback
 from model import Model, PretrainModel
 from tasks import init_cifar, init_fiw, init_ms1m, init_parser
 
@@ -26,6 +27,7 @@ if __name__ == "__main__":
         args,
         devices=1,
         accelerator="gpu",
+        # callbacks=[ModelInspectionCallback()]
     )
 
     print(args)

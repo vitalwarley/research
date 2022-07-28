@@ -30,8 +30,8 @@ from utils import load_lfw, load_pairs, log_results
 def predict_for_classification(model, dataloader):
     preds = []
     labels = []
-    for image, label, _ in tqdm(dataloader):
-        outs = model(image)
+    for batch_idx, (image, label, _) in enumerate(tqdm(dataloader)):
+        outs = model(image, batch_idx)
         preds.append(outs)
         labels.append(label.numpy())
 
@@ -86,7 +86,7 @@ class CompareModel(object):
             np.char.add(pair_names, sample_idx_str_arr), label_str_arr
         )
         model_name = self.__class__.__name__
-        writer.add_embedding(
+        self.writer.add_embedding(
             embeddings,
             metadata=labels_str,
             label_img=images,
@@ -98,28 +98,32 @@ class CompareModel(object):
         negative_samples = labels == 0
 
         if any(positive_samples):
-            writer.add_histogram(
+            self.writer.add_histogram(
                 f"{model_name}/embeddings distribution/postive samples/image 1",
                 embeddings[:bs][labels == 1],
                 global_step=batch_idx,
             )
-            writer.add_histogram(
+            self.writer.add_histogram(
                 f"{model_name}/embeddings distribution/positive samples/image 2",
                 embeddings[bs:][labels == 1],
                 global_step=batch_idx,
             )
 
         if any(negative_samples):
-            writer.add_histogram(
+            self.writer.add_histogram(
                 f"{model_name}/embeddings distribution/negative samples/image 1",
                 embeddings[:bs][labels == 0],
                 global_step=batch_idx,
             )
-            writer.add_histogram(
+            self.writer.add_histogram(
                 f"{model_name}/embeddings distribution/negative samples/image 2",
                 embeddings[bs:][labels == 0],
                 global_step=batch_idx,
             )
+
+    def _log_logits(self, logits: np.ndarray, batch_idx: int):
+        model_name = self.__class__.__name__
+        self.writer.add_histogram(f"{model_name}/logits", logits, batch_idx)
 
     def __call__(
         self,
@@ -128,8 +132,19 @@ class CompareModel(object):
     ) -> float:
         if self.task == "verification":
             img1, img2, label = batch
-            emb1, _ = self.get_outputs(img1)
-            emb2, _ = self.get_outputs(img2)
+
+            outputs = self.get_outputs(img1)
+            if len(outputs) == 2:  # torch
+                emb1 = outputs[1]
+            else:  # mxnet
+                emb1 = outputs
+
+            outputs = self.get_outputs(img2)
+            if len(outputs) == 2:  # torch
+                emb2 = outputs[1]
+            else:  # mxnet
+                emb2 = outputs
+
             sim = self.metric(emb1, emb2)
             normed_emb1 = emb1 / np.linalg.norm(emb1, axis=-1, keepdims=True)
             normed_emb2 = emb2 / np.linalg.norm(emb2, axis=-1, keepdims=True)
@@ -148,6 +163,10 @@ class CompareModel(object):
                 logits = outputs[1]
             else:  # mxnet
                 logits = outputs
+
+            if batch_idx % 5 == 0:
+                self._log_logits(logits, batch_idx)
+
             preds = logits.argmax(axis=1)
             return preds
 
@@ -261,11 +280,13 @@ if __name__ == "__main__":
         # TODO: add arg to use both images if lfw?
         if args.task == "classification":
             preds, y_true = predict_for_classification(model, dataloader)
+            acc = accuracy_score(y_true, preds)
             print("Torch results:")
-            print(f"\taccuracy: {accuracy_score(y_true, preds)}")
+            print(f"\taccuracy: {acc}")
+            writer.add_scalar("accuracy/torch", acc, 0)
         elif args.task == "verification":
             distances, similarities, y_true = predict_for_verification(
-                model, datamodule, is_lfw=(args.dataset == "lfw")
+                model, dataloader, is_lfw=(args.dataset == "lfw")
             )
             best_threshold, best_accuracy, auc_score = log_results(
                 writer, "torch", distances, similarities, y_true
@@ -286,8 +307,10 @@ if __name__ == "__main__":
         model.writer = writer
         if args.task == "classification":
             preds, y_true = predict_for_classification(model, dataloader)
+            acc = accuracy_score(y_true, preds)
             print("MXNet results:")
-            print(f"\taccuracy: {accuracy_score(y_true, preds)}")
+            print(f"\taccuracy: {acc}")
+            writer.add_scalar("accuracy/mxnet", acc, 0)
         elif args.task == "verification":
             distances, similarities, y_true = predict_for_verification(
                 model, dataloader, is_lfw=(args.dataset == "lfw")

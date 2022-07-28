@@ -304,10 +304,11 @@ class Model(pl.LightningModule):
         embs1, embs2, labels, similarities = zip(*[batch.values() for batch in outputs])
         similarities = torch.cat(similarities, dim=0)
         labels = torch.cat(labels, dim=0)
-        # TODO: normalize embs?
         embs1 = torch.cat(embs1, dim=0)
         embs2 = torch.cat(embs2, dim=0)
-        diff = embs1 - embs2
+        normed_emb1 = embs1 / torch.linalg.norm(embs1, axis=-1, keepdims=True)
+        normed_emb2 = embs2 / torch.linalg.norm(embs2, axis=-1, keepdims=True)
+        diff = normed_emb1 - normed_emb2
         distances = torch.linalg.norm(diff, dim=-1)
 
         return distances, similarities, labels

@@ -96,6 +96,22 @@
           arg-switch: yes
           default: no
 
+    validate:
+      main: val_shadrikov
+      flags:
+        run-models: both
+        torch-model: ''
+        mxnet-model: ''
+        insightface: 
+          arg-switch: yes
+        dataset: fiw
+        task: verification
+        batch-size: 24
+        device: cuda
+      requires:
+          # TODO: operations?
+        - file: run/
+        - file: ../datasets/fiw
 
 - model: shadrikov
   sourcecode:

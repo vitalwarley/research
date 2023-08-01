@@ -1,5 +1,13 @@
+import os
+import sys
 import gc
 from sklearn.metrics import roc_curve,auc
+
+FILE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, f'{FILE}/..')
+print(sys.path)
+
+
 from Track1.dataset import *
 from Track1.models import *
 from Track1.utils import *

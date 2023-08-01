@@ -1,16 +1,19 @@
 import argparse
 import numpy as np
 import gc
-from Track1.models import Net
 import sys
 import torch
 from keras.preprocessing import image
 import os
-from Track1.utils import *
 from tqdm import tqdm
 
 
 FILE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, f'{FILE}/..')
+
+
+from Track1.models import Net
+from Track1.utils import *
 
 
 def baseline_model(model_path):

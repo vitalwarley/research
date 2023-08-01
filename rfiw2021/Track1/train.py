@@ -1,10 +1,17 @@
+import os
+import sys
 import gc
 from sklearn.metrics import roc_curve,auc
+
+FILE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, f'{FILE}/..')
+
 from Track1.dataset import *
 from Track1.models import *
 from torch.optim import SGD
 from Track1.losses import *
 import argparse
+
 
 
 def training(args):

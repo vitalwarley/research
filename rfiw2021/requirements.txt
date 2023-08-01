@@ -1,0 +1,9 @@
+tqdm
+matplotlib
+scikit-learn
+torch
+torchvision
+keras
+tensorflow
+
+--extra-index-url https://download.pytorch.org/whl/cu118

@@ -1,2 +1,14 @@
+[tool.black]
+line-length = 120
+target-version = ['py311']
+
+[tool.flake8]
+max-line-length = 120
+exclude = [".git", "__pycache__", "dist"]
+max-complexity = 10
+
 [tool.isort]
+atomic = true
 profile = "black"
+line_length = 120
+skip_gitignore = true

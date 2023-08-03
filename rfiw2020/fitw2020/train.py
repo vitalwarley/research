@@ -6,6 +6,10 @@ import gluonfr
 import mxnet as mx
 import numpy as np
 import torch
+
+# guild
+from fitw2020 import mytypes as t
+from fitw2020.dataset import FamiliesDataset
 from insightface import model_zoo
 from insightface.utils.face_align import norm_crop
 from mxnet import autograd as ag
@@ -13,10 +17,6 @@ from mxnet import gluon
 from mxnet.gluon.data.vision import transforms
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-
-# guild
-from fitw2020 import mytypes as t
-from fitw2020.dataset import FamiliesDataset
 from val_shadrikov import log_results
 
 gpu = 0
@@ -62,9 +62,7 @@ def train():
     # sets transforms
     transform_img_train = transforms.Compose(
         [
-            transforms.RandomColorJitter(
-                brightness=jitter_param, contrast=jitter_param, saturation=jitter_param
-            ),
+            transforms.RandomColorJitter(brightness=jitter_param, contrast=jitter_param, saturation=jitter_param),
             transforms.RandomLighting(lighting_param),
             # ReJPGTransform(0.3, 70),
             transforms.ToTensor(),
@@ -97,9 +95,7 @@ def train():
         norm_sym = mx.sym.sqrt(mx.sym.sum(sym**2, axis=1, keepdims=True) + 1e-6)
         sym = mx.sym.broadcast_div(sym, norm_sym, name="fc_normed") * 32
     # adds classification layer
-    sym = mx.sym.FullyConnected(
-        sym, num_hidden=num_families, name="fc_classification", lr_mult=1
-    )
+    sym = mx.sym.FullyConnected(sym, num_hidden=num_families, name="fc_classification", lr_mult=1)
     net = gluon.SymbolBlock([sym], [mx.sym.var("data")])
     net.load_parameters(
         str(weight_path),
@@ -185,36 +181,21 @@ def train():
                 trainer.set_learning_rate(cur_lr)
                 warmup_iter += 1
             elif cooldown_iter > cooldown_start:
-                cur_lr = (end_iter - cooldown_iter) * (
-                    trainer.learning_rate - end_lr
-                ) / cooldown + end_lr
+                cur_lr = (end_iter - cooldown_iter) * (trainer.learning_rate - end_lr) / cooldown + end_lr
                 trainer.set_learning_rate(cur_lr)
             cooldown_iter += 1
-            data = mx.gluon.utils.split_and_load(
-                batch[0] * 255, ctx_list=ctx_list, even_split=False
-            )
-            gts = mx.gluon.utils.split_and_load(
-                batch[1], ctx_list=ctx_list, even_split=False
-            )
+            data = mx.gluon.utils.split_and_load(batch[0] * 255, ctx_list=ctx_list, even_split=False)
+            gts = mx.gluon.utils.split_and_load(batch[1], ctx_list=ctx_list, even_split=False)
             with ag.record():
                 outputs = [net(X) for X in data]
-                writer.add_histogram(
-                    "logits", outputs[0].asnumpy(), epoch * num_batch + i
-                )
-                if np.any(
-                    [np.any(np.isnan(o.asnumpy())) for os in outputs for o in os]
-                ):
+                writer.add_histogram("logits", outputs[0].asnumpy(), epoch * num_batch + i)
+                if np.any([np.any(np.isnan(o.asnumpy())) for os in outputs for o in os]):
                     print("OOps!")
                     raise RuntimeError
-                cur_losses = [
-                    [cur_loss(o, l) for (o, l) in zip(outputs, gts)]
-                    for _, cur_loss in all_losses
-                ]
+                cur_losses = [[cur_loss(o, l) for (o, l) in zip(outputs, gts)] for _, cur_loss in all_losses]
                 metric.update(gts, outputs)
                 combined_losses = [cur[0] for cur in zip(*cur_losses)]
-                if np.any(
-                    [np.any(np.isnan(loss_.asnumpy())) for loss_ in cur_losses[0]]
-                ):
+                if np.any([np.any(np.isnan(loss_.asnumpy())) for loss_ in cur_losses[0]]):
                     print("OOps2!")
                     raise RuntimeError
             for combined_loss in combined_losses:
@@ -222,9 +203,7 @@ def train():
 
             trainer.step(batch_size, ignore_stale_grad=True)
             for idx, cur_loss in enumerate(cur_losses):
-                losses[idx] += sum(
-                    [loss_.mean().asscalar() for loss_ in cur_loss]
-                ) / len(cur_loss)
+                losses[idx] += sum([loss_.mean().asscalar() for loss_ in cur_loss]) / len(cur_loss)
 
         # if (epoch + 1) % 10 == 0:
         #     net.save_parameters(
@@ -232,9 +211,7 @@ def train():
         #     )
 
         losses = [loss_ / num_batch for loss_ in losses]
-        losses_str = [
-            f"{l_name}: {losses[idx]:.3f}" for idx, (l_name, _) in enumerate(all_losses)
-        ]
+        losses_str = [f"{l_name}: {losses[idx]:.3f}" for idx, (l_name, _) in enumerate(all_losses)]
         losses_str = "; ".join(losses_str)
         m_name, m_val = metric.get()
         losses_str += f"| {m_name}: {m_val}"
@@ -250,21 +227,13 @@ def train():
         for i, batch in tqdm(enumerate(val_dataloader), total=n_val_batches):
             # img1, img2, label
             batch = [batch[0].numpy(), batch[1].numpy(), batch[2].numpy()]
-            img1 = mx.gluon.utils.split_and_load(
-                batch[0] * 255, ctx_list=ctx_list, even_split=False
-            )[0]
-            img2 = mx.gluon.utils.split_and_load(
-                batch[1] * 255, ctx_list=ctx_list, even_split=False
-            )[0]
+            img1 = mx.gluon.utils.split_and_load(batch[0] * 255, ctx_list=ctx_list, even_split=False)[0]
+            img2 = mx.gluon.utils.split_and_load(batch[1] * 255, ctx_list=ctx_list, even_split=False)[0]
             embeddings1 = net(img1).asnumpy()
             embeddings2 = net(img2).asnumpy()
             sim = cosine(embeddings1, embeddings2)
-            normed_emb1 = embeddings1 / np.linalg.norm(
-                embeddings1, axis=-1, keepdims=True
-            )
-            normed_emb2 = embeddings2 / np.linalg.norm(
-                embeddings2, axis=-1, keepdims=True
-            )
+            normed_emb1 = embeddings1 / np.linalg.norm(embeddings1, axis=-1, keepdims=True)
+            normed_emb2 = embeddings2 / np.linalg.norm(embeddings2, axis=-1, keepdims=True)
             diff = normed_emb1 - normed_emb2
             dist = np.linalg.norm(diff, axis=-1)
             distances.append(dist)
@@ -274,9 +243,7 @@ def train():
         distances = np.concatenate(distances)
         similarities = np.concatenate(similarities)
         labels = np.concatenate(labels)
-        best_threshold, best_accuracy, auc_score = log_results(
-            writer, "val", distances, similarities, labels, epoch
-        )
+        best_threshold, best_accuracy, auc_score = log_results(writer, "val", distances, similarities, labels, epoch)
         writer.add_scalar("val/accuracy", best_accuracy, epoch)
         writer.add_scalar("val/threshold", best_threshold, epoch)
 

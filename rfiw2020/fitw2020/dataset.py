@@ -7,16 +7,13 @@ from typing import Any, Callable, Generator, List, Optional, Tuple, Union
 import cv2
 import mxnet as mx
 import numpy as np
+from fitw2020 import mytypes as t
 from mxnet.gluon.data import Dataset
 from mxnet.gluon.data.vision import transforms
 
-from fitw2020 import mytypes as t
-
 
 class TestPairs(Dataset):
-    def __init__(
-        self, img_root: Path, csv_path: Path, save_ptype: bool = False, transform=None
-    ):
+    def __init__(self, img_root: Path, csv_path: Path, save_ptype: bool = False, transform=None):
         super(TestPairs, self).__init__()
         self.img_root = img_root
         self._transform = transform
@@ -41,9 +38,7 @@ class TestPairs(Dataset):
 
 
 class RetrievalDataset(object):
-    def __init__(
-        self, gallery_root: Path, probe_root: Path, gallery_csv: Path, probe_csv: Path
-    ):
+    def __init__(self, gallery_root: Path, probe_root: Path, gallery_csv: Path, probe_csv: Path):
         super(RetrievalDataset, self).__init__()
         self.probes = []
         self.gallery = []
@@ -62,9 +57,7 @@ class RetrievalDataset(object):
 
 
 class FamiliesDataset(Dataset):
-    def __init__(
-        self, families_root: Path, uniform_family: bool = False, transform=None
-    ):
+    def __init__(self, families_root: Path, uniform_family: bool = False, transform=None):
         super(FamiliesDataset, self).__init__()
         self.families_root = families_root
         self._transform = transform
@@ -110,22 +103,14 @@ class PairDataset(Dataset):
         self.families = families_dataset
         if mining_strategy == "random":
             if num_pairs > len(self.families) ** 2:
-                logging.info(
-                    f"number of mined pairs is greater than number of all pairs"
-                )
+                logging.info(f"number of mined pairs is greater than number of all pairs")
             first_elems = random.choices(self.families.seq, k=num_pairs)
             second_elems = random.choices(self.families.seq, k=num_pairs)
             seq = zip(first_elems, second_elems)
-            self.seq = [
-                (img1, img2, int(family1 == family2))
-                for (img1, family1, _), (img2, family2, _) in seq
-            ]
+            self.seq = [(img1, img2, int(family1 == family2)) for (img1, family1, _), (img2, family2, _) in seq]
         elif mining_strategy == "all":
             seq = combinations(self.families.seq, 2)
-            self.seq = [
-                (img1, img2, int(family1 == family2))
-                for (img1, family1, _), (img2, family2, _) in seq
-            ]
+            self.seq = [(img1, img2, int(family1 == family2)) for (img1, family1, _), (img2, family2, _) in seq]
         elif mining_strategy == "balanced_random":
             assert num_pairs % 2 == 0
             num_positive = num_pairs // 2
@@ -134,20 +119,14 @@ class PairDataset(Dataset):
             anchor_family = []
             negative_family = []
             num_families = len(self.families.families)
-            for cur_family_idx, negative_idx in zip(
-                anchor_family_idx, negative_family_idx
-            ):
+            for cur_family_idx, negative_idx in zip(anchor_family_idx, negative_family_idx):
                 family_idx = int(cur_family_idx * num_families)
                 anchor_family.append(self.families.families[family_idx])
                 negative_sample = self.families.families[:family_idx]
                 if family_idx < num_families - 1:
                     negative_sample += self.families.families[family_idx + 1 :]
-                negative_family.append(
-                    negative_sample[int(negative_idx * (num_families - 1))]
-                )
-            triplets = list(
-                starmap(self.mine_triplets, zip(anchor_family, negative_family))
-            )
+                negative_family.append(negative_sample[int(negative_idx * (num_families - 1))])
+            triplets = list(starmap(self.mine_triplets, zip(anchor_family, negative_family)))
             positive_pairs = [(anchor, positive, 1) for anchor, positive, _ in triplets]
             negative_pairs = [(anchor, negative, 0) for anchor, _, negative in triplets]
             self.seq = positive_pairs + negative_pairs
@@ -159,9 +138,7 @@ class PairDataset(Dataset):
             raise NotImplementedError
 
     @staticmethod
-    def mine_triplets(
-        anchor_family: List[Path], negative_family: List[Path]
-    ) -> Tuple[Path, Path, Path]:
+    def mine_triplets(anchor_family: List[Path], negative_family: List[Path]) -> Tuple[Path, Path, Path]:
         def random_person_img(family: List[Path]) -> Tuple[int, Path]:
             idx = np.random.randint(0, len(family))
             person = family[idx]
@@ -196,6 +173,4 @@ class ImgDataset(Dataset):
         return len(self.paths)
 
     def __getitem__(self, idx: int) -> t.MxImg:
-        return (
-            mx.img.imread(str(self.paths[idx])).transpose((2, 0, 1)).astype(np.float32)
-        )
+        return mx.img.imread(str(self.paths[idx])).transpose((2, 0, 1)).astype(np.float32)

@@ -15,11 +15,7 @@ tqdm
 virtualenv               
 yolov5
 more_itertools
+torch==1.11.0+cu113
+torchvision==0.12.0+cu113
 
-# shadrikov (fitw2020)
-gluonfr
-mxnet-cu112
-Cython
-cmake
-insightface
-
+--extra-index-url https://download.pytorch.org/whl/cu113/

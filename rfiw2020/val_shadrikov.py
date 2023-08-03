@@ -8,22 +8,21 @@ from typing import Callable, List, Tuple
 
 import cv2
 import mxnet as mx
+import mytypes as t
 import numpy as np
 import onnxruntime as ort
 import pandas as pd
 import seaborn as sns
 import torch
 import torchmetrics as tm
+from dataset import FamiliesDataset, ImgDataset, PairDataset
 from matplotlib import pyplot as plt
+from model import Model
 from more_itertools import grouper
 from sklearn.metrics import accuracy_score
+from tasks import init_fiw, init_ms1m
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-
-import mytypes as t
-from dataset import FamiliesDataset, ImgDataset, PairDataset
-from model import Model
-from tasks import init_fiw, init_ms1m
 from utils import load_lfw, load_pairs, log_results
 
 
@@ -82,9 +81,7 @@ class CompareModel(object):
         pair_names = np.array(["IMG1", "IMG2"]).repeat(bs)
         sample_idx_str_arr = np.tile([f"_SAMPLE_{i}" for i in range(bs)], 2)
         label_str_arr = np.tile([f"_LABEL_{i.item()}" for i in labels], 2)
-        labels_str = np.char.add(
-            np.char.add(pair_names, sample_idx_str_arr), label_str_arr
-        )
+        labels_str = np.char.add(np.char.add(pair_names, sample_idx_str_arr), label_str_arr)
         model_name = self.__class__.__name__
         self.writer.add_embedding(
             embeddings,
@@ -221,9 +218,7 @@ class CompareModelMXNet(CompareModel):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--run-models", type=str, default="both", choices=["both", "torch", "mxnet"]
-    )
+    parser.add_argument("--run-models", type=str, default="both", choices=["both", "torch", "mxnet"])
     parser.add_argument("--torch-model", type=str)
     parser.add_argument("--mxnet-model", type=str)
     parser.add_argument("--insightface", action="store_true")
@@ -255,9 +250,7 @@ if __name__ == "__main__":
             num_workers=8,
         )
     elif args.dataset == "lfw":
-        datamodule = init_ms1m(
-            data_dir="/home/warley/dev/datasets/MS1M_v3", batch_size=128
-        )
+        datamodule = init_ms1m(data_dir="/home/warley/dev/datasets/MS1M_v3", batch_size=128)
 
     datamodule.setup("test")
     loaders = datamodule.test_dataloader()
@@ -288,9 +281,7 @@ if __name__ == "__main__":
             distances, similarities, y_true = predict_for_verification(
                 model, dataloader, is_lfw=(args.dataset == "lfw")
             )
-            best_threshold, best_accuracy, auc_score = log_results(
-                writer, "torch", distances, similarities, y_true
-            )
+            best_threshold, best_accuracy, auc_score = log_results(writer, "torch", distances, similarities, y_true)
             print("Torch results:")
             print(f"\tbest_threshold: {best_threshold}")
             print(f"\tbest_accuracy: {best_accuracy}")
@@ -301,9 +292,7 @@ if __name__ == "__main__":
 
     if args.run_models in ["both", "mxnet"]:
         # MXNET
-        model = CompareModelMXNet(
-            task=args.task, model_name=args.mxnet_model, device=args.device
-        )
+        model = CompareModelMXNet(task=args.task, model_name=args.mxnet_model, device=args.device)
         model.writer = writer
         if args.task == "classification":
             preds, y_true = predict_for_classification(model, dataloader)
@@ -315,9 +304,7 @@ if __name__ == "__main__":
             distances, similarities, y_true = predict_for_verification(
                 model, dataloader, is_lfw=(args.dataset == "lfw")
             )
-            best_threshold, best_accuracy, auc_score = log_results(
-                writer, "mxnet", distances, similarities, y_true
-            )
+            best_threshold, best_accuracy, auc_score = log_results(writer, "mxnet", distances, similarities, y_true)
             print("MXNET results:")
             print(f"\tbest_threshold: {best_threshold}")
             print(f"\tbest_accuracy: {best_accuracy}")

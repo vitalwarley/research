@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Generator, List, Optional, Tuple, Union
 
 import cv2
+import mytypes as t
 import numpy as np
 import pandas as pd
 import torch
@@ -15,13 +16,9 @@ from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
-import mytypes as t
-
 
 class TestPairs(Dataset):
-    def __init__(
-        self, img_root: Path, csv_path: Path, save_ptype: bool = False, transform=None
-    ):
+    def __init__(self, img_root: Path, csv_path: Path, save_ptype: bool = False, transform=None):
         super(TestPairs, self).__init__()
         self.img_root = img_root
         self._transform = transform
@@ -46,9 +43,7 @@ class TestPairs(Dataset):
 
 
 class RetrievalDataset(object):
-    def __init__(
-        self, gallery_root: Path, probe_root: Path, gallery_csv: Path, probe_csv: Path
-    ):
+    def __init__(self, gallery_root: Path, probe_root: Path, gallery_csv: Path, probe_csv: Path):
         super(RetrievalDataset, self).__init__()
         self.probes = []
         self.gallery = []
@@ -67,9 +62,7 @@ class RetrievalDataset(object):
 
 
 class FamiliesDataset(Dataset):
-    def __init__(
-        self, families_root: Path, uniform_family: bool = False, transform=None
-    ):
+    def __init__(self, families_root: Path, uniform_family: bool = False, transform=None):
         super(FamiliesDataset, self).__init__()
         self.families_root = families_root
         self._transform = transform
@@ -108,9 +101,7 @@ class FamiliesDataset(Dataset):
 
 
 class MS1MDataset(Dataset):
-    def __init__(
-        self, root: Path, transform: nn.Module = None, seq: pd.DataFrame = None
-    ):
+    def __init__(self, root: Path, transform: nn.Module = None, seq: pd.DataFrame = None):
         super(MS1MDataset, self).__init__()
         self.root = root
         self._transform = transform
@@ -236,22 +227,14 @@ class PairDataset(Dataset):
                     )
         elif mining_strategy == "random":
             if num_pairs > len(self.families) ** 2:
-                logging.info(
-                    "number of mined pairs is greater than number of all pairs"
-                )
+                logging.info("number of mined pairs is greater than number of all pairs")
             first_elems = random.choices(self.families.seq, k=num_pairs)
             second_elems = random.choices(self.families.seq, k=num_pairs)
             seq = zip(first_elems, second_elems)
-            self.seq = [
-                (img1, img2, int(family1 == family2))
-                for (img1, family1, _), (img2, family2, _) in seq
-            ]
+            self.seq = [(img1, img2, int(family1 == family2)) for (img1, family1, _), (img2, family2, _) in seq]
         elif mining_strategy == "all":
             seq = combinations(self.families.seq, 2)
-            self.seq = [
-                (img1, img2, int(family1 == family2))
-                for (img1, family1, _), (img2, family2, _) in seq
-            ]
+            self.seq = [(img1, img2, int(family1 == family2)) for (img1, family1, _), (img2, family2, _) in seq]
         elif mining_strategy == "balanced_random":
             assert num_pairs % 2 == 0
             num_positive = num_pairs // 2
@@ -260,20 +243,14 @@ class PairDataset(Dataset):
             anchor_family = []
             negative_family = []
             num_families = len(self.families.families)
-            for cur_family_idx, negative_idx in zip(
-                anchor_family_idx, negative_family_idx
-            ):
+            for cur_family_idx, negative_idx in zip(anchor_family_idx, negative_family_idx):
                 family_idx = int(cur_family_idx * num_families)
                 anchor_family.append(self.families.families[family_idx])
                 negative_sample = self.families.families[:family_idx]
                 if family_idx < num_families - 1:
                     negative_sample += self.families.families[family_idx + 1 :]
-                negative_family.append(
-                    negative_sample[int(negative_idx * (num_families - 1))]
-                )
-            triplets = list(
-                starmap(self.mine_triplets, zip(anchor_family, negative_family))
-            )
+                negative_family.append(negative_sample[int(negative_idx * (num_families - 1))])
+            triplets = list(starmap(self.mine_triplets, zip(anchor_family, negative_family)))
             positive_pairs = [(anchor, positive, 1) for anchor, positive, _ in triplets]
             negative_pairs = [(anchor, negative, 0) for anchor, _, negative in triplets]
             self.seq = positive_pairs + negative_pairs
@@ -285,9 +262,7 @@ class PairDataset(Dataset):
             raise NotImplementedError
 
     @staticmethod
-    def mine_triplets(
-        anchor_family: List[Path], negative_family: List[Path]
-    ) -> Tuple[Path, Path, Path]:
+    def mine_triplets(anchor_family: List[Path], negative_family: List[Path]) -> Tuple[Path, Path, Path]:
         def random_person_img(family: List[Path]) -> Tuple[int, Path]:
             idx = np.random.randint(0, len(family))
             person = family[idx]
@@ -354,16 +329,11 @@ class KinshipDataModule(LightningDataModule):
         pass  # don't need it
 
     def setup(self, stage: Optional[str] = None):
-
         if stage in ("fit", "test", None):
-            self.train_ds = FamiliesDataset(
-                self.data_dir / "train-faces-det", transform=self.train_transform
-            )
+            self.train_ds = FamiliesDataset(self.data_dir / "train-faces-det", transform=self.train_transform)
 
         if stage in ("fit", "validate", "test", None):
-            families_dataset = FamiliesDataset(
-                self.data_dir / "val-faces-det", transform=self.val_transform
-            )
+            families_dataset = FamiliesDataset(self.data_dir / "val-faces-det", transform=self.val_transform)
             self.val_ds = PairDataset(
                 families_dataset,
                 mining_strategy=self.mining_strategy,
@@ -389,9 +359,7 @@ class KinshipDataModule(LightningDataModule):
         )
 
     def test_dataloader(self):
-        fam_ds = FamiliesDataset(
-            self.data_dir / "train-faces-det", transform=self.val_transform
-        )
+        fam_ds = FamiliesDataset(self.data_dir / "train-faces-det", transform=self.val_transform)
         fam_loader = DataLoader(
             fam_ds,
             batch_size=self.batch_size,
@@ -428,9 +396,7 @@ class MS1MDataModule(LightningDataModule):
         self.train_save_path = str(self.data_dir / "train.npy")
         self.label_path = str(Path(self.data_dir) / "label.txt")
         self.batch_size = batch_size
-        self.train_transform, self.val_transform = (
-            transforms if transforms is not None else (None, None)
-        )
+        self.train_transform, self.val_transform = transforms if transforms is not None else (None, None)
         self.num_workers = num_workers
         self.debug = debug
         self.val_targets = val_targets
@@ -459,27 +425,18 @@ class MS1MDataModule(LightningDataModule):
         np.save(self.train_save_path, df.values)
 
     def setup(self, stage: Optional[str] = None):
-
         # add pretrain on MS-Celeb-1M
         if stage in (None, "fit"):
             # self.data_dir should be 'fitw2020'
             train_arr = np.load(self.train_save_path, allow_pickle=True)
-            self.train_ds = MS1MDataset(
-                self.data_dir, transform=self.train_transform, seq=train_arr
-            )
+            self.train_ds = MS1MDataset(self.data_dir, transform=self.train_transform, seq=train_arr)
 
         if stage in ("fit", "validate"):
-            self.lfw = EvalPretrainDataset(
-                self.data_dir, target="lfw", transform=self.val_transform
-            )
+            self.lfw = EvalPretrainDataset(self.data_dir, target="lfw", transform=self.val_transform)
 
         if stage == "test":
-            self.cfp_fp = EvalPretrainDataset(
-                self.data_dir, target="cfp_fp", transform=self.val_transform
-            )
-            self.agedb_30 = EvalPretrainDataset(
-                self.data_dir, target="agedb_30", transform=self.val_transform
-            )
+            self.cfp_fp = EvalPretrainDataset(self.data_dir, target="cfp_fp", transform=self.val_transform)
+            self.agedb_30 = EvalPretrainDataset(self.data_dir, target="agedb_30", transform=self.val_transform)
 
     def train_dataloader(self):
         return DataLoader(

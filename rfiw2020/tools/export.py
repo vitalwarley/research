@@ -5,15 +5,13 @@ import numpy as np
 import onnx
 import onnx_graphsurgeon as gs
 import torch
+from model import Model, PretrainModel
 from onnx import checker
 from pytorch_lightning import Trainer, seed_everything
-
-from model import Model, PretrainModel
 from tasks import init_fiw, init_parser
 
 
 def convert_mxnet():
-
     sym = "fitw2020/models/arcface_r100_v1-symbol.json"
     params = "fitw2020/models/arcface_r100_v1-0000.params"
 
@@ -47,9 +45,7 @@ def convert_mxnet():
     prelu_nodes = [node for node in graph.nodes if node.op == "PRelu"]
     for node in prelu_nodes:
         constant_input = node.inputs[1]
-        new_constant = gs.Constant(
-            name=constant_input.name, values=constant_input.values.reshape(-1, 1, 1)
-        )
+        new_constant = gs.Constant(name=constant_input.name, values=constant_input.values.reshape(-1, 1, 1))
         node.inputs = [node.inputs[0], new_constant]
 
     # onnxruntime.capi.onnxruntime_pybind11_state.Fail: [ONNXRuntimeError] : 1 : FAIL : Node:fc1 Output:fc1 [ShapeInferenceError] Mismatch between number of source and target dimensions. Source=4 Target=2

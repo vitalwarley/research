@@ -6,16 +6,15 @@ import pytorch_lightning as pl
 import timm
 import torch
 import torchmetrics as tm
+from config import LOGGER
+from insight_face.recognition.arcface_torch.backbones import get_model
+from lr_scheduler import PolyScheduler
 from pytorch_metric_learning import losses
 from sklearn.model_selection import KFold
 from torch import nn
 from torch.nn import functional as F
 from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import MultiStepLR, StepLR
-
-from config import LOGGER
-from insight_face.recognition.arcface_torch.backbones import get_model
-from lr_scheduler import PolyScheduler
 from utils import log_results
 
 
@@ -103,13 +102,10 @@ class Model(pl.LightningModule):
         self.train_accuracy = tm.Accuracy()
 
     def _init_model(self):
-
         if self.insightface:
             self.backbone = get_model("r100", fp16=False)
         else:
-            self.backbone = timm.models.create_model(
-                self.model, num_classes=0, global_pool=""
-            )
+            self.backbone = timm.models.create_model(self.model, num_classes=0, global_pool="")
             out_features = self.backbone(torch.randn(1, 3, 112, 112))
             self._out_features = torch.flatten(out_features, 1).shape[1]
             # TODO: rename fc to embeddings/features
@@ -126,9 +122,7 @@ class Model(pl.LightningModule):
         if self.loss != "arcface":
             # Classification layer
             # TODO: temporary name
-            self.classification = torch.nn.Linear(
-                self.embedding_dim, self.num_classes
-            )  # init?
+            self.classification = torch.nn.Linear(self.embedding_dim, self.num_classes)  # init?
             torch.nn.init.normal_(self.classification.weight, std=0.01)
 
     def _load_model(self):
@@ -176,9 +170,7 @@ class Model(pl.LightningModule):
         # FIXME: improve
         if self.scheduler == "multistep":
             config["lr_scheduler"] = {
-                "scheduler": MultiStepLR(
-                    optimizer, milestones=self.lr_steps, gamma=self.lr_factor
-                )
+                "scheduler": MultiStepLR(optimizer, milestones=self.lr_steps, gamma=self.lr_factor)
             }
         elif self.scheduler == "poly":
             config["lr_scheduler"] = {
@@ -193,9 +185,7 @@ class Model(pl.LightningModule):
             }
 
         print(f"optimizers config = {config}")
-        LOGGER.info(
-            "Model will train for steps=%s", self.trainer.estimated_stepping_batches
-        )
+        LOGGER.info("Model will train for steps=%s", self.trainer.estimated_stepping_batches)
         return config
 
     def optimizer_step(
@@ -211,19 +201,12 @@ class Model(pl.LightningModule):
     ):
         # warm up lr
         if self.trainer.global_step < self.warmup:
-            cur_lr = (self.trainer.global_step + 1) * (
-                self.lr - self.start_lr
-            ) / self.warmup + self.start_lr
+            cur_lr = (self.trainer.global_step + 1) * (self.lr - self.start_lr) / self.warmup + self.start_lr
             for pg in optimizer.param_groups:
                 pg["lr"] = cur_lr
         # cool down lr
-        elif (
-            self.trainer.global_step
-            > self.trainer.estimated_stepping_batches - self.cooldown  # cooldown start
-        ):
-            cur_lr = (
-                self.trainer.estimated_stepping_batches - self.trainer.global_step
-            ) * (
+        elif self.trainer.global_step > self.trainer.estimated_stepping_batches - self.cooldown:  # cooldown start
+            cur_lr = (self.trainer.estimated_stepping_batches - self.trainer.global_step) * (
                 optimizer.param_groups[0]["lr"] - self.end_lr
             ) / self.cooldown + self.end_lr
             optimizer.param_groups[0]["lr"] = cur_lr
@@ -279,9 +262,7 @@ class Model(pl.LightningModule):
             prog_bar=True,
             logger=True,
         )
-        self.log(
-            "train/loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True
-        )
+        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
         self.log("lr", cur_lr, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
@@ -357,7 +338,6 @@ class Model(pl.LightningModule):
         )
 
     def validation_epoch_end(self, outputs):
-
         # TODO: is there a better way?
         # Without it, plot_roc raises an error because of logger.log_dir
         if self.trainer.fast_dev_run:
@@ -469,9 +449,7 @@ class Model(pl.LightningModule):
         )
         parser.add_argument("--model", default="resnet101", type=str)
         # TODO: use this flag for insightface?
-        parser.add_argument(
-            "--weights", help="Pretrained weights.", default="", type=str
-        )
+        parser.add_argument("--weights", help="Pretrained weights.", default="", type=str)
         parser.add_argument(
             "--normalize",
             action="store_true",
@@ -508,7 +486,6 @@ class PretrainModel(Model):
         return self._step(batch, batch_idx)
 
     def on_validation_batch_end(self, outputs, batch, batch_idx, dataloader_idx):
-
         # TODO: test it
         if batch_idx % 10 != 0:
             return
@@ -562,9 +539,7 @@ class PretrainModel(Model):
         diff = embeddings1 - embeddings2
         dist = torch.linalg.norm(diff, dim=-1)
 
-        embeddings = torch.cat(
-            [first_emb, first_flipped_emb, second_emb, second_flipped_emb], dim=0
-        )
+        embeddings = torch.cat([first_emb, first_flipped_emb, second_emb, second_flipped_emb], dim=0)
         norm = torch.linalg.norm(embeddings, dim=-1)
         norm = torch.mean(norm, dim=0, keepdim=True)  # to make norm.dim = 1
 
@@ -577,7 +552,6 @@ class PretrainModel(Model):
         }
 
     def _epoch_end(self, outputs, target):
-
         n_folds = 10
         kfold = KFold(n_splits=n_folds, shuffle=False)
 

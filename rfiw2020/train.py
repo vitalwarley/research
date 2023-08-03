@@ -2,16 +2,15 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import cv2
+import mytypes as t
 import numpy as np
+from model import Model, PretrainModel
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import lr_monitor
+from tasks import init_cifar, init_fiw, init_ms1m, init_parser, init_trainer
 from torch import nn, utils
 from torchvision import datasets, transforms
 from tqdm import tqdm
-
-import mytypes as t
-from model import Model, PretrainModel
-from tasks import init_cifar, init_fiw, init_ms1m, init_parser, init_trainer
 
 if __name__ == "__main__":
     seed_everything(42, workers=True)

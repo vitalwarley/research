@@ -1,19 +1,17 @@
 from argparse import ArgumentParser
 
+import transforms as mytransforms
+from callbacks import ModelInspectionCallback
+from dataset import FamiliesDataset, KinshipDataModule, MS1MDataModule
+from model import Model
 from pl_bolts.callbacks import ModuleDataMonitor
 from pytorch_lightning import Trainer
 from pytorch_lightning.strategies.ddp import DDPStrategy
 from torch import utils
 from torchvision import datasets, transforms
 
-import transforms as mytransforms
-from callbacks import ModelInspectionCallback
-from dataset import FamiliesDataset, KinshipDataModule, MS1MDataModule
-from model import Model
-
 
 def init_trainer(args):
-
     # add callbacks
     # lrm_cb = lr_monitor.LearningRateMonitor(logging_interval="step")
     mdm_cb = ModuleDataMonitor(submodules=True, log_every_n_steps=1)
@@ -52,9 +50,7 @@ def init_parser():
     )
     parser.add_argument("--insightface", action="store_true")
     parser.add_argument("--ckpt-path", type=str)  # ptl ckpt
-    parser.add_argument(
-        "--task", type=str, required=True, choices=["cifar", "pretrain", "finetune"]
-    )
+    parser.add_argument("--task", type=str, required=True, choices=["cifar", "pretrain", "finetune"])
     parser.add_argument(
         "--mining-strategy",
         type=str,
@@ -96,19 +92,13 @@ def init_cifar(args):
         ]
     )
 
-    trainset = datasets.CIFAR10(
-        root="~/datasets", train=True, download=True, transform=transform
-    )
+    trainset = datasets.CIFAR10(root="~/datasets", train=True, download=True, transform=transform)
     trainloader = utils.data.DataLoader(
         trainset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers
     )
 
-    valset = datasets.CIFAR10(
-        root="~/datasets", train=False, download=True, transform=transform
-    )
-    valloader = utils.data.DataLoader(
-        valset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers
-    )
+    valset = datasets.CIFAR10(root="~/datasets", train=False, download=True, transform=transform)
+    valloader = utils.data.DataLoader(valset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
 
     return trainloader, valloader
 
@@ -119,7 +109,7 @@ def init_ms1m(
     data_dir: str = "../datasets/MS1M_v2",
     batch_size: int = 256,
     num_workers: int = 8,
-    **kwargs
+    **kwargs,
 ):
     train_transforms = transforms.Compose(
         [
@@ -154,7 +144,7 @@ def init_fiw(
     mining_strategy: str = "balanced_random",
     jitter_param: float = 0.15,
     lighting_param: float = 0.15,
-    **kwargs
+    **kwargs,
 ):
     train_transforms = transforms.Compose(
         [

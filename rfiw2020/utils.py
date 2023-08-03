@@ -113,9 +113,7 @@ def make_accuracy_vs_threshold_plot(values, y_true, fn):
     fig, ax = plt.subplots(1, 1, figsize=(12, 7))
     fig = sns.lineplot(x="threshold", y="accuracy", data=df, ax=ax).get_figure()
     ax.plot(best_threshold, best_accuracy, "o", color="red")
-    ax.annotate(
-        f"({best_threshold:.2f},{best_accuracy:.2f})", (best_threshold, best_accuracy)
-    )
+    ax.annotate(f"({best_threshold:.2f},{best_accuracy:.2f})", (best_threshold, best_accuracy))
     return fig, best_threshold, best_accuracy
 
 
@@ -166,9 +164,7 @@ def log_results(
             global_step=global_step if global_step >= 0 else 0,
         )
 
-    fig, *_ = make_accuracy_vs_threshold_plot(
-        distances, y_true, fn=lambda x, thresh: x < thresh
-    )
+    fig, *_ = make_accuracy_vs_threshold_plot(distances, y_true, fn=lambda x, thresh: x < thresh)
     writer.add_figure(
         f"{base_tag}/distances/accuracy vs threshold",
         fig,

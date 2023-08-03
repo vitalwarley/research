@@ -1,0 +1,4 @@
+jupyterlab
+jupyter_ai
+jupytext
+openai

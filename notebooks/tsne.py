@@ -147,6 +147,7 @@ def parser():
 
 
 # %%
+# TODO: I think I should maintain the script as notebook only
 if IS_NOTEBOOK:
     if __name__ == "__main__":
         args = parser()

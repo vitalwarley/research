@@ -89,7 +89,7 @@ def get_indices(krs, f1fids, f2fids, label):
     return kin_idxs, nonkin_idxs
 
 
-def plot_single_tsne(ax, embeddings_2d, kin_idxs, nonkin_idxs, color, label):
+def plot_single_tsne(ax, embeddings_2d, kin_idxs, nonkin_idxs, f2fids, color, label):
     # This function will plot a single t-SNE plot given the 2D embeddings, indices, color, and label.
     if kin_idxs:
         ax.scatter(
@@ -103,6 +103,8 @@ def plot_single_tsne(ax, embeddings_2d, kin_idxs, nonkin_idxs, color, label):
             marker="x",
             label=f"{label} non-kin",
         )
+        for idx in nonkin_idxs:
+            ax.text(embeddings_2d[idx, 0], embeddings_2d[idx, 1] - 1, f2fids[idx][0], fontsize=6)
     ax.legend()
 
 
@@ -128,12 +130,15 @@ def plot_embeddings(embeddings, labels, perplexities, plot_path: str = ""):
 
     # Define n_subplots based on number of perplexity values
     n_subplots = len(perplexities)
-    n_col = n_subplots // 2
+    n_col = n_subplots // 2 if n_subplots > 1 else 1
     n_row = int(np.ceil(n_subplots / n_col))
 
     # Prepare a figure to hold the subplots
-    fig, axes = plt.subplots(n_row, n_col, figsize=(20, 5 * n_row))
-    axes = axes.flatten()  # Flatten the axes array to make it easier to work with
+    fig, axes = plt.subplots(n_row, n_col, figsize=(10, 10 * n_row))
+    if n_subplots > 1:
+        axes = axes.flatten()  # Flatten the axes array to make it easier to work with
+    else:
+        axes = [axes]
 
     # Generate and plot t-SNE for different perplexity values
     for i, perplexity in enumerate(perplexities):
@@ -145,7 +150,7 @@ def plot_embeddings(embeddings, labels, perplexities, plot_path: str = ""):
         # Plot
         for label, color in color_map.items():
             kin_idxs, nonkin_idxs = get_indices(krs, f1fids, f2fids, label)
-            plot_single_tsne(ax, embeddings_2d, kin_idxs, nonkin_idxs, color, label)
+            plot_single_tsne(ax, embeddings_2d, kin_idxs, nonkin_idxs, f2fids, color, label)
 
         ax.set_title(f"Perplexity: {perplexity}")
 
@@ -236,7 +241,5 @@ e.shape
 
 # %%
 # Plotting
-perplexities = range(10, 101, 30)
+perplexities = [10]
 plot_embeddings(e, l, perplexities)
-
-# %%

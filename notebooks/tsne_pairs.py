@@ -76,7 +76,7 @@ def extract_embeddings(val_loader, model):
 # %%
 def calculate_embeddings_2d(embeddings, perplexity):
     # This function will calculate the 2D embeddings given the original embeddings and a perplexity value.
-    tsne = TSNE(n_components=2, perplexity=perplexity)
+    tsne = TSNE(n_components=2, perplexity=perplexity, n_iter=5000, verbose=1)
     return tsne.fit_transform(embeddings)
 
 
@@ -134,7 +134,7 @@ def plot_embeddings(embeddings, labels, perplexities, plot_path: str = ""):
     n_row = int(np.ceil(n_subplots / n_col))
 
     # Prepare a figure to hold the subplots
-    fig, axes = plt.subplots(n_row, n_col, figsize=(10, 10 * n_row))
+    fig, axes = plt.subplots(n_row, n_col, figsize=(5 * n_col, 5 * n_row))
     if n_subplots > 1:
         axes = axes.flatten()  # Flatten the axes array to make it easier to work with
     else:
@@ -228,7 +228,7 @@ e.shape
 
 # %%
 # Plotting
-perplexities = range(10, 101, 30)
+perplexities = [2, 5, 10, 30, 50, 100]
 plot_embeddings(e, l, perplexities)
 
 # %% [markdown]
@@ -241,5 +241,21 @@ e.shape
 
 # %%
 # Plotting
-perplexities = [10]
+perplexities = [2, 5, 10, 30, 50, 100]
 plot_embeddings(e, l, perplexities)
+
+# %% [markdown]
+# ## Showing all pairs for kr = bb
+
+# %%
+# Filter embeddings
+e, l = filter_embeddings(embeddings, labels, kin_relation="bb")
+e.shape
+
+# %%
+# Plotting
+perplexities = range(10, 101, 30)
+plot_embeddings(e, l, perplexities)
+# TODO: permit to change color to family instead kr
+
+# %%

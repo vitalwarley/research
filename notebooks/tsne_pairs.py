@@ -103,15 +103,29 @@ def plot_single_tsne(ax, embeddings_2d, kin_idxs, nonkin_idxs, f2fids, color, la
             marker="x",
             label=f"{label} non-kin",
         )
-        for idx in nonkin_idxs:
-            ax.text(embeddings_2d[idx, 0], embeddings_2d[idx, 1] - 1, f2fids[idx][0], fontsize=6)
+        # TODO: enable to disable
+        # for idx in nonkin_idxs:
+        #     # TODO: use f1fids if f2fids was used to filter the fid
+        #     ax.text(embeddings_2d[idx, 0], embeddings_2d[idx, 1] - 1, f2fids[idx][0], fontsize=6)
     ax.legend()
 
 
-def plot_embeddings(embeddings, labels, perplexities, plot_path: str = ""):
+def plot_embeddings(embeddings, labels, perplexities, plot_path: str = "", **kwargs):
     # This is the main function that calls the other functions to generate and plot the t-SNE plots.
 
+    # Call filter_embeddings to get the embeddings and labels
+    embeddings, labels = filter_embeddings(embeddings, labels, **kwargs)
+
     krs, f1fids, f2fids = labels
+
+    # Print number of embeddings, number of unique kin relations, number of kin and non-kin relations
+    # Consider kin relations: fs, gmgd, ms, gfgd, bb, md, fd, sibs, gmgs, gfgs, ss
+    print(f"Number of embeddings: {len(embeddings)}")
+    print(f"Number of unique kin relations: {len(np.unique(krs))}")
+    for kr in np.unique(krs):
+        kin_idxs, nonkin_idxs = get_indices(krs, f1fids, f2fids, kr)
+        print(f"Number of {kr} kin relations: {len(kin_idxs)}")
+        print(f"Number of {kr} non-kin relations: {len(nonkin_idxs)}")
 
     # Create a color map for kin relations: fs, gmgd, ms, gfgd, bb, md, fd, sibs, gmgs, gfgs, ss
     color_map = {
@@ -161,7 +175,7 @@ def plot_embeddings(embeddings, labels, perplexities, plot_path: str = ""):
 
 
 # %%
-def filter_embeddings(embeddings, labels, kin_relation: str = "", face1_fid: int = 0, face2_fid: int = 0):
+def filter_embeddings(embeddings, labels, kin_relation: list = [], face1_fid: list = [], face2_fid: list = []):
     kin_relations, face1_fids, face2_fids = labels
 
     idxs_kr = np.arange(len(kin_relations)).reshape(-1, 1)
@@ -169,11 +183,11 @@ def filter_embeddings(embeddings, labels, kin_relation: str = "", face1_fid: int
     idxs_f2 = np.arange(len(face2_fids)).reshape(-1, 1)
 
     if kin_relation:
-        idxs_kr = idxs_kr[kin_relations == kin_relation]
+        idxs_kr = idxs_kr[np.isin(kin_relations, kin_relation)]
     if face1_fid:
-        idxs_f1 = idxs_f1[face1_fids == face1_fid]
+        idxs_f1 = idxs_f1[np.isin(face1_fids, face1_fid)]
     if face2_fid:
-        idxs_f2 = idxs_f2[face2_fids == face2_fid]
+        idxs_f2 = idxs_f2[np.isin(face2_fids, face2_fid)]
 
     idxs = np.intersect1d(idxs_kr, idxs_f1)
     idxs = np.intersect1d(idxs, idxs_f2)
@@ -218,44 +232,97 @@ model = setup_model(model_path)
 val_loader = setup_data(root_dir, csv_path, batch_size)
 
 # %%
+val_loader.dataset.sample_list[["kin_relation", "is_kin"]].groupby("is_kin").value_counts()
+
+# %%
+# First create a DataFrame of 'fs' relations
+fs_relations = sample_list[sample_list["kin_relation"] == "fs"]
+
+# Group by 'face1_family_id' and 'face2_family_id', and count the number of 'fs' relations
+fs_counts_face1 = fs_relations.groupby("face1_family_id").size()
+fs_counts_face2 = fs_relations.groupby("face2_family_id").size()
+
+# Calculate the proportion of 'fs' relations in each family
+fs_proportions_face1 = fs_counts_face1 / len(fs_relations)
+fs_proportions_face2 = fs_counts_face2 / len(fs_relations)
+
+# Calculate and print the mean and standard deviation of the proportions
+mean_face1 = fs_proportions_face1.mean()
+std_face1 = fs_proportions_face1.std()
+mean_face2 = fs_proportions_face2.mean()
+std_face2 = fs_proportions_face2.std()
+
+print(f"face1_family_id: Mean = {mean_face1}, Std = {std_face1}")
+print(f"face2_family_id: Mean = {mean_face2}, Std = {std_face2}")
+
+# %%
+import matplotlib.pyplot as plt
+
+# Create a new figure
+plt.figure()
+
+# Plot a histogram of fs_counts_face1
+plt.hist(fs_counts_face1, bins=30, alpha=0.5, label="face1_family_id", density=True)
+
+# Overlay a histogram of fs_counts_face2
+plt.hist(fs_counts_face2, bins=30, alpha=0.5, label="face2_family_id", density=True)
+
+# Add a legend to distinguish the two histograms
+plt.legend(loc="upper right")
+
+# Display the plot
+plt.show()
+
+# %%
+# Group by 'face1_family_id', then get the value counts of 'face2_family_id' within each group
+family_proportions = sample_list.groupby("face1_family_id")["face2_family_id"].value_counts(normalize=True)
+
+family_proportions
+
+# %%
 # Extracting embeddings
 embeddings, labels = extract_embeddings(val_loader, model)
 
 # %%
-# Filter embeddings
-e, l = filter_embeddings(embeddings, labels, face1_fid=250, face2_fid=250)
-e.shape
-
-# %%
 # Plotting
-perplexities = [2, 5, 10, 30, 50, 100]
-plot_embeddings(e, l, perplexities)
+perplexities = [10, 30, 60, 100]
+plot_embeddings(embeddings, labels, perplexities, face1_fid=250, face2_fid=250)
 
 # %% [markdown]
 # ## Showing non kin pairs
 
 # %%
-# Filter embeddings
-e, l = filter_embeddings(embeddings, labels, face1_fid=250)
-e.shape
+# Plotting
+perplexities = [10, 30, 60, 100]
+plot_embeddings(embeddings, labels, perplexities, face1_fid=250)
 
 # %%
 # Plotting
-perplexities = [2, 5, 10, 30, 50, 100]
-plot_embeddings(e, l, perplexities)
+perplexities = [10, 30, 60, 100]
+plot_embeddings(embeddings, labels, perplexities, face2_fid=250)
+
 
 # %% [markdown]
 # ## Showing all pairs for kr = bb
 
 # %%
-# Filter embeddings
-e, l = filter_embeddings(embeddings, labels, kin_relation="bb")
-e.shape
+# Plotting
+perplexities = [10, 30, 60, 100]
+plot_embeddings(embeddings, labels, perplexities, kin_relation="bb")
+# TODO: permit to change color to family instead kr
+
+# %% [markdown]
+# - Ploting non-kin seems to be useless. Note the previous plots: non-kin points are dispersed because they can come from any family pair (A and B, A and C, etc).
+# - This plot shows the same, but for all family pairs.
+
+# %% [markdown]
+# ## Showing all pairs and kinship relations for two different families
+
+# %% [markdown]
+# - Hypothesis: pair embeddings are conditioned on the families. That is, pairs for A and B will be different from A and C. That seems obvious...
 
 # %%
 # Plotting
-perplexities = range(10, 101, 30)
-plot_embeddings(e, l, perplexities)
-# TODO: permit to change color to family instead kr
-
-# %%
+perplexities = [10, 30, 60, 100]
+plot_embeddings(embeddings, labels, perplexities, face1_fid=[250, 873], face2_fid=[250, 873])
+# TODO: how to change the plot to differentiate families?

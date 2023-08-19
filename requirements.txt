@@ -2,3 +2,6 @@ jupyterlab
 jupyter_ai
 jupytext
 openai
+
+# mivolo
+ipywidgets

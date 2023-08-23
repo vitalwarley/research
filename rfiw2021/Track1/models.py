@@ -50,7 +50,10 @@ class NetClassifier(torch.nn.Module):
         self.classification = nn.Sequential(
             torch.nn.BatchNorm1d(256),
             torch.nn.ReLU(),
-            torch.nn.Linear(256, 11),  # number of kin relations
+            torch.nn.Linear(256, 128),
+            torch.nn.BatchNorm1d(128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 11),  # number of kin relations
         )
         self._initialize_weights()
 

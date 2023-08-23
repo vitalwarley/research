@@ -24,20 +24,20 @@ def extract_loss_auc(file_path, loss, metric):
     return losses, metrics
 
 
-def plot_metrics(epochs, losses, aucs, save_path=None):
+def plot_metrics(epochs, losses, aucs, loss_name, metric_name, save_path=None):
     plt.figure(figsize=(12, 6))
 
     plt.subplot(1, 2, 1)
     plt.plot(epochs, losses, marker="o")
-    plt.title("Contrastive Loss vs Epochs")
+    plt.title(f"{loss_name} vs Epochs")
     plt.xlabel("Epochs")
-    plt.ylabel("Contrastive Loss")
+    plt.ylabel("Loss")
 
     plt.subplot(1, 2, 2)
     plt.plot(epochs, aucs, marker="o")
-    plt.title("AUC vs Epochs")
+    plt.title(f"{metric_name} vs Epochs")
     plt.xlabel("Epochs")
-    plt.ylabel("AUC")
+    plt.ylabel("Metric")
 
     plt.tight_layout()
     if save_path:
@@ -53,6 +53,6 @@ if __name__ == "__main__":
     parser.add_argument("--loss", type=str, default="contrastive_loss")
     parser.add_argument("--metric", type=str, default="auc")
     args = parser.parse_args()
-    losses, aucs = extract_loss_auc(args.file_path, args.loss, args.metric)
+    losses, metrics = extract_loss_auc(args.file_path, args.loss, args.metric)
     epochs = list(range(1, len(losses) + 1))
-    plot_metrics(epochs, losses, aucs, args.save_path)
+    plot_metrics(epochs, losses, metrics, args.loss, args.metric, args.save_path)

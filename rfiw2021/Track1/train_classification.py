@@ -12,6 +12,7 @@ import argparse
 from torch import nn
 from torch.optim import SGD
 from torchmetrics.functional import accuracy
+from tqdm import tqdm
 from Track1.dataset import *
 from Track1.losses import *
 from Track1.models import *
@@ -39,14 +40,14 @@ def training(args):
 
     ce_loss = nn.CrossEntropyLoss()
 
-    for epoch_i in range(epochs):
+    for epoch_i in tqdm(range(epochs)):
         mylog("\n*************", path=log_path)
         mylog("epoch " + str(epoch_i + 1), path=log_path)
         ce_loss_epoch = 0
 
         model.train()
 
-        for index_i, data in enumerate(train_loader):
+        for index_i, data in tqdm(enumerate(train_loader), total=len(train_loader)):
             image1, image2, labels = data
 
             # e1,e2,x1,x2= model([image1,image2])
@@ -61,13 +62,13 @@ def training(args):
 
             ce_loss_epoch += loss.item()
 
-            if (index_i + 1) == steps_per_epoch:
-                break
+            # if (index_i + 1) == steps_per_epoch:
+            #     break
 
-        use_sample = (epoch_i + 1) * batch_size * steps_per_epoch
-        train_dataset.set_bias(use_sample)
+        # use_sample = (epoch_i + 1) * batch_size * steps_per_epoch
+        # train_dataset.set_bias(use_sample)
 
-        mylog("ce_loss:" + "%.6f" % (ce_loss_epoch / steps_per_epoch), path=log_path)
+        mylog("ce_loss:" + "%.6f" % (ce_loss_epoch / index_i), path=log_path)
         model.eval()
         with torch.no_grad():
             acc = val_model(model, val_loader)

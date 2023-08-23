@@ -6,4 +6,7 @@ torchvision
 keras
 tensorflow
 
+# classification
+torchmetrics
+
 --extra-index-url https://download.pytorch.org/whl/cu118

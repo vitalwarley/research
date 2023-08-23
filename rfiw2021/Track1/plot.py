@@ -4,48 +4,55 @@ from argparse import ArgumentParser
 import matplotlib.pyplot as plt
 
 
-def extract_loss_auc(file_path):
+def extract_loss_auc(file_path, loss, metric):
     losses = []
-    aucs = []
+    metrics = []
 
-    with open(file_path, 'r') as f:
+    with open(file_path, "r") as f:
         lines = f.readlines()
 
     for line in lines:
-        if "contrastive_loss" in line:
-            loss = float(re.search(r"contrastive_loss:(\d+\.\d+)", line).group(1))
-            losses.append(loss)
-        if "auc is" in line:
-            auc = float(re.search(r"auc is (\d+\.\d+)", line).group(1))
-            aucs.append(auc)
+        if loss in line:
+            loss_val = float(re.search(rf"{loss}:(\d+\.\d+)", line).group(1))
+            losses.append(loss_val)
+        if f"{metric} is" in line:
+            metric_val = float(re.search(rf"{metric} is (\d+\.\d+)", line).group(1))
+            metrics.append(metric_val)
 
-    return losses, aucs
+    print(f"Number of metrics and losses: {len(metrics)}, {len(losses)}")
+
+    return losses, metrics
+
 
 def plot_metrics(epochs, losses, aucs, save_path=None):
     plt.figure(figsize=(12, 6))
 
     plt.subplot(1, 2, 1)
-    plt.plot(epochs, losses, marker='o')
-    plt.title('Contrastive Loss vs Epochs')
-    plt.xlabel('Epochs')
-    plt.ylabel('Contrastive Loss')
+    plt.plot(epochs, losses, marker="o")
+    plt.title("Contrastive Loss vs Epochs")
+    plt.xlabel("Epochs")
+    plt.ylabel("Contrastive Loss")
 
     plt.subplot(1, 2, 2)
-    plt.plot(epochs, aucs, marker='o')
-    plt.title('AUC vs Epochs')
-    plt.xlabel('Epochs')
-    plt.ylabel('AUC')
+    plt.plot(epochs, aucs, marker="o")
+    plt.title("AUC vs Epochs")
+    plt.xlabel("Epochs")
+    plt.ylabel("AUC")
 
     plt.tight_layout()
     if save_path:
         plt.savefig(save_path)
     plt.show()
 
+
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--file-path", type=str, default="input.txt")
     parser.add_argument("--save-path", type=str, default="Track1.png")
+    # add loss and metric arguments
+    parser.add_argument("--loss", type=str, default="contrastive_loss")
+    parser.add_argument("--metric", type=str, default="auc")
     args = parser.parse_args()
-    losses, aucs = extract_loss_auc(args.file_path)
+    losses, aucs = extract_loss_auc(args.file_path, args.loss, args.metric)
     epochs = list(range(1, len(losses) + 1))
     plot_metrics(epochs, losses, aucs, args.save_path)

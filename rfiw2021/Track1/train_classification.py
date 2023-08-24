@@ -9,6 +9,7 @@ sys.path.insert(0, f"{FILE}/..")
 
 import argparse
 
+import torch
 from torch import nn
 from torch.optim import SGD
 from torchmetrics.functional import accuracy
@@ -30,7 +31,7 @@ def training(args):
     train_dataset = FIW(os.path.join(args.sample, "train_sort.txt"), classification=True)
     val_dataset = FIW(os.path.join(args.sample, "val_choose.txt"), classification=True)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=8, pin_memory=False, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=8, pin_memory=False, shuffle=True, generator=torch.Generator('cuda'))
     val_loader = DataLoader(val_dataset, batch_size=val_batch_size, num_workers=8, pin_memory=False)
 
     model = NetClassifier().cuda()

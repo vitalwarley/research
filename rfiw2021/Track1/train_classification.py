@@ -30,8 +30,8 @@ def training(args):
     train_dataset = FIW(os.path.join(args.sample, "train_sort.txt"), classification=True)
     val_dataset = FIW(os.path.join(args.sample, "val_choose.txt"), classification=True)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=1, pin_memory=False)
-    val_loader = DataLoader(val_dataset, batch_size=val_batch_size, num_workers=1, pin_memory=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=8, pin_memory=False, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=val_batch_size, num_workers=8, pin_memory=False)
 
     model = NetClassifier().cuda()
 

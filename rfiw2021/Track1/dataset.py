@@ -19,17 +19,18 @@ class FIW(Dataset):
         self.sample_list = self.load_sample()
         self.bias = 0
         self.name2id = {
-            "md": 0,
-            "ms": 1,
-            "sibs": 2,
-            "ss": 3,
-            "bb": 4,
-            "fd": 5,
-            "fs": 6,
-            "gfgd": 7,
-            "gfgs": 8,
-            "gmgd": 9,
-            "gmgs": 10,
+            "non-kin": 0,
+            "md": 1,
+            "ms": 2,
+            "sibs": 3,
+            "ss": 4,
+            "bb": 5,
+            "fd": 6,
+            "fs": 7,
+            "gfgd": 8,
+            "gfgs": 9,
+            "gmgd": 10,
+            "gmgs": 11,
         }
 
     def load_sample(self):
@@ -42,7 +43,7 @@ class FIW(Dataset):
             else:
                 tmp = line.split(" ")
                 if self.classification:
-                    sample_list.append([tmp[0], tmp[1], tmp[2], tmp[3]])
+                    sample_list.append(tmp)
                 else:
                     sample_list.append([tmp[0], tmp[1], tmp[2], tmp[-1]])
         f.close()
@@ -62,6 +63,7 @@ class FIW(Dataset):
         return np.transpose(img, (2, 0, 1))
 
     def __getitem__(self, item):
+        # id, f1, f2, kin_relation, is_kin
         sample = self.sample_list[item + self.bias]
         img1, img2 = self.read_image(sample[1]), self.read_image(sample[2])
         if self.transform is not None:
@@ -69,6 +71,8 @@ class FIW(Dataset):
         img1, img2 = np2tensor(self.preprocess(np.array(img1, dtype=float))), np2tensor(
             self.preprocess(np.array(img2, dtype=float))
         )
-        label = self.name2id[sample[-1]]
+        label = self.name2id[sample[-2]]  # kin relation
+        if not int(sample[-1]):
+            label = 0
         label = np2tensor(np.array(label), dtype=torch.uint8)
         return img1, img2, label

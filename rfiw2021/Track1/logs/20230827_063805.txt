@@ -1,0 +1,125 @@
+
+*************
+epoch 1
+ce_loss:1.553569
+acc is 0.301524 
+acc improve from :0.000000 to 0.301524
+save model models/kin_classifier
+
+*************
+epoch 2
+ce_loss:0.745848
+acc is 0.303729 
+acc improve from :0.301524 to 0.303729
+save model models/kin_classifier
+
+*************
+epoch 3
+ce_loss:0.506727
+acc is 0.306736 
+acc improve from :0.303729 to 0.306736
+save model models/kin_classifier
+
+*************
+epoch 4
+ce_loss:0.380269
+acc is 0.308340 
+acc improve from :0.306736 to 0.308340
+save model models/kin_classifier
+
+*************
+epoch 5
+ce_loss:0.302852
+acc is 0.316760 
+acc improve from :0.308340 to 0.316760
+save model models/kin_classifier
+
+*************
+epoch 6
+ce_loss:0.248595
+acc is 0.312751 
+acc did not improve from 0.316760
+
+*************
+epoch 7
+ce_loss:0.208396
+acc is 0.314956 
+acc did not improve from 0.316760
+
+*************
+epoch 8
+ce_loss:0.174157
+acc is 0.308340 
+acc did not improve from 0.316760
+
+*************
+epoch 9
+ce_loss:0.145324
+acc is 0.307939 
+acc did not improve from 0.316760
+
+*************
+epoch 10
+ce_loss:0.121954
+acc is 0.307739 
+acc did not improve from 0.316760
+
+*************
+epoch 11
+ce_loss:0.102451
+acc is 0.310545 
+acc did not improve from 0.316760
+
+*************
+epoch 12
+ce_loss:0.086329
+acc is 0.308140 
+acc did not improve from 0.316760
+
+*************
+epoch 13
+ce_loss:0.074818
+acc is 0.310946 
+acc did not improve from 0.316760
+
+*************
+epoch 14
+ce_loss:0.064944
+acc is 0.307137 
+acc did not improve from 0.316760
+
+*************
+epoch 15
+ce_loss:0.057050
+acc is 0.311147 
+acc did not improve from 0.316760
+
+*************
+epoch 16
+ce_loss:0.050435
+acc is 0.315357 
+acc did not improve from 0.316760
+
+*************
+epoch 17
+ce_loss:0.044945
+acc is 0.306135 
+acc did not improve from 0.316760
+
+*************
+epoch 18
+ce_loss:0.040707
+acc is 0.309543 
+acc did not improve from 0.316760
+
+*************
+epoch 19
+ce_loss:0.037176
+acc is 0.297514 
+acc did not improve from 0.316760
+
+*************
+epoch 20
+ce_loss:0.033747
+acc is 0.310746 
+acc did not improve from 0.316760

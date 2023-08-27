@@ -31,7 +31,14 @@ def training(args):
     train_dataset = FIW(os.path.join(args.sample, "train_sort.txt"), classification=True)
     val_dataset = FIW(os.path.join(args.sample, "val_choose.txt"), classification=True)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=8, pin_memory=False, shuffle=True, generator=torch.Generator('cuda'))
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        num_workers=8,
+        pin_memory=False,
+        shuffle=True,
+        generator=torch.Generator("cuda"),
+    )
     val_loader = DataLoader(val_dataset, batch_size=val_batch_size, num_workers=8, pin_memory=False)
 
     model = NetClassifier().cuda()
@@ -96,7 +103,7 @@ def val_model(model, val_loader):
         y_true.extend(labels)
     y_pred = torch.stack(y_pred)
     y_true = torch.stack(y_true)
-    acc = accuracy(y_pred, y_true, task="multiclass", num_classes=11)
+    acc = accuracy(y_pred, y_true, task="multiclass", num_classes=12)
     return acc
 
 

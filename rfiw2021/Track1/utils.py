@@ -1,5 +1,6 @@
 import os
 import random
+from datetime import datetime
 
 import numpy as np
 import torch
@@ -10,7 +11,7 @@ def np2tensor(arrays, device="gpu", dtype=torch.float):
     return tensor.cuda() if device == "gpu" else tensor
 
 
-def mylog(*t, path="log.txt"):
+def mylog(*t, path):
     t = " ".join([str(now) for now in t])
     print(t)
     if os.path.isfile(path) == False:

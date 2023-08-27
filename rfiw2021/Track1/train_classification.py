@@ -1,6 +1,7 @@
 import gc
 import os
 import sys
+from datetime import datetime
 
 from sklearn.metrics import accuracy_score
 
@@ -24,9 +25,13 @@ def training(args):
     val_batch_size = args.batch_size
     epochs = args.epochs
     steps_per_epoch = 50
-    save_path = args.save_path
+    save_path = args.save_dir
     beta = args.beta
-    log_path = args.log_path
+    log_path = args.log_dir
+
+    now = datetime.now().strftime("%Y%m%d_%H%M%S") 
+    save_path = os.path.join(save_path, now + ".pt")
+    log_path = os.path.join(log_path, now + ".txt")
 
     train_dataset = FIW(os.path.join(args.sample, "train_sort.txt"), classification=True)
     val_dataset = FIW(os.path.join(args.sample, "val_choose.txt"), classification=True)
@@ -111,10 +116,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="train")
     parser.add_argument("--batch_size", type=int, default=25, help="batch size default 25")
     parser.add_argument("--sample", type=str, help="sample root")
-    parser.add_argument("--save_path", type=str, help="model save path")
+    parser.add_argument("--save_dir", type=str, help="model save path", default="models/")
     parser.add_argument("--epochs", type=int, default=80, help="epochs number default 80")
     parser.add_argument("--beta", default=0.08, type=float, help="beta default 0.08")
-    parser.add_argument("--log_path", default="./log.txt", type=str, help="log path default log.txt")
+    parser.add_argument("--log_dir", default="logs/", type=str, help="log path default log.txt")
     parser.add_argument("--gpu", default="1", type=str, help="gpu id you use")
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu

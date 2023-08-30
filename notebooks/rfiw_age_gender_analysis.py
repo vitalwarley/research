@@ -7,7 +7,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.15.0
+#       jupytext_version: 1.15.1
 #   kernelspec:
 #     display_name: Python 3 (ipykernel)
 #     language: python
@@ -31,8 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
-import pandas as pd
 import numpy as np
+import pandas as pd
 from mivolo.data.data_reader import get_all_files
 from mivolo.predictor import Predictor
 from tqdm import tqdm
@@ -41,7 +41,7 @@ from tqdm import tqdm
 # %load_ext jupyter_ai_magics
 
 # %%
-*_, sk = !gpg --decrypt ~/.keys/openai.gpg
+# *_, sk = !gpg --decrypt ~/.keys/openai.gpg
 
 # %%
 os.environ["OPENAI_API_KEY"] = sk
@@ -77,17 +77,19 @@ args = Config()
 predictor = Predictor(args)
 
 # %%
-LOAD_PREDS = False
-Path('data').mkdir(exist_ok=True)
-ag_preds_csv_path = Path('data/age_gender_predictions.csv')
+LOAD_PREDS = True
+Path("data").mkdir(exist_ok=True)
+ag_preds_csv_path = Path("data/age_gender_predictions.csv")
+ag_preds_csv_path.exists()
 
+# %%
 if ag_preds_csv_path.exists() and LOAD_PREDS:
     ag_preds = pd.read_csv(ag_preds_csv_path)
 else:
     image_files = get_all_files(DATA_DIR)
 
     preds = []
-    
+
     for img_p in tqdm(image_files):
         img = cv2.imread(img_p)
         try:
@@ -98,15 +100,19 @@ else:
             if pred.ages[max_index] is None:
                 pred_info = {"age": 0, "gender": "unk", "gender_score": 0}
             else:
-                pred_info = {"age": pred.ages[max_index], "gender": pred.genders[max_index], "gender_score": pred.gender_scores[max_index]}
+                pred_info = {
+                    "age": pred.ages[max_index],
+                    "gender": pred.genders[max_index],
+                    "gender_score": pred.gender_scores[max_index],
+                }
         except:
             pred_info = {"age": 0, "gender": "unk", "gender_score": 0}
         img_info = {k: v for k, v in zip(["fid", "mid", "pid_filename"], Path(img_p).parts[-3:])}
         preds.append({**img_info, **pred_info})
-    
+
     ag_preds = pd.DataFrame(preds)
-    ag_preds.to_csv('data/age_gender_predictions.csv', index=False)
-    
+    ag_preds.to_csv("data/age_gender_predictions.csv", index=False)
+
     print(f"Errors found: {len(ag_preds[ag_preds.age == 0])}")
 
 # %%
@@ -123,7 +129,7 @@ for idx, row in errors.iterrows():
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     ax = axes[idx]
     ax.imshow(img)
-    ax.axis('off')
+    ax.axis("off")
 
 plt.show()
 
@@ -156,21 +162,21 @@ plt.figure(figsize=(12, 4))
 
 # Plot for 'age'
 plt.subplot(1, 3, 1)
-ag_preds['age'].plot(kind='hist', bins=30, edgecolor='black')
-plt.xlabel('Age')
-plt.title('Age Distribution')
+ag_preds["age"].plot(kind="hist", bins=30, edgecolor="black")
+plt.xlabel("Age")
+plt.title("Age Distribution")
 
 # Plot for 'gender'
 plt.subplot(1, 3, 2)
-ag_preds['gender'].value_counts().plot(kind='bar', color='orange')
-plt.xlabel('Gender')
-plt.title('Gender Distribution')
+ag_preds["gender"].value_counts().plot(kind="bar", color="orange")
+plt.xlabel("Gender")
+plt.title("Gender Distribution")
 
 # Plot for 'gender_score'
 plt.subplot(1, 3, 3)
-ag_preds['gender_score'].plot(kind='hist', color='green')
-plt.xlabel('Gender Score')
-plt.title('Gender Score Distribution')
+ag_preds["gender_score"].plot(kind="hist", color="green")
+plt.xlabel("Gender Score")
+plt.title("Gender Score Distribution")
 
 plt.tight_layout()
 plt.show()
@@ -190,9 +196,9 @@ for idx, row in errors.iterrows():
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     ax = axes[idx]
     ax.imshow(img)
-    ax.axis('off')
+    ax.axis("off")
 
-plt.suptitle('0-age samples')
+plt.suptitle("0-age samples")
 plt.tight_layout()
 plt.show()
 
@@ -217,21 +223,21 @@ plt.figure(figsize=(12, 4))
 
 # Plot for 'age'
 plt.subplot(1, 3, 1)
-ag_preds['age'].plot(kind='hist', bins=30, edgecolor='black')
-plt.xlabel('Age')
-plt.title('Age Distribution')
+ag_preds["age"].plot(kind="hist", bins=30, edgecolor="black")
+plt.xlabel("Age")
+plt.title("Age Distribution")
 
 # Plot for 'gender'
 plt.subplot(1, 3, 2)
-ag_preds['gender'].value_counts().plot(kind='bar', color='orange')
-plt.xlabel('Gender')
-plt.title('Gender Distribution')
+ag_preds["gender"].value_counts().plot(kind="bar", color="orange")
+plt.xlabel("Gender")
+plt.title("Gender Distribution")
 
 # Plot for 'gender_score'
 plt.subplot(1, 3, 3)
-ag_preds['gender_score'].plot(kind='hist', color='green')
-plt.xlabel('Gender Score')
-plt.title('Gender Score Distribution')
+ag_preds["gender_score"].plot(kind="hist", color="green")
+plt.xlabel("Gender Score")
+plt.title("Gender Score Distribution")
 
 plt.tight_layout()
 plt.show()
@@ -239,6 +245,7 @@ plt.show()
 
 # %% [markdown]
 # ## Load validation pairs
+
 
 # %%
 def load_data(path: str):
@@ -258,6 +265,33 @@ val_pairs1 = load_data(val_pairs_fp)
 val_pairs2 = load_data(val_pairs_fp_model_sel)
 val_pairs = pd.concat([val_pairs1, val_pairs2]).reset_index(drop=True)
 val_pairs
+
+# %% [markdown]
+# ## Plot frequency by `kin_relation`
+#
+# import matplotlib.pyplot as plt
+
+# %%
+import seaborn as sns
+
+sns.set(style="darkgrid")
+
+# Calculate frequencies of 'kin_relation'
+kin_relation_frequencies = val_pairs["kin_relation"].value_counts().index.tolist()
+
+# Reorder 'kin_relation' based on frequency
+val_pairs["kin_relation"] = pd.Categorical(val_pairs["kin_relation"], categories=kin_relation_frequencies, ordered=True)
+
+grid = sns.FacetGrid(val_pairs, col="is_kin", height=5, aspect=1)
+grid.map(sns.countplot, "kin_relation", order=kin_relation_frequencies)
+
+# Rotate xlabels
+grid.set_xticklabels(rotation=45)
+
+plt.show()
+
+# %%
+kin_relation_frequencies
 
 # %% [markdown]
 # ### Add relevant columns to pairs dataframe
@@ -303,8 +337,8 @@ sns.set_style("whitegrid")
 
 # %%
 g = sns.FacetGrid(val_pairs, col="is_kin", row="kin_relation", height=2, aspect=3)
-g = g.map(sns.histplot, "f1_age", color="red", stat='density')
-g = g.map(sns.histplot, "f2_age", color="blue", stat='density')
+g = g.map(sns.histplot, "f1_age", color="red", stat="density")
+g = g.map(sns.histplot, "f2_age", color="blue", stat="density")
 
 # Create custom lines for the legend
 red_line = mlines.Line2D([], [], color="red", label="Face 1")
@@ -320,15 +354,15 @@ plt.show()
 # ### Compute age difference (delta)
 
 # %%
-val_pairs['delta_age'] = abs(val_pairs.f1_age - val_pairs.f2_age)
-val_pairs[['f1_age', 'f2_age', 'delta_age']]
+val_pairs["delta_age"] = abs(val_pairs.f1_age - val_pairs.f2_age)
+val_pairs[["f1_age", "f2_age", "delta_age"]]
 
 # %% [markdown]
 # ### Plot age difference
 
 # %%
 g = sns.FacetGrid(val_pairs, col="is_kin", row="kin_relation", height=2, aspect=3)
-g = g.map(sns.histplot, "delta_age", color="red", stat='density')
+g = g.map(sns.histplot, "delta_age", color="red", stat="density")
 
 plt.suptitle("Age difference between face 1 and face 2, by kinship", y=1.02)
 plt.show()
@@ -338,8 +372,8 @@ plt.show()
 
 # %%
 g = sns.FacetGrid(val_pairs, col="is_kin", row="kin_relation", height=2, aspect=3)
-g = g.map(sns.histplot, "f1_gender", color="red", stat='density')
-g = g.map(sns.histplot, "f2_gender", color="blue", stat='density')
+g = g.map(sns.histplot, "f1_gender", color="red", stat="density")
+g = g.map(sns.histplot, "f2_gender", color="blue", stat="density")
 
 # Create custom lines for the legend
 red_line = mlines.Line2D([], [], color="red", label="Face 1")

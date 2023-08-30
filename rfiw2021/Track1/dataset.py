@@ -1,22 +1,19 @@
 import os
-import random
 
 import numpy as np
 import torch
 from keras.preprocessing import image
-from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
+from torch.utils.data import  Dataset
 from Track1.utils import np2tensor
 
 FILE = os.path.dirname(os.path.abspath(__file__))
 
 
 class FIW(Dataset):
-    def __init__(self, sample_path, classification=False, transform=None):
+    def __init__(self, sample_path, classification=False, classes=(), transform=None):
         self.sample_path = sample_path
         self.transform = transform
         self.classification = classification
-        self.sample_list = self.load_sample()
         self.bias = 0
         self.name2id = {
             "non-kin": 0,
@@ -32,6 +29,12 @@ class FIW(Dataset):
             "gmgd": 10,
             "gmgs": 11,
         }
+        self.name2id = {k: idx for idx, k in enumerate(self.name2id.keys()) if k in classes}
+        self.sample_list = self.load_sample()
+        print(
+            f"Loaded {len(self.sample_list)} samples from {sample_path}"
+            f" with {len(self.name2id)} classes: {list(self.name2id.keys())}"
+        )
 
     def load_sample(self):
         sample_list = []
@@ -43,7 +46,9 @@ class FIW(Dataset):
             else:
                 tmp = line.split(" ")
                 if self.classification:
-                    sample_list.append(tmp)
+                    # Only add if tmp[-2] is in classes
+                    if tmp[-2] in self.name2id.keys():
+                        sample_list.append(tmp)
                 else:
                     sample_list.append([tmp[0], tmp[1], tmp[2], tmp[-1]])
         f.close()

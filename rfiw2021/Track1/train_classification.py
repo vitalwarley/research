@@ -28,13 +28,14 @@ def training(args):
     save_path = args.save_dir
     beta = args.beta
     log_path = args.log_dir
+    classes = args.classes.split(",")
 
-    now = datetime.now().strftime("%Y%m%d_%H%M%S") 
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
     save_path = os.path.join(save_path, now + ".pt")
     log_path = os.path.join(log_path, now + ".txt")
 
-    train_dataset = FIW(os.path.join(args.sample, "train_sort.txt"), classification=True)
-    val_dataset = FIW(os.path.join(args.sample, "val_choose.txt"), classification=True)
+    train_dataset = FIW(os.path.join(args.sample, "train_sort.txt"), classification=True, classes=classes)
+    val_dataset = FIW(os.path.join(args.sample, "val_choose.txt"), classification=True, classes=classes)
 
     train_loader = DataLoader(
         train_dataset,
@@ -121,6 +122,10 @@ if __name__ == "__main__":
     parser.add_argument("--beta", default=0.08, type=float, help="beta default 0.08")
     parser.add_argument("--log_dir", default="logs/", type=str, help="log path default log.txt")
     parser.add_argument("--gpu", default="1", type=str, help="gpu id you use")
+    # add classes filter
+    parser.add_argument(
+        "--classes", default="non-kin,md,ms,sibs,ss,bb,fd,fs,gfgd,gfgs,gmgd,gmgs", type=str, help="classes to use"
+    )
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     torch.multiprocessing.set_start_method("spawn")

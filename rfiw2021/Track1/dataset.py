@@ -29,11 +29,12 @@ class FIW(Dataset):
             "gmgd": 10,
             "gmgs": 11,
         }
-        self.name2id = {k: idx for idx, k in enumerate(self.name2id.keys()) if k in classes}
+        # keep ids from 0 to len(classes)
+        self.name2id = {k: idx for idx, k in enumerate(classes) if k in self.name2id.keys()}
         self.sample_list = self.load_sample()
         print(
             f"Loaded {len(self.sample_list)} samples from {sample_path}"
-            f" with {len(self.name2id)} classes: {list(self.name2id.keys())}"
+            f" with {len(self.name2id)} classes: {list(self.name2id.items())}"
         )
 
     def load_sample(self):

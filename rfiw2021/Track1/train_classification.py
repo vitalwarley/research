@@ -110,7 +110,7 @@ def val_model(model, val_loader):
         y_true.extend(labels)
     y_pred = torch.stack(y_pred)
     y_true = torch.stack(y_true)
-    acc = accuracy(y_pred, y_true, task="multiclass", num_classes=12)
+    acc = accuracy(y_pred, y_true, task="multiclass", num_classes=model.num_classes)
     return acc
 
 

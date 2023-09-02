@@ -29,6 +29,7 @@ def training(args):
     beta = args.beta
     log_path = args.log_dir
     classes = args.classes.split(",")
+    num_classes = len(classes)
 
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
     save_path = os.path.join(save_path, now + ".pt")
@@ -47,7 +48,7 @@ def training(args):
     )
     val_loader = DataLoader(val_dataset, batch_size=val_batch_size, num_workers=8, pin_memory=False)
 
-    model = NetClassifier().cuda()
+    model = NetClassifier(num_classes=num_classes).cuda()
 
     optimizer_model = SGD(model.parameters(), lr=1e-4, momentum=0.9)
     max_acc = 0.0

@@ -37,7 +37,7 @@ class Net(torch.nn.Module):
 
 
 class NetClassifier(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes: int = 12):
         super(NetClassifier, self).__init__()
         self.encoder = KitModel(f"{FILE}/../backbone/kit_resnet101.pkl")
 
@@ -50,7 +50,7 @@ class NetClassifier(torch.nn.Module):
         self.classification = nn.Sequential(
             torch.nn.BatchNorm1d(256),
             torch.nn.ReLU(),
-            torch.nn.Linear(256, 12),  # number of kin relations, plus non-kin
+            torch.nn.Linear(256, num_classes),  # number of kin relations, plus non-kin
         )
         self._initialize_weights()
 

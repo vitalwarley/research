@@ -26,11 +26,11 @@
 # ## Import libraries
 
 # %%
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from mivolo.data.data_reader import get_all_files
@@ -39,12 +39,6 @@ from tqdm import tqdm
 
 # %%
 # %load_ext jupyter_ai_magics
-
-# %%
-# *_, sk = !gpg --decrypt ~/.keys/openai.gpg
-
-# %%
-os.environ["OPENAI_API_KEY"] = sk
 
 # %% [markdown]
 # # Set up paths
@@ -57,8 +51,11 @@ except NameError:
     IS_NOTEBOOK = False
     HERE = Path().resolve()
 
-DATA_DIR = Path(HERE, "../rfiw2021/Track1/Validation/val-faces")
+TRAIN_DATA_DIR = Path(HERE, "../rfiw2021/Track1/Train/train-faces")
+VAL_DATA_DIR = Path(HERE, "../rfiw2021/Track1/Validation/val-faces")
 MODELS_DIR = Path(HERE, "../MiVOLO/models")
+
+Path("data").mkdir(exist_ok=True)
 
 
 # %%
@@ -76,62 +73,80 @@ class Config:
 args = Config()
 predictor = Predictor(args)
 
+
+# %%
+def compute_ag_preds(csv_path, data_dir, load_preds=True):
+    if csv_path.exists() and LOAD_PREDS:
+        ag_preds = pd.read_csv(csv_path)
+    else:
+        image_files = get_all_files(data_dir)
+
+        preds = []
+
+        for img_p in tqdm(image_files):
+            img = cv2.imread(img_p)
+            try:
+                pred, out_im = predictor.recognize(img)
+                gs = np.array(pred.gender_scores)
+                gs[gs == None] = 0
+                max_index = np.argmax(gs)
+                if pred.ages[max_index] is None:
+                    pred_info = {"age": 0, "gender": "unk", "gender_score": 0}
+                else:
+                    pred_info = {
+                        "age": pred.ages[max_index],
+                        "gender": pred.genders[max_index],
+                        "gender_score": pred.gender_scores[max_index],
+                    }
+            except:
+                pred_info = {"age": 0, "gender": "unk", "gender_score": 0}
+            img_info = {k: v for k, v in zip(["fid", "mid", "pid_filename"], Path(img_p).parts[-3:])}
+            preds.append({**img_info, **pred_info})
+
+        ag_preds = pd.DataFrame(preds)
+        ag_preds.to_csv(csv_path, index=False)
+
+        print(f"Errors found: {len(ag_preds[ag_preds.age == 0])}")
+
+    return ag_preds
+
+
 # %%
 LOAD_PREDS = True
-Path("data").mkdir(exist_ok=True)
-ag_preds_csv_path = Path("data/age_gender_predictions.csv")
-ag_preds_csv_path.exists()
+train_ag_preds_csv_path = Path("data/train_age_gender_predictions.csv")
+train_ag_preds = compute_ag_preds(train_ag_preds_csv_path, TRAIN_DATA_DIR, load_preds=LOAD_PREDS)
+assert train_ag_preds_csv_path.exists()
 
 # %%
-if ag_preds_csv_path.exists() and LOAD_PREDS:
-    ag_preds = pd.read_csv(ag_preds_csv_path)
-else:
-    image_files = get_all_files(DATA_DIR)
+LOAD_PREDS = True
+val_ag_preds_csv_path = Path("data/val_age_gender_predictions.csv")
+val_ag_preds = compute_ag_preds(val_ag_preds_csv_path, VAL_DATA_DIR, load_preds=LOAD_PREDS)
+assert val_ag_preds_csv_path.exists()
 
-    preds = []
-
-    for img_p in tqdm(image_files):
-        img = cv2.imread(img_p)
-        try:
-            pred, out_im = predictor.recognize(img)
-            gs = np.array(pred.gender_scores)
-            gs[gs == None] = 0
-            max_index = np.argmax(gs)
-            if pred.ages[max_index] is None:
-                pred_info = {"age": 0, "gender": "unk", "gender_score": 0}
-            else:
-                pred_info = {
-                    "age": pred.ages[max_index],
-                    "gender": pred.genders[max_index],
-                    "gender_score": pred.gender_scores[max_index],
-                }
-        except:
-            pred_info = {"age": 0, "gender": "unk", "gender_score": 0}
-        img_info = {k: v for k, v in zip(["fid", "mid", "pid_filename"], Path(img_p).parts[-3:])}
-        preds.append({**img_info, **pred_info})
-
-    ag_preds = pd.DataFrame(preds)
-    ag_preds.to_csv("data/age_gender_predictions.csv", index=False)
-
-    print(f"Errors found: {len(ag_preds[ag_preds.age == 0])}")
 
 # %%
-import matplotlib.pyplot as plt
+def plot_unknowns(ag_preds, data_dir):
+    fig, axes = plt.subplots(5, 20, figsize=(20, 5))
+    axes = [ax for axes_ in axes for ax in axes_]
 
-fig, axes = plt.subplots(5, 20, figsize=(20, 5))
-axes = [ax for axes_ in axes for ax in axes_]
+    errors = ag_preds[ag_preds.gender == "unk"].sample(n=100).reset_index(drop=True)
 
-errors = ag_preds[ag_preds.gender == "unk"].sample(n=100).reset_index(drop=True)
+    for idx, row in errors.iterrows():
+        img_fp = str(Path(data_dir, row.fid, row.mid, row.pid_filename).resolve())
+        img = cv2.imread(img_fp)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        ax = axes[idx]
+        ax.imshow(img)
+        ax.axis("off")
 
-for idx, row in errors.iterrows():
-    img_fp = str(Path(DATA_DIR, row.fid, row.mid, row.pid_filename).resolve())
-    img = cv2.imread(img_fp)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    ax = axes[idx]
-    ax.imshow(img)
-    ax.axis("off")
+    plt.show()
 
-plt.show()
+
+# %%
+plot_unknowns(train_ag_preds, TRAIN_DATA_DIR)
+
+# %%
+plot_unknowns(val_ag_preds, VAL_DATA_DIR)
 
 # %% [markdown]
 # # Data Analysis
@@ -157,98 +172,107 @@ plt.show()
 # %% [markdown]
 # ## Plot data distribution
 
+
 # %%
-plt.figure(figsize=(12, 4))
+def plot_ag_preds_summary(ag_preds):
+    plt.figure(figsize=(12, 4))
 
-# Plot for 'age'
-plt.subplot(1, 3, 1)
-ag_preds["age"].plot(kind="hist", bins=30, edgecolor="black")
-plt.xlabel("Age")
-plt.title("Age Distribution")
+    # Plot for 'age'
+    plt.subplot(1, 3, 1)
+    ag_preds["age"].plot(kind="hist", bins=30, edgecolor="black")
+    plt.xlabel("Age")
+    plt.title("Age Distribution")
 
-# Plot for 'gender'
-plt.subplot(1, 3, 2)
-ag_preds["gender"].value_counts().plot(kind="bar", color="orange")
-plt.xlabel("Gender")
-plt.title("Gender Distribution")
+    # Plot for 'gender'
+    plt.subplot(1, 3, 2)
+    ag_preds["gender"].value_counts().plot(kind="bar", color="orange")
+    plt.xlabel("Gender")
+    plt.title("Gender Distribution")
 
-# Plot for 'gender_score'
-plt.subplot(1, 3, 3)
-ag_preds["gender_score"].plot(kind="hist", color="green")
-plt.xlabel("Gender Score")
-plt.title("Gender Score Distribution")
+    # Plot for 'gender_score'
+    plt.subplot(1, 3, 3)
+    ag_preds["gender_score"].plot(kind="hist", color="green")
+    plt.xlabel("Gender Score")
+    plt.title("Gender Score Distribution")
 
-plt.tight_layout()
-plt.show()
+    plt.tight_layout()
+    plt.show()
+
+
+# %%
+plot_ag_preds_summary(train_ag_preds)
+
+# %%
+plot_ag_preds_summary(val_ag_preds)
 
 # %% [markdown]
 # ## Plot some 0-age samples
 
+
 # %%
-fig, axes = plt.subplots(5, 20, figsize=(20, 5))
-axes = [ax for axes_ in axes for ax in axes_]
+def plot_zero_age_samples(errors, data_dir, title):
+    fig, axes = plt.subplots(5, 20, figsize=(20, 5))
+    axes = [ax for axes_ in axes for ax in axes_]
 
-errors = ag_preds[ag_preds.age == 0].sample(n=100).reset_index(drop=True)
+    for idx, row in errors.iterrows():
+        img_fp = str(Path(data_dir, row.fid, row.mid, row.pid_filename).resolve())
+        img = cv2.imread(img_fp)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        ax = axes[idx]
+        ax.imshow(img)
+        ax.axis("off")
 
-for idx, row in errors.iterrows():
-    img_fp = str(Path(DATA_DIR, row.fid, row.mid, row.pid_filename).resolve())
+    plt.suptitle(title)
+    plt.tight_layout()
+    plt.show()
+
+
+# %%
+train_errors = train_ag_preds[train_ag_preds.age == 0].sample(n=100).reset_index(drop=True)
+plot_zero_age_samples(train_errors, TRAIN_DATA_DIR, "0-age samples (train)")
+
+# %%
+val_errors = val_ag_preds[val_ag_preds.age == 0].sample(n=100).reset_index(drop=True)
+plot_zero_age_samples(val_errors, VAL_DATA_DIR, "0-age samples (val)")
+
+
+# %%
+def plot_random_error_sample(errors, data_dir):
+    sample = errors.sample(n=1).iloc[0]
+    img_fp = str(Path(data_dir, sample.fid, sample.mid, sample.pid_filename).resolve())
     img = cv2.imread(img_fp)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    ax = axes[idx]
-    ax.imshow(img)
-    ax.axis("off")
+    results, _ = predictor.recognize(img)
+    print(results.ages, results.genders, results.gender_scores)
+    plot_img = results.plot(line_width=1, font_size=5)
+    plot_img = cv2.cvtColor(plot_img, cv2.COLOR_BGR2RGB)
+    plt.imshow(plot_img)
 
-plt.suptitle("0-age samples")
-plt.tight_layout()
-plt.show()
 
 # %%
-sample = errors.sample(n=1).iloc[0]
-img_fp = str(Path(DATA_DIR, sample.fid, sample.mid, sample.pid_filename).resolve())
-img = cv2.imread(img_fp)
-results, _ = predictor.recognize(img)
-print(results.ages, results.genders, results.gender_scores)
-plot_img = results.plot(line_width=1, font_size=5)
-plt.imshow(plot_img)
+plot_random_error_sample(train_errors, TRAIN_DATA_DIR)
+
+# %%
+plot_random_error_sample(val_errors, VAL_DATA_DIR)
 
 # %% [markdown]
 # ## Filter 0-age samples, then plot data distributions again
 
 # %%
-original_ag_preds = ag_preds.copy()
-ag_preds = ag_preds[ag_preds.age != 0]
+temp_t_ag_preds = train_ag_preds.copy()
+ag_preds = temp_t_ag_preds[temp_t_ag_preds.age != 0]
+plot_ag_preds_summary(ag_preds)
 
 # %%
-plt.figure(figsize=(12, 4))
-
-# Plot for 'age'
-plt.subplot(1, 3, 1)
-ag_preds["age"].plot(kind="hist", bins=30, edgecolor="black")
-plt.xlabel("Age")
-plt.title("Age Distribution")
-
-# Plot for 'gender'
-plt.subplot(1, 3, 2)
-ag_preds["gender"].value_counts().plot(kind="bar", color="orange")
-plt.xlabel("Gender")
-plt.title("Gender Distribution")
-
-# Plot for 'gender_score'
-plt.subplot(1, 3, 3)
-ag_preds["gender_score"].plot(kind="hist", color="green")
-plt.xlabel("Gender Score")
-plt.title("Gender Score Distribution")
-
-plt.tight_layout()
-plt.show()
-
+temp_v_ag_preds = val_ag_preds.copy()
+ag_preds = temp_v_ag_preds[temp_v_ag_preds.age != 0]
+plot_ag_preds_summary(ag_preds)
 
 # %% [markdown]
 # ## Load validation pairs
 
 
 # %%
-def load_data(path: str):
+def load_data(path: str | Path):
     df = pd.read_csv(
         path,
         delimiter=" ",
@@ -259,68 +283,94 @@ def load_data(path: str):
     return df
 
 
-val_pairs_fp = Path(HERE, "../rfiw2021/Track1/sample0/val.txt")
-val_pairs_fp_model_sel = Path(HERE, "../rfiw2021/Track1/sample0/val_choose.txt")
-val_pairs1 = load_data(val_pairs_fp)
-val_pairs2 = load_data(val_pairs_fp_model_sel)
-val_pairs = pd.concat([val_pairs1, val_pairs2]).reset_index(drop=True)
-val_pairs
+# %%
+def load_pairs(*file_paths):
+    df_list = [load_data(Path(HERE, path)) for path in file_paths]
+    pairs = pd.concat(df_list).reset_index(drop=True)
+    return pairs
+
+
+def load_train_pairs():
+    return load_pairs("../rfiw2021/Track1/sample0/train_sort.txt")
+
+
+def load_val_pairs():
+    return load_pairs("../rfiw2021/Track1/sample0/val.txt", "../rfiw2021/Track1/sample0/val_choose.txt")
+
+
+# %%
+train_pairs = load_train_pairs()
+val_pairs = load_val_pairs()
 
 # %% [markdown]
 # ## Plot frequency by `kin_relation`
-#
-# import matplotlib.pyplot as plt
 
 # %%
+import warnings
+
 import seaborn as sns
 
+warnings.filterwarnings("ignore", category=FutureWarning, module="seaborn")
 sns.set(style="darkgrid")
 
-# Calculate frequencies of 'kin_relation'
-kin_relation_frequencies = val_pairs["kin_relation"].value_counts().index.tolist()
 
-# Reorder 'kin_relation' based on frequency
-val_pairs["kin_relation"] = pd.Categorical(val_pairs["kin_relation"], categories=kin_relation_frequencies, ordered=True)
+def plot_kin_relation_freqs(pairs, title):
+    # Calculate frequencies of 'kin_relation'
+    kin_relation_frequencies = pairs["kin_relation"].value_counts().index.tolist()
 
-grid = sns.FacetGrid(val_pairs, col="is_kin", height=5, aspect=1)
-grid.map(sns.countplot, "kin_relation", order=kin_relation_frequencies)
+    # Reorder 'kin_relation' based on frequency
+    pairs["kin_relation"] = pd.Categorical(pairs["kin_relation"], categories=kin_relation_frequencies, ordered=True)
 
-# Rotate xlabels
-grid.set_xticklabels(rotation=45)
+    grid = sns.FacetGrid(pairs, col="is_kin", height=5, aspect=1)
+    grid.map(sns.countplot, "kin_relation", order=kin_relation_frequencies)
 
-plt.show()
+    # Rotate xlabels
+    grid.set_xticklabels(rotation=45)
+
+    plt.show()
+
 
 # %%
-kin_relation_frequencies
+plot_kin_relation_freqs(train_pairs, "Train pairs")
+
+# %%
+plot_kin_relation_freqs(val_pairs, "Validation pairs")
+
 
 # %% [markdown]
-# ### Add relevant columns to pairs dataframe
+# ### Merge age and gender predictions with pairs
+
 
 # %%
-# Processing face1_path
-face1_parts = val_pairs.face1_path.apply(lambda x: Path(x).parts[-3:])
-val_pairs[["f1fid", "f1mid", "f1fp"]] = pd.DataFrame(face1_parts.tolist())
+def merge_ag_preds_with_pairs(pairs, ag_preds):
+    # Add relevant columns to pairs dataframe
 
-# Processing face2_path
-face2_parts = val_pairs.face2_path.apply(lambda x: Path(x).parts[-3:])
-val_pairs[["f2fid", "f2mid", "f2fp"]] = pd.DataFrame(face2_parts.tolist())
-val_pairs
+    # Processing face1_path
+    face1_parts = pairs.face1_path.apply(lambda x: Path(x).parts[-3:])
+    pairs[["f1fid", "f1mid", "f1fp"]] = pd.DataFrame(face1_parts.tolist())
 
-# %% [markdown]
-# ### Merge pairs dataframe with age and gender predictions dataframe
+    # Processing face2_path
+    face2_parts = pairs.face2_path.apply(lambda x: Path(x).parts[-3:])
+    pairs[["f2fid", "f2mid", "f2fp"]] = pd.DataFrame(face2_parts.tolist())
+
+    # Merge pairs dataframe with age and gender predictions dataframe
+    pairs = pairs.merge(
+        ag_preds, left_on=["f1fid", "f1mid", "f1fp"], right_on=["fid", "mid", "pid_filename"], how="inner"
+    )
+    pairs.rename(columns={"age": "f1_age", "gender": "f1_gender", "gender_score": "f1_gender_score"}, inplace=True)
+    pairs.drop(["fid", "mid", "pid_filename"], axis=1, inplace=True)
+    pairs = pairs.merge(
+        ag_preds, left_on=["f2fid", "f2mid", "f2fp"], right_on=["fid", "mid", "pid_filename"], how="inner"
+    )
+    pairs.rename(columns={"age": "f2_age", "gender": "f2_gender", "gender_score": "f2_gender_score"}, inplace=True)
+    pairs.drop(["fid", "mid", "pid_filename"], axis=1, inplace=True)
+
+    return pairs
+
 
 # %%
-val_pairs = val_pairs.merge(
-    ag_preds, left_on=["f1fid", "f1mid", "f1fp"], right_on=["fid", "mid", "pid_filename"], how="inner"
-)
-val_pairs.rename(columns={"age": "f1_age", "gender": "f1_gender", "gender_score": "f1_gender_score"}, inplace=True)
-val_pairs.drop(["fid", "mid", "pid_filename"], axis=1, inplace=True)
-val_pairs = val_pairs.merge(
-    ag_preds, left_on=["f2fid", "f2mid", "f2fp"], right_on=["fid", "mid", "pid_filename"], how="inner"
-)
-val_pairs.rename(columns={"age": "f2_age", "gender": "f2_gender", "gender_score": "f2_gender_score"}, inplace=True)
-val_pairs.drop(["fid", "mid", "pid_filename"], axis=1, inplace=True)
-val_pairs
+train_pairs_ag = merge_ag_preds_with_pairs(train_pairs, train_ag_preds)
+val_pairs_ag = merge_ag_preds_with_pairs(val_pairs, val_ag_preds)
 
 # %% [markdown]
 # ## Plot histograms
@@ -330,63 +380,103 @@ val_pairs
 
 # %%
 import matplotlib.lines as mlines
-import matplotlib.pyplot as plt
 import seaborn as sns
 
 sns.set_style("whitegrid")
 
+
 # %%
-g = sns.FacetGrid(val_pairs, col="is_kin", row="kin_relation", height=2, aspect=3)
-g = g.map(sns.histplot, "f1_age", color="red", stat="density")
-g = g.map(sns.histplot, "f2_age", color="blue", stat="density")
+def plot_age_hist_by_face_order_and_kin(pairs, title):
+    if len(pairs.is_kin.unique()) == 2:
+        g = sns.FacetGrid(pairs, col="is_kin", row="kin_relation", height=2, aspect=3)
+    else:
+        g = sns.FacetGrid(pairs, row="kin_relation", height=2, aspect=3)
+    g = g.map(sns.histplot, "f1_age", color="red", stat="density")
+    g = g.map(sns.histplot, "f2_age", color="blue", stat="density")
 
-# Create custom lines for the legend
-red_line = mlines.Line2D([], [], color="red", label="Face 1")
-blue_line = mlines.Line2D([], [], color="blue", label="Face 2")
+    # Create custom lines for the legend
+    red_line = mlines.Line2D([], [], color="red", label="Face 1")
+    blue_line = mlines.Line2D([], [], color="blue", label="Face 2")
 
-# Adding the legend at the top
-g.fig.legend(handles=[red_line, blue_line], loc="upper center", bbox_to_anchor=[0.5, 1.01], ncol=2)
+    # Adding the legend at the top
+    g.fig.legend(handles=[red_line, blue_line], loc="upper center", bbox_to_anchor=[0.5, 1.01], ncol=2)
 
-plt.suptitle("Age by face order in the pair, by kinship", y=1.02)
-plt.show()
+    plt.suptitle(title, y=1.02)
+    plt.show()
+
+
+# %%
+plot_age_hist_by_face_order_and_kin(train_pairs_ag, "Age by face order in the pair, by kinship (train)")
+
+# %%
+plot_age_hist_by_face_order_and_kin(val_pairs_ag, "Age by face order in the pair, by kinship (val)")
+
 
 # %% [markdown]
 # ### Compute age difference (delta)
 
+# %% [markdown]
+# - Keep pairs with age greater than zero.
+# - Compute absolute difference.
+
+
 # %%
-val_pairs["delta_age"] = abs(val_pairs.f1_age - val_pairs.f2_age)
-val_pairs[["f1_age", "f2_age", "delta_age"]]
+def compute_age_diff(pairs):
+    pairs = pairs[(pairs.f1_age > 0) & (pairs.f2_age > 0)]
+    pairs["delta_age"] = abs(pairs.f1_age - pairs.f2_age)
+    return pairs
+
+
+# %%
+train_pairs_ag = compute_age_diff(train_pairs_ag)
+val_pairs_ag = compute_age_diff(val_pairs_ag)
 
 # %% [markdown]
 # ### Plot age difference
 
-# %%
-g = sns.FacetGrid(val_pairs, col="is_kin", row="kin_relation", height=2, aspect=3)
-g = g.map(sns.histplot, "delta_age", color="red", stat="density")
 
-plt.suptitle("Age difference between face 1 and face 2, by kinship", y=1.02)
-plt.show()
+# %%
+def plot_age_diff_by_kin(pairs, title):
+    g = sns.FacetGrid(pairs, col="is_kin", row="kin_relation", height=2, aspect=3)
+    g = g.map(sns.histplot, "delta_age", color="red", stat="density")
+
+    plt.suptitle(title, y=1.02)
+    plt.show()
+
+
+# %%
+plot_age_diff_by_kin(train_pairs_ag, "Age difference between face 1 and face 2, by kinship (train)")
+
+# %%
+plot_age_diff_by_kin(val_pairs_ag, "Age difference between face 1 and face 2, by kinship (val)")
 
 # %% [markdown]
 # ### Gender by face order in the pair, by kinship
 
+
 # %%
-g = sns.FacetGrid(val_pairs, col="is_kin", row="kin_relation", height=2, aspect=3)
-g = g.map(sns.histplot, "f1_gender", color="red", stat="density")
-g = g.map(sns.histplot, "f2_gender", color="blue", stat="density")
+def plot_gender_hist_by_face_order_and_kin(pairs, title):
+    g = sns.FacetGrid(pairs, col="is_kin", row="kin_relation", height=2, aspect=3)
+    g = g.map(sns.histplot, "f1_gender", color="red", stat="density")
+    g = g.map(sns.histplot, "f2_gender", color="blue", stat="density")
 
-# Create custom lines for the legend
-red_line = mlines.Line2D([], [], color="red", label="Face 1")
-blue_line = mlines.Line2D([], [], color="blue", label="Face 2")
+    # Create custom lines for the legend
+    red_line = mlines.Line2D([], [], color="red", label="Face 1")
+    blue_line = mlines.Line2D([], [], color="blue", label="Face 2")
 
-# Adding the legend at the top
-g.fig.legend(handles=[red_line, blue_line], loc="upper center", bbox_to_anchor=[0.5, 1.01], ncol=2)
+    # Adding the legend at the top
+    g.fig.legend(handles=[red_line, blue_line], loc="upper center", bbox_to_anchor=[0.5, 1.01], ncol=2)
 
-plt.suptitle("Gender by face order in the pair, by kinship", y=1.02)
-plt.show()
+    plt.suptitle(title, y=1.02)
+    plt.show()
+
+
+# %%
+plot_gender_hist_by_face_order_and_kin(train_pairs_ag, "Gender by face order in the pair, by kinship (train)")
+
+# %%
+plot_gender_hist_by_face_order_and_kin(val_pairs_ag, "Gender by face order in the pair, by kinship (val)")
+
 
 # %% [markdown]
 # - In the above plot note that each y-axis is aggregated as an density, which means that the total area is normalized to 1.
-
-# %% [markdown]
-# ## Computa

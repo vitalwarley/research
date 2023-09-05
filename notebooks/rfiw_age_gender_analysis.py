@@ -437,8 +437,19 @@ val_pairs_ag = compute_age_diff(val_pairs_ag)
 
 # %%
 def plot_age_diff_by_kin(pairs, title):
+    def add_legend(data, **kwargs):
+        # Calculate mean and standard deviation for this subplot
+        mean = data.mean()
+        std = data.std()
+        legend_label = "mean={:.2f}, std={:.2f}".format(mean, std)
+
+        # Access current axes via plt.gca() and add legend
+        ax = plt.gca()
+        ax.text(0.5, 0.8, legend_label, transform=ax.transAxes)
+
     g = sns.FacetGrid(pairs, col="is_kin", row="kin_relation", height=2, aspect=3)
     g = g.map(sns.histplot, "delta_age", color="red", stat="density")
+    g = g.map(add_legend, "delta_age")
 
     plt.suptitle(title, y=1.02)
     plt.show()
@@ -480,3 +491,7 @@ plot_gender_hist_by_face_order_and_kin(val_pairs_ag, "Gender by face order in th
 
 # %% [markdown]
 # - In the above plot note that each y-axis is aggregated as an density, which means that the total area is normalized to 1.
+
+# %%
+train_pairs_ag.to_csv("data/train_ag.csv", index=False)
+val_pairs_ag.to_csv("data/val_ag.csv", index=False)

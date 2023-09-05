@@ -77,10 +77,9 @@ for i in range(n_rows):
     x2 = f"{letter}{random.randint(1, 100)}"
     kinship_type = random.choice(list(age_diff_distributions.keys()))
     gender_x1, gender_x2 = gender_constraints[kinship_type]
-    if gender_x1 == "either":
+    if kinship_type == "sibs":
         gender_x1 = random.choice(["male", "female"])
-    if gender_x2 == "either":
-        gender_x2 = random.choice(["male", "female"])
+        gender_x2 = "male" if gender_x1 == "female" else "female"
     distribution, *params = age_diff_distributions[kinship_type]
     age_diff = generate_age_diff(distribution, *params)
     age_x1 = random.randint(1, 100)
@@ -145,10 +144,6 @@ df_pairwise.rename(columns={"new_kinship_type": "kinship_type"}, inplace=True)
 df_merged = pd.concat([df_final, df_pairwise], ignore_index=True)
 
 # %%
-df_merged
+df_merged.kinship_type.sort_values().unique()
 
 # %%
-df_merged.sample(n=10)
-
-# %%
-df_merged[df_merged.x1 == "F1"]

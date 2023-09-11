@@ -26,16 +26,24 @@
 # ## Import libraries
 
 # %%
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
+import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from mivolo.data.data_reader import get_all_files
 from mivolo.predictor import Predictor
 from tqdm import tqdm
+
+# %%
+warnings.filterwarnings("ignore", category=FutureWarning, module="seaborn")
+sns.set(style="darkgrid")
+
 
 # %%
 # %load_ext jupyter_ai_magics
@@ -53,6 +61,7 @@ except NameError:
 
 TRAIN_DATA_DIR = Path(HERE, "../rfiw2021/Track1/Train/train-faces")
 VAL_DATA_DIR = Path(HERE, "../rfiw2021/Track1/Validation/val-faces")
+TEST_DATA_DIR = Path(HERE, "../rfiw2021/Track1/Test/test-faces")
 MODELS_DIR = Path(HERE, "../MiVOLO/models")
 
 Path("data").mkdir(exist_ok=True)
@@ -123,16 +132,25 @@ val_ag_preds_csv_path = Path("data/val_age_gender_predictions.csv")
 val_ag_preds = compute_ag_preds(val_ag_preds_csv_path, VAL_DATA_DIR, load_preds=LOAD_PREDS)
 assert val_ag_preds_csv_path.exists()
 
+# %%
+LOAD_PREDS = True
+test_ag_preds_csv_path = Path("data/test_age_gender_predictions.csv")
+test_ag_preds = compute_ag_preds(test_ag_preds_csv_path, TEST_DATA_DIR, load_preds=LOAD_PREDS)
+assert test_ag_preds_csv_path.exists()
+
 
 # %%
-def plot_unknowns(ag_preds, data_dir):
+def plot_unknowns(ag_preds, data_dir, n_samples: int = 50, test: bool = False):
     fig, axes = plt.subplots(5, 20, figsize=(20, 5))
     axes = [ax for axes_ in axes for ax in axes_]
 
-    errors = ag_preds[ag_preds.gender == "unk"].sample(n=100).reset_index(drop=True)
+    errors = ag_preds[ag_preds.gender == "unk"].sample(n=n_samples).reset_index(drop=True)
 
     for idx, row in errors.iterrows():
-        img_fp = str(Path(data_dir, row.fid, row.mid, row.pid_filename).resolve())
+        if test:
+            img_fp = str(Path(data_dir, row.pid_filename).resolve())
+        else:
+            img_fp = str(Path(data_dir, row.fid, row.mid, row.pid_filename).resolve())
         img = cv2.imread(img_fp)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         ax = axes[idx]
@@ -143,10 +161,13 @@ def plot_unknowns(ag_preds, data_dir):
 
 
 # %%
-plot_unknowns(train_ag_preds, TRAIN_DATA_DIR)
+plot_unknowns(train_ag_preds, TRAIN_DATA_DIR, n_samples=100)
 
 # %%
-plot_unknowns(val_ag_preds, VAL_DATA_DIR)
+plot_unknowns(val_ag_preds, VAL_DATA_DIR, n_samples=100)
+
+# %%
+plot_unknowns(test_ag_preds, TEST_DATA_DIR, n_samples=100, test=True)
 
 # %% [markdown]
 # # Data Analysis
@@ -205,35 +226,22 @@ plot_ag_preds_summary(train_ag_preds)
 # %%
 plot_ag_preds_summary(val_ag_preds)
 
-# %% [markdown]
-# ## Plot some 0-age samples
-
+# %%
+plot_ag_preds_summary(test_ag_preds)
 
 # %%
-def plot_zero_age_samples(errors, data_dir, title):
-    fig, axes = plt.subplots(5, 20, figsize=(20, 5))
-    axes = [ax for axes_ in axes for ax in axes_]
-
-    for idx, row in errors.iterrows():
-        img_fp = str(Path(data_dir, row.fid, row.mid, row.pid_filename).resolve())
-        img = cv2.imread(img_fp)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        ax = axes[idx]
-        ax.imshow(img)
-        ax.axis("off")
-
-    plt.suptitle(title)
-    plt.tight_layout()
-    plt.show()
-
-
-# %%
-train_errors = train_ag_preds[train_ag_preds.age == 0].sample(n=100).reset_index(drop=True)
+train_errors = (
+    train_ag_preds[train_ag_preds.age == 0][train_ag_preds.gender != "unk"].sample(n=1).reset_index(drop=True)
+)
 plot_zero_age_samples(train_errors, TRAIN_DATA_DIR, "0-age samples (train)")
 
 # %%
 val_errors = val_ag_preds[val_ag_preds.age == 0].sample(n=100).reset_index(drop=True)
 plot_zero_age_samples(val_errors, VAL_DATA_DIR, "0-age samples (val)")
+
+# %%
+test_errors = test_ag_preds[test_ag_preds.age == 0].sample(n=100).reset_index(drop=True)
+plot_zero_age_samples(test_errors, TEST_DATA_DIR, "0-age samples (test)")
 
 
 # %%
@@ -254,6 +262,9 @@ plot_random_error_sample(train_errors, TRAIN_DATA_DIR)
 # %%
 plot_random_error_sample(val_errors, VAL_DATA_DIR)
 
+# %%
+plot_random_error_sample(test_errors, TEST_DATA_DIR)
+
 # %% [markdown]
 # ## Filter 0-age samples, then plot data distributions again
 
@@ -265,6 +276,11 @@ plot_ag_preds_summary(ag_preds)
 # %%
 temp_v_ag_preds = val_ag_preds.copy()
 ag_preds = temp_v_ag_preds[temp_v_ag_preds.age != 0]
+plot_ag_preds_summary(ag_preds)
+
+# %%
+temp_t_ag_preds = test_ag_preds.copy()
+ag_preds = temp_t_ag_preds[temp_t_ag_preds.age != 0]
 plot_ag_preds_summary(ag_preds)
 
 # %% [markdown]
@@ -298,22 +314,20 @@ def load_val_pairs():
     return load_pairs("../rfiw2021/Track1/sample0/val.txt", "../rfiw2021/Track1/sample0/val_choose.txt")
 
 
+def load_test_pairs():
+    return load_pairs("../rfiw2021/Track1/sample0/test.txt")
+
+
 # %%
 train_pairs = load_train_pairs()
 val_pairs = load_val_pairs()
+test_pairs = load_test_pairs()
 
 # %% [markdown]
 # ## Plot frequency by `kin_relation`
 
+
 # %%
-import warnings
-
-import seaborn as sns
-
-warnings.filterwarnings("ignore", category=FutureWarning, module="seaborn")
-sns.set(style="darkgrid")
-
-
 def plot_kin_relation_freqs(pairs, title):
     # Calculate frequencies of 'kin_relation'
     kin_relation_frequencies = pairs["kin_relation"].value_counts().index.tolist()
@@ -335,6 +349,9 @@ plot_kin_relation_freqs(train_pairs, "Train pairs")
 
 # %%
 plot_kin_relation_freqs(val_pairs, "Validation pairs")
+
+# %%
+plot_kin_relation_freqs(test_pairs, "Test pairs")
 
 
 # %% [markdown]
@@ -371,18 +388,13 @@ def merge_ag_preds_with_pairs(pairs, ag_preds):
 # %%
 train_pairs_ag = merge_ag_preds_with_pairs(train_pairs, train_ag_preds)
 val_pairs_ag = merge_ag_preds_with_pairs(val_pairs, val_ag_preds)
+test_pairs_ag = merge_ag_preds_with_pairs(test_pairs, test_ag_preds)
 
 # %% [markdown]
 # ## Plot histograms
 
 # %% [markdown]
 # ### Age by face order in the pair, by kinship
-
-# %%
-import matplotlib.lines as mlines
-import seaborn as sns
-
-sns.set_style("whitegrid")
 
 
 # %%
@@ -411,6 +423,8 @@ plot_age_hist_by_face_order_and_kin(train_pairs_ag, "Age by face order in the pa
 # %%
 plot_age_hist_by_face_order_and_kin(val_pairs_ag, "Age by face order in the pair, by kinship (val)")
 
+# %%
+plot_age_hist_by_face_order_and_kin(test_pairs_ag, "Age by face order in the pair, by kinship (test)")
 
 # %% [markdown]
 # ### Compute age difference (delta)
@@ -430,6 +444,7 @@ def compute_age_diff(pairs):
 # %%
 train_pairs_ag = compute_age_diff(train_pairs_ag)
 val_pairs_ag = compute_age_diff(val_pairs_ag)
+test_pairs_ag = compute_age_diff(test_pairs_ag)
 
 # %% [markdown]
 # ### Plot age difference
@@ -461,6 +476,10 @@ plot_age_diff_by_kin(train_pairs_ag, "Age difference between face 1 and face 2, 
 # %%
 plot_age_diff_by_kin(val_pairs_ag, "Age difference between face 1 and face 2, by kinship (val)")
 
+# %%
+plot_age_diff_by_kin(test_pairs_ag, "Age difference between face 1 and face 2, by kinship (test)")
+
+
 # %% [markdown]
 # ### Gender by face order in the pair, by kinship
 
@@ -488,6 +507,9 @@ plot_gender_hist_by_face_order_and_kin(train_pairs_ag, "Gender by face order in 
 # %%
 plot_gender_hist_by_face_order_and_kin(val_pairs_ag, "Gender by face order in the pair, by kinship (val)")
 
+# %%
+plot_gender_hist_by_face_order_and_kin(test_pairs_ag, "Gender by face order in the pair, by kinship (test)")
+
 
 # %% [markdown]
 # - In the above plot note that each y-axis is aggregated as an density, which means that the total area is normalized to 1.
@@ -495,3 +517,6 @@ plot_gender_hist_by_face_order_and_kin(val_pairs_ag, "Gender by face order in th
 # %%
 train_pairs_ag.to_csv("data/train_ag.csv", index=False)
 val_pairs_ag.to_csv("data/val_ag.csv", index=False)
+test_pairs_ag.to_csv("data/test_ag.csv", index=False)
+
+# %%

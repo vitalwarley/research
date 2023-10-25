@@ -130,7 +130,10 @@ dmypy.json
 
 # folders
 docs/
-insight_face/
+insightface/
 weights/
 outputs/
 plots/
+datasets/
+models/
+lightning_logs/

@@ -149,6 +149,8 @@ class EvalPretrainDataset(Dataset):
         # read bin
         with open((self.root / target).with_suffix(".bin"), "rb") as f:
             bins, self.labels = pickle.load(f, encoding="bytes")
+
+        print(f"Unique labels: {np.unique(self.labels)}")
         # create data array
         for flip in [0, 1]:
             _first = np.empty(

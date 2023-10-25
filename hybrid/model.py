@@ -7,7 +7,7 @@ import timm
 import torch
 import torchmetrics as tm
 from config import LOGGER
-from insight_face.recognition.arcface_torch.backbones import get_model
+from insightface.recognition.arcface_torch.backbones import get_model
 from lr_scheduler import PolyScheduler
 from pytorch_metric_learning import losses
 from sklearn.model_selection import KFold
@@ -99,11 +99,12 @@ class Model(pl.LightningModule):
             raise NotImplementedError
 
     def _init_metrics(self):
-        self.train_accuracy = tm.Accuracy()
+        self.train_accuracy = tm.Accuracy(task="multiclass", num_classes=self.num_classes)
 
     def _init_model(self):
         if self.insightface:
             self.backbone = get_model("r100", fp16=False)
+            print(f"Loaded insightface backbone: {self.backbone}")
         else:
             self.backbone = timm.models.create_model(self.model, num_classes=0, global_pool="")
             out_features = self.backbone(torch.randn(1, 3, 112, 112))
@@ -118,6 +119,7 @@ class Model(pl.LightningModule):
             )
             torch.nn.init.constant_(self.bn.weight, 1.0)
             self.bn.weight.requires_grad = False
+            print(f"Loaded timm backbone: {self.backbone}")
 
         if self.loss != "arcface":
             # Classification layer
@@ -580,14 +582,14 @@ class PretrainModel(Model):
             # compute train accuracy
             for t_idx, threshold in enumerate(thresholds):
                 predicted = train_dists < threshold
-                acc_train[t_idx] = tm.functional.accuracy(predicted, train_labels)
+                acc_train[t_idx] = tm.functional.accuracy(predicted, train_labels, task="binary")
             # compute test accuracy
             test_dists = dists[test_idx]
             test_labels = labels[test_idx]
             best_threshold_index = torch.argmax(acc_train)
             threshold = thresholds[best_threshold_index]
             predicted = test_dists < threshold
-            accuracy[fold] = tm.functional.accuracy(predicted, test_labels)
+            accuracy[fold] = tm.functional.accuracy(predicted, test_labels, task="binary")
             best_thresholds[fold] = threshold
 
         acc = torch.mean(accuracy).item()

@@ -1,66 +1,67 @@
 import argparse
-import numpy as np
 import gc
+import os
 import sys
+
+import numpy as np
 import torch
 from keras.preprocessing import image
-import os
 from tqdm import tqdm
 
-
 FILE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, f'{FILE}/..')
+sys.path.insert(0, f"{FILE}/..")
 
 
 from Track1.models import Net
 from Track1.utils import *
 
 
-def baseline_model(model_path):
-    model = Net().cuda()
+def baseline_model(model_path, fine_tuned=False):
+    model = Net(model_path, finetuned=args.insightface).cuda()
     model.load_state_dict(torch.load(model_path))
     model.eval()
     return model
 
-def get_test(sample_path,res):
-    test_file_path = os.path.join(sample_path,"test.txt")
-    test=[]
-    f = open(test_file_path, "r+", encoding='utf-8')
+
+def get_test(sample_path, res):
+    test_file_path = os.path.join(sample_path, "test.txt")
+    test = []
+    f = open(test_file_path, "r+", encoding="utf-8")
     while True:
-        line=f.readline().replace('\n','')
+        line = f.readline().replace("\n", "")
         if not line:
             break
         else:
-            test.append(line.split(' '))
+            test.append(line.split(" "))
     f.close()
-    res['avg'][0]=len(test)
+    res["avg"][0] = len(test)
     for now in test:
-        res[now[3]][0]+=1
+        res[now[3]][0] += 1
     return test
 
 
 def gen(list_tuples, batch_size):
-    total=len(list_tuples)
-    start=0
+    total = len(list_tuples)
+    start = 0
     while True:
-        if start+batch_size<total:
-            end=start+batch_size
+        if start + batch_size < total:
+            end = start + batch_size
         else:
-            end=total
-        batch_list=list_tuples[start:end]
-        datas=[]
-        labels=[]
-        classes=[]
+            end = total
+        batch_list = list_tuples[start:end]
+        datas = []
+        labels = []
+        classes = []
         for now in batch_list:
-            datas.append([now[1],now[2]])
+            datas.append([now[1], now[2]])
             labels.append(int(now[4]))
             classes.append(now[3])
         X1 = np.array([read_image(x[0]) for x in datas])
         X2 = np.array([read_image(x[1]) for x in datas])
-        yield X1, X2, labels,classes,batch_list
-        start=end
+        yield X1, X2, labels, classes, batch_list
+        start = end
         if start == total:
-            yield None,None,None,None,None
+            yield None, None, None, None, None
         gc.collect()
 
 
@@ -76,16 +77,16 @@ def test(args):
     batch_size = args.batch_size
     log_path = args.log_path
     threshold = args.threshold
-    model = baseline_model(model_path)
-    classes = [
-        'bb', 'ss', 'sibs', 'fd', 'md', 'fs', 'ms', 'gfgd', 'gmgd', 'gfgs', 'gmgs', 'avg'
-    ]
-    res={}
+    model = baseline_model(model_path, args.insightface)
+    classes = ["bb", "ss", "sibs", "fd", "md", "fs", "ms", "gfgd", "gmgd", "gfgs", "gmgs", "avg"]
+    res = {}
     for n in classes:
-        res[n]=[0,0]
+        res[n] = [0, 0]
     test_samples = get_test(sample_path, res)
     with torch.no_grad():
-        for img1, img2, labels, classes, batch_list in tqdm(gen(test_samples, batch_size), total=len(test_samples) // batch_size):
+        for img1, img2, labels, classes, batch_list in tqdm(
+            gen(test_samples, batch_size), total=len(test_samples) // batch_size
+        ):
             if img1 is not None:
                 img1 = torch.from_numpy(img1).type(torch.float).cuda()
                 img2 = torch.from_numpy(img2).type(torch.float).cuda()
@@ -97,14 +98,15 @@ def test(args):
                     else:
                         p = 0
                     if p == labels[i]:
-                        res['avg'][1] += 1
+                        res["avg"][1] += 1
                         res[classes[i]][1] += 1
             else:
                 break
     for key in res:
-        mylog(key, ':', res[key][1] / res[key][0], path=log_path)
+        mylog(key, ":", res[key][1] / res[key][0], path=log_path)
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="test  accuracy")
     parser.add_argument("--sample", type=str, help="sample root")
     parser.add_argument("--save_path", type=str, help="model save path")
@@ -112,6 +114,7 @@ if __name__=="__main__":
     parser.add_argument("--batch_size", type=int, default=40, help="batch size default 40")
     parser.add_argument("--log_path", type=str, default="./log.txt", help="log path default log.txt ")
     parser.add_argument("--gpu", default="1", type=str, help="gpu id you use")
+    parser.add_argument("--insightface", action="store_true", help="use insightface model")
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     set_seed(100)

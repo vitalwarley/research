@@ -3,7 +3,7 @@ import os
 import numpy as np
 import torch
 from keras.preprocessing import image
-from torch.utils.data import  Dataset
+from torch.utils.data import Dataset
 from Track1.utils import np2tensor
 
 FILE = os.path.dirname(os.path.abspath(__file__))
@@ -77,8 +77,10 @@ class FIW(Dataset):
         img1, img2 = np2tensor(self.preprocess(np.array(img1, dtype=float))), np2tensor(
             self.preprocess(np.array(img2, dtype=float))
         )
-        label = self.name2id[sample[-2]]  # kin relation
-        if not int(sample[-1]):
-            label = 0
-        label = np2tensor(np.array(label), dtype=torch.uint8)
+        if self.classification:
+            label = self.name2id[sample[-2]]  # kin relation
+            if not int(sample[-1]):
+                label = 0
+        else:
+            label = np2tensor(np.array(sample[-1], dtype=float))
         return img1, img2, label

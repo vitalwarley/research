@@ -27,14 +27,22 @@ def extract_loss_auc(file_path, loss, metric):
 def plot_metrics(epochs, losses, aucs, loss_name, metric_name, save_path=None):
     plt.figure(figsize=(12, 6))
 
+    # get the min loss and max metric
+    min_loss = min(losses)
+    max_metric = max(aucs)
+
     plt.subplot(1, 2, 1)
     plt.plot(epochs, losses, marker="o")
+    plt.plot(epochs[losses.index(min_loss)], min_loss, "ro")
+    plt.legend([f"{loss_name} (min {min_loss})"], loc="upper right")
     plt.title(f"{loss_name} vs Epochs")
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
 
     plt.subplot(1, 2, 2)
     plt.plot(epochs, aucs, marker="o")
+    plt.plot(epochs[aucs.index(max_metric)], max_metric, "ro")
+    plt.legend([f"{metric_name} (max {max_metric})"], loc="lower right")
     plt.title(f"{metric_name} vs Epochs")
     plt.xlabel("Epochs")
     plt.ylabel("Metric")

@@ -634,3 +634,21 @@ class PretrainModel(Model):
             prog_bar=True,
             logger=True,
         )
+
+
+class InsightFace(torch.nn.Module):
+    def __init__(self, num_classes, weights=""):
+        super(InsightFace, self).__init__()
+        # Load the pre-trained backbone
+        self.backbone = get_model("r100", fp16=False)
+        if weights:
+            self.backbone.load_state_dict(torch.load(weights))
+        # Add a fully connected layer for classification
+        self.fc = nn.Linear(512, num_classes)
+        print("Loaded insightface model.")
+
+    def forward(self, x):
+        # Obtain the features from the backbone
+        features = self.backbone(x)
+        # Pass through the fully connected layer
+        return self.fc(features)

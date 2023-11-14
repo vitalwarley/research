@@ -1,6 +1,3 @@
-from argparse import ArgumentParser
-from functools import singledispatchmethod
-
 import numpy as np
 import pytorch_lightning as pl
 import timm
@@ -13,8 +10,8 @@ from pytorch_metric_learning import losses
 from sklearn.model_selection import KFold
 from torch import nn
 from torch.nn import functional as F
-from torch.optim import SGD, Adam
-from torch.optim.lr_scheduler import MultiStepLR, StepLR
+from torch.optim import SGD
+from torch.optim.lr_scheduler import MultiStepLR
 from utils import log_results
 
 
@@ -637,8 +634,9 @@ class PretrainModel(Model):
 
 
 class InsightFace(torch.nn.Module):
-    def __init__(self, num_classes, weights=""):
+    def __init__(self, num_classes, weights="", normalize: bool = False):
         super(InsightFace, self).__init__()
+        self.normalize = normalize
         # Load the pre-trained backbone
         self.backbone = get_model("r100", fp16=False)
         if weights:
@@ -647,8 +645,26 @@ class InsightFace(torch.nn.Module):
         self.fc = nn.Linear(512, num_classes)
         print("Loaded insightface model.")
 
-    def forward(self, x):
+        if self.normalize:
+            print("Feature normalization ON.")
+
+    def forward(self, x, return_features=False):
         # Obtain the features from the backbone
         features = self.backbone(x)
+        if self.normalize:
+            features = F.normalize(features, p=2, dim=1)
         # Pass through the fully connected layer
+        if return_features:
+            return features, self.fc(features)
         return self.fc(features)
+
+
+class FamilyClassifier(torch.nn.Module):
+    def __init__(self, num_classes, weights="", normalize: bool = False):
+        super().__init__()
+        self.model = InsightFace(num_classes=num_classes, normalize=normalize)
+        if weights:
+            self.model.load_state_dict(torch.load(weights))
+
+    def forward(self, x, return_features=False):
+        return self.model(x, return_features=return_features)

@@ -27,7 +27,7 @@ def train(args):
     num_classes = len(train_dataset.families)  # This should be the number of families or classes
 
     # Define the model
-    model = InsightFace(num_classes=num_classes, weights=args.insightface_weights)
+    model = InsightFace(num_classes=num_classes, weights=args.insightface_weights, normalize=args.normalize)
     model.to(device)
 
     # Define the DataLoader for the training set
@@ -69,7 +69,11 @@ def train(args):
             # Print statistics
             running_loss += loss.item()
             if i % 100 == 99:  # Print every 100 mini-batches
-                print("[Epoch: %d, Mini-batch: %5d] loss: %.3f" % (epoch + 1, i + 1, running_loss / 100))
+                s = "[Epoch: %d, Mini-batch: %5d] loss: %.3f" % (epoch + 1, i + 1, running_loss / 100)
+                # Add to log file
+                print(s)
+                with open(f"{args.output_dir}/log.txt", "a") as f:
+                    f.write(s + "\n")
                 running_loss = 0.0
 
         # Save model checkpoints
@@ -84,6 +88,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset-path", type=str, required=True)
     parser.add_argument("--insightface-weights", type=str, required=True)
     parser.add_argument("--output-dir", type=str, required=True)
+    parser.add_argument("--normalize", action="store_true")
     args = parser.parse_args()
 
     train(args)

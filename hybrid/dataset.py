@@ -3,7 +3,7 @@ import pickle
 import random
 from itertools import combinations, starmap
 from pathlib import Path
-from typing import Any, Callable, Generator, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 import cv2
 import mytypes as t
@@ -12,7 +12,6 @@ import pandas as pd
 import torch
 from more_itertools import grouper
 from pytorch_lightning import LightningDataModule
-from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
@@ -212,9 +211,10 @@ class PairDataset(Dataset):
     ):
         super(PairDataset, self).__init__()
         self.families = families_dataset
+        # TODO: simplify this
         if mining_strategy == "baseline":
             self.seq = []
-            with open(self.families.families_root.parent / "val_pairs.csv", "r") as f:
+            with open(self.families.families_root.parent / "fitw/val_pairs.csv", "r") as f:
                 for line in f:
                     line = line.strip()
                     if len(line) < 1:

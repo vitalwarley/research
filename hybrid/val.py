@@ -1,3 +1,5 @@
+from argparse import ArgumentParser
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -35,7 +37,7 @@ def predict(model, val_loader, device=0):
     return similarities, y_true
 
 
-def val():
+def val(args):
     transform_img_val = transforms.Compose(
         [
             transforms.ToTensor(),
@@ -45,8 +47,7 @@ def val():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Define the validation dataset
-    HERE = Path(__file__).parent.resolve()
-    fam_dataset = FamiliesDataset(Path(HERE, "..", "fitw2020", "val-faces-det"), transform=transform_img_val)
+    fam_dataset = FamiliesDataset(args.dataset_path, transform=transform_img_val)
     dataset = PairDataset(fam_dataset)  # Reads val_pairs.csv
 
     # Define the DataLoader for the training set
@@ -63,7 +64,7 @@ def val():
     num_classes = 570  # num training classes
 
     # Baseline
-    model = InsightFace(num_classes=num_classes, weights="models/ms1mv3_arcface_r100_fp16.pth")
+    model = InsightFace(num_classes=num_classes, weights=args.baseline_weights)
     model.to(device)
     model.eval()
     predictions, y_true = predict(model, dataloader)
@@ -72,7 +73,7 @@ def val():
     print(f"Baseline AUC: {auc(fpr, tpr):.4f}")
 
     # + Classification
-    model = FamilyClassifier(num_classes=num_classes, weights="arcface_fiw_clf/model_epoch_20.pth")
+    model = FamilyClassifier(num_classes=num_classes, weights=args.classification_weights)
     model.to(device)
     model.eval()
     predictions, y_true = predict(model, dataloader)
@@ -81,21 +82,37 @@ def val():
     print(f"Classification AUC: {auc(fpr, tpr):.4f}")
 
     # + Normalization
-    model = FamilyClassifier(num_classes=num_classes, weights="arcface_fiw_clf_norm/model_epoch_20.pth", normalize=True)
+    model = FamilyClassifier(num_classes=num_classes, weights=args.normalization_weights, normalize=True)
     model.to(device)
     model.eval()
     predictions, y_true = predict(model, dataloader)
     fpr, tpr, _ = roc_curve(y_true, predictions)
     plt.plot(fpr, tpr, color="r", lw=2, label=f" +normalization AUC:{auc(fpr, tpr):.4f}")
+    print(f"Normalization AUC: {auc(fpr, tpr):.4f}")
 
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
     # plt.title('ROC Curve')
     plt.legend(loc="lower right")
     plt.grid()
-    plt.savefig("roc.png", pad_inches=0, bbox_inches="tight")
+    plt.savefig(f"{args.logdir}/roc.png", pad_inches=0, bbox_inches="tight")
     plt.show()
 
 
 if __name__ == "__main__":
-    val()
+    parser = ArgumentParser()
+    parser.add_argument("--dataset-path", type=str, required=True)
+    parser.add_argument("--baseline-weights", type=str, required=True)
+    parser.add_argument("--classification-weights", type=str, required=True)
+    parser.add_argument("--normalization-weights", type=str, required=True)
+    parser.add_argument("--logdir", type=str, required=True)
+
+    args = parser.parse_args()
+
+    now = datetime.now().strftime("%Y%m%d%H%M%S")
+    args.logdir = Path(args.logdir, now)
+    args.logdir.mkdir(parents=True, exist_ok=True)
+
+    args.dataset_path = Path(args.dataset_path)
+
+    val(args)

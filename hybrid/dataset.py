@@ -1,5 +1,4 @@
 import logging
-import pickle
 import random
 from itertools import combinations, starmap
 from pathlib import Path
@@ -8,12 +7,7 @@ from typing import List, Optional, Tuple
 import cv2
 import mytypes as t
 import numpy as np
-import pandas as pd
-import torch
-from more_itertools import grouper
-from pytorch_lightning import LightningDataModule
-from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 
 
 class TestPairs(Dataset):

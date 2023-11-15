@@ -19,18 +19,57 @@ START_LR: float = 1e-10
 END_LR: float = 1e-10
 MOMENTUM: float = 0.9
 WEIGHT_DECAY: float = 1e-4
-SCHEDULER: str = "multistep"
-LR_STEPS: tuple = (8, 14, 25, 35, 40, 50, 60)
+LR_STEPS: tuple = (
+    8,
+    14,
+    25,
+    35,
+    40,
+    50,
+    60,
+)  # Epochs at which to decrease learning rate, however we have only 20 epochs...
 LR_FACTOR: float = 0.75
 WARMUP: int = 200
 COOLDOWN: int = 400
 NUM_EPOCH: int = 20
+CLIP_GRADIENT: float = 1.0  # Differ from paper
 
 JITTER_PARAM: float = 0.15
 LIGHTING_PARAM: float = 0.15
 
+LOSS_LOG_STEP: int = 100
+
+
+def update_lr(optimizer, global_step, total_steps):
+    if global_step < WARMUP:
+        cur_lr = (global_step + 1) * (LR - START_LR) / WARMUP + START_LR
+        for pg in optimizer.param_groups:
+            pg["lr"] = cur_lr
+    # cool down lr
+    elif global_step > total_steps - COOLDOWN:  # cooldown start
+        # TODO: why only the first param group? what are the other param groups?
+        # TODO: I should experiment with updating all param groups
+        # There is only one param group.
+        cur_lr = (total_steps - global_step) * (optimizer.param_groups[0]["lr"] - END_LR) / COOLDOWN + END_LR
+        optimizer.param_groups[0]["lr"] = cur_lr
+
+
+def log(loss, metric, epoch, step, global_step, cur_lr, args):
+    accuracy = metric.compute()
+    s = (
+        f"Epoch {epoch + 1:>2} | Step {global_step + 1:>5} - "
+        f"Loss: {loss:.3f}, Acc: {accuracy:.3f}, LR: {cur_lr:.10f}"
+    )
+    if step % LOSS_LOG_STEP == LOSS_LOG_STEP - 1:  # Print every 100 mini-batches
+        print(s)
+    with open(f"{args.output_dir}/log.txt", "a") as f:
+        f.write(s + "\n")
+
 
 def train(args):
+    # Set random seed to 100
+    torch.manual_seed(100)
+
     # Define transformations for training and validation sets
     transform_img_train = transforms.Compose(
         [
@@ -84,13 +123,21 @@ def train(args):
 
     print(f"Total number of steps: {total_steps}")
 
+    epoch_begin_ts = datetime.now()
+    print(f"Start training at {epoch_begin_ts.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    if args.normalize:
+        model_path = Path(args.output_dir) / "model_epoch_{}_norm.pth"
+    else:
+        model_path = Path(args.output_dir) / "model_epoch_{}.pth"
+
     # Training loop
     for epoch in range(NUM_EPOCH):
         epoch_begin_ts = datetime.now()
-        print(f"Start training at {epoch_begin_ts.strftime('%Y-%m-%d %H:%M:%S')}")
         metric.reset()
         running_loss = 0.0
         for step, (img, family_idx, person_idx) in enumerate(train_loader):
+            global_step = step + epoch * len(train_loader)
             # Transfer to GPU if available
             inputs, labels = img.to(device), family_idx.to(device)
 
@@ -109,49 +156,28 @@ def train(args):
             # Backward pass and optimize
             loss.backward()
 
-            if step < WARMUP:
-                cur_lr = (step + 1) * (LR - START_LR) / WARMUP + START_LR
-                for pg in optimizer.param_groups:
-                    pg["lr"] = cur_lr
-            # cool down lr
-            elif step > total_steps - COOLDOWN:  # cooldown start
-                # TODO: why only the first param group? what are the other param groups?
-                # TODO: I should experiment with updating all param groups
-                cur_lr = (total_steps - step) * (optimizer.param_groups[0]["lr"] - END_LR) / COOLDOWN + END_LR
-                optimizer.param_groups[0]["lr"] = cur_lr
-            else:
-                cur_lr = optimizer.param_groups[0]["lr"]
-
-            optimizer.step()
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP_GRADIENT)
 
             # Print statistics
-            running_loss += loss.item()
-            if step % 100 == 99:  # Print every 100 mini-batches
-                # s = "[Epoch: %d, Step: %5d] loss: %.3f" % (epoch + 1, step + 1, running_loss / 100)
-                # Do the same as the previous line, but in f-string. Also, add accuracy metric.
-                s = f"[Epoch: {epoch + 1:>2}, Step: {step + 1:>5}] loss: {running_loss / 100:.3f}, accuracy: {metric.compute():.3f}, lr: {cur_lr:.3e}"
-                # Add to log file
-                print(s)
-                with open(f"{args.output_dir}/log.txt", "a") as f:
-                    f.write(s + "\n")
-                running_loss = 0.0
+            cur_lr = optimizer.param_groups[0]["lr"]
+            log(loss.item(), metric, epoch, step, global_step, cur_lr, args)
+            # Update learning rate (warmup or cooldown only)
+            update_lr(optimizer, global_step, total_steps)
+            # Update parameters
+            optimizer.step()
 
         scheduler.step()
 
         # Save model checkpoints
         if epoch % 10 == 9:  # Save every 10 epochs
-            if args.normalize:
-                model_path = Path(args.output_dir) / f"model_epoch_{epoch + 1}_norm.pth"
-            else:
-                model_path = Path(args.output_dir) / f"model_epoch_{epoch + 1}.pth"
-            torch.save(model.state_dict(), model_path)
+            torch.save(model.state_dict(), str(model_path).format(epoch + 1))
 
         # Print epoch accuracy
         epoch_end_ts = datetime.now()
         epoch_total_time = epoch_end_ts - epoch_begin_ts
-        print(
-            f"[Epoch {epoch + 1:>2}] accuracy: {metric.compute():.3f}, time: {epoch_total_time} [steps/second: {len(train_loader) / epoch_total_time.total_seconds():.3f}]"
-        )
+        accuracy = metric.compute()
+        steps_per_second = len(train_loader) / epoch_total_time.total_seconds()
+        print(f"Epoch {epoch + 1:02} - Acc: {accuracy:.3f}, Time: {epoch_total_time}, Steps/s: {steps_per_second:.3f}")
 
     print(f"Finished training at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.")
 

@@ -119,8 +119,6 @@ def train(args):
 
     total_steps = len(train_loader) * NUM_EPOCH
 
-    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-
     print(f"Total number of steps: {total_steps}")
 
     epoch_begin_ts = datetime.now()
@@ -135,8 +133,7 @@ def train(args):
     for epoch in range(NUM_EPOCH):
         epoch_begin_ts = datetime.now()
         metric.reset()
-        running_loss = 0.0
-        for step, (img, family_idx, person_idx) in enumerate(train_loader):
+        for step, (img, family_idx, _) in enumerate(train_loader):
             global_step = step + epoch * len(train_loader)
             # Transfer to GPU if available
             inputs, labels = img.to(device), family_idx.to(device)
@@ -156,7 +153,8 @@ def train(args):
             # Backward pass and optimize
             loss.backward()
 
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP_GRADIENT)
+            if args.normalize:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP_GRADIENT)
 
             # Print statistics
             cur_lr = optimizer.param_groups[0]["lr"]
@@ -190,7 +188,16 @@ if __name__ == "__main__":
     parser.add_argument("--normalize", action="store_true")
     args = parser.parse_args()
 
+    args.output_dir = Path(args.output_dir)
+    # Get total experiments in output_dir
+    num_experiments = len(list(args.output_dir.glob("*")))
+    # Create output directory
     now = datetime.now()
-    args.output_dir = Path(args.output_dir) / now.strftime("%Y%m%d%H%M%S")
+    args.output_dir = args.output_dir / f"{num_experiments + 1}_{now.strftime('%Y%m%d%H%M%S')}"
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write args to args.yaml
+    with open(args.output_dir / "args.yaml", "w") as f:
+        f.write(str(args))
 
     train(args)

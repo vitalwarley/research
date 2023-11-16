@@ -109,12 +109,12 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    args.logdir = Path(args.output_dir)
+    args.logdir = Path(args.logdir)
     # Get total experiments in logdir
     num_experiments = len(list(args.logdir.glob("*")))
     # Create output directory
     now = datetime.now()
-    args.logdir = args.output_dir / f"{num_experiments + 1}_{now.strftime('%Y%m%d%H%M%S')}"
+    args.logdir = args.logdir / f"{num_experiments + 1}_{now.strftime('%Y%m%d%H%M%S')}"
     args.logdir.mkdir(parents=True, exist_ok=True)
 
     args.dataset_path = Path(args.dataset_path)

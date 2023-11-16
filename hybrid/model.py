@@ -11,10 +11,11 @@ class InsightFace(torch.nn.Module):
         # Load the pre-trained backbone
         self.backbone = get_model("r100", fp16=False)
         if weights:
+            print("Loaded insightface model.")
             self.backbone.load_state_dict(torch.load(weights))
         # Add a fully connected layer for classification
         self.fc = nn.Linear(512, num_classes)
-        print("Loaded insightface model.")
+        torch.nn.init.normal_(self.fc.weight, std=0.01)
 
         if self.normalize:
             print("Feature normalization ON.")
@@ -23,7 +24,7 @@ class InsightFace(torch.nn.Module):
         # Obtain the features from the backbone
         features = self.backbone(x)
         if self.normalize:
-            features = F.normalize(features, p=2, dim=1)
+            features = F.normalize(features, p=2, dim=1) * 32  # Reproduce ArcFace scale s
         # Pass through the fully connected layer
         if return_features:
             return features, self.fc(features)

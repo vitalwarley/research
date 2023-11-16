@@ -129,8 +129,8 @@ def train(args, config):
 
     print(f"Total number of steps: {total_steps}")
 
-    epoch_begin_ts = datetime.now()
-    print(f"Start training at {epoch_begin_ts.strftime('%Y-%m-%d %H:%M:%S')}")
+    train_begin_ts = datetime.now()
+    print(f"Start training at {train_begin_ts.strftime('%Y-%m-%d %H:%M:%S')}")
 
     if args.normalize:
         model_path = Path(args.output_dir) / "model_epoch_{}_norm.pth"
@@ -162,7 +162,7 @@ def train(args, config):
             loss.backward()
 
             # if args.normalize:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), config.CLIP_GRADIENT)
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), config.CLIP_GRADIENT)
 
             # Print statistics
             cur_lr = optimizer.param_groups[0]["lr"]
@@ -176,9 +176,9 @@ def train(args, config):
 
         # Save model checkpoints
         if epoch % 10 == 9:  # Save every 10 epochs
-            model_path = str(model_path).format(epoch + 1)
-            print(f"Saving model at epoch {epoch + 1} in {model_path}.")
-            torch.save(model.state_dict(), model_path)
+            mp = str(model_path).format(epoch + 1)
+            print(f"Saving model at epoch {epoch + 1} in {mp}.")
+            torch.save(model.state_dict(), mp)
 
         # Print epoch accuracy
         epoch_end_ts = datetime.now()
@@ -187,7 +187,9 @@ def train(args, config):
         steps_per_second = len(train_loader) / epoch_total_time.total_seconds()
         print(f"Epoch {epoch + 1:02} - Acc: {accuracy:.3f}, Time: {epoch_total_time}, Steps/s: {steps_per_second:.3f}")
 
-    print(f"Finished training at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.")
+    now = datetime.now()
+    elapsed_time = now - train_begin_ts
+    print(f"Finished training at {now.strftime('%Y-%m-%d %H:%M:%S')}. Total time taken: {elapsed_time}")
 
 
 if __name__ == "__main__":

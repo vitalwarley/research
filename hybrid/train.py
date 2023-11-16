@@ -32,7 +32,7 @@ LR_FACTOR: float = 0.75
 WARMUP: int = 200
 COOLDOWN: int = 400
 NUM_EPOCH: int = 20
-CLIP_GRADIENT: float = 1.0  # Differ from paper
+CLIP_GRADIENT: float = 1.5
 
 JITTER_PARAM: float = 0.15
 LIGHTING_PARAM: float = 0.15
@@ -153,8 +153,8 @@ def train(args):
             # Backward pass and optimize
             loss.backward()
 
-            if args.normalize:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP_GRADIENT)
+            # if args.normalize:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP_GRADIENT)
 
             # Print statistics
             cur_lr = optimizer.param_groups[0]["lr"]

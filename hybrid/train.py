@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -12,61 +13,66 @@ from torch.optim.lr_scheduler import MultiStepLR
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-NUM_CLASSES: int = 570  # FIW train families
-EMBEDDING_DIM: int = 512
-LR: float = 1e-4
-START_LR: float = 1e-10
-END_LR: float = 1e-10
-MOMENTUM: float = 0.9
-WEIGHT_DECAY: float = 1e-4
-LR_STEPS: tuple = (
-    8,
-    14,
-    25,
-    35,
-    40,
-    50,
-    60,
-)  # Epochs at which to decrease learning rate, however we have only 20 epochs...
-LR_FACTOR: float = 0.75
-WARMUP: int = 200
-COOLDOWN: int = 400
-NUM_EPOCH: int = 20
-CLIP_GRADIENT: float = 1.5
 
-JITTER_PARAM: float = 0.15
-LIGHTING_PARAM: float = 0.15
+@dataclass
+class Config:
+    NUM_CLASSES: int = 570  # FIW train families
+    EMBEDDING_DIM: int = 512
+    LR: float = 1e-4
+    START_LR: float = 1e-10
+    END_LR: float = 1e-10
+    MOMENTUM: float = 0.9
+    WEIGHT_DECAY: float = 1e-4
+    LR_STEPS: tuple = (
+        8,
+        14,
+        25,
+        35,
+        40,
+        50,
+        60,
+    )  # Epochs at which to decrease learning rate, however we have only 20 epochs...
+    LR_FACTOR: float = 0.75
+    WARMUP: int = 200
+    COOLDOWN: int = 400
+    NUM_EPOCH: int = 50
+    CLIP_GRADIENT: float = 1.5
 
-LOSS_LOG_STEP: int = 100
+    JITTER_PARAM: float = 0.15
+    LIGHTING_PARAM: float = 0.15
+
+    LOSS_LOG_STEP: int = 100
 
 
-def update_lr(optimizer, global_step, total_steps):
-    if global_step < WARMUP:
-        cur_lr = (global_step + 1) * (LR - START_LR) / WARMUP + START_LR
+def update_lr(optimizer, global_step, total_steps, config):
+    if global_step < config.WARMUP:
+        cur_lr = (global_step + 1) * (config.LR - config.START_LR) / config.WARMUP + config.START_LR
         for pg in optimizer.param_groups:
             pg["lr"] = cur_lr
     # cool down lr
-    elif global_step > total_steps - COOLDOWN:  # cooldown start
+    elif global_step > total_steps - config.COOLDOWN:  # cooldown start
         # TODO: why only the first param group? what are the other param groups?
-        # TODO: I should experiment with updating all param groups
+        # TODO: config.I should experiment with updating all param groups
         # There is only one param group.
-        cur_lr = (total_steps - global_step) * (optimizer.param_groups[0]["lr"] - END_LR) / COOLDOWN + END_LR
+        cur_lr = (total_steps - global_step) * (
+            optimizer.param_groups[0]["lr"] - config.END_LR
+        ) / config.COOLDOWN + config.END_LR
         optimizer.param_groups[0]["lr"] = cur_lr
 
 
-def log(loss, metric, epoch, step, global_step, cur_lr, args):
+def log(loss, metric, epoch, step, global_step, cur_lr, output_dir, config):
     accuracy = metric.compute()
     s = (
         f"Epoch {epoch + 1:>2} | Step {global_step + 1:>5} - "
         f"Loss: {loss:.3f}, Acc: {accuracy:.3f}, LR: {cur_lr:.10f}"
     )
-    if step % LOSS_LOG_STEP == LOSS_LOG_STEP - 1:  # Print every 100 mini-batches
+    if step % config.LOSS_LOG_STEP == config.LOSS_LOG_STEP - 1:  # Print every 100 mini-batches
         print(s)
-    with open(f"{args.output_dir}/log.txt", "a") as f:
+    with open(f"{output_dir}/log.txt", "a") as f:
         f.write(s + "\n")
 
 
-def train(args):
+def train(args, config):
     # Set random seed to 100
     torch.manual_seed(100)
 
@@ -75,12 +81,12 @@ def train(args):
         [
             transforms.ToPILImage(),
             transforms.ColorJitter(
-                brightness=JITTER_PARAM,
-                contrast=JITTER_PARAM,
-                saturation=JITTER_PARAM,
+                brightness=config.JITTER_PARAM,
+                contrast=config.JITTER_PARAM,
+                saturation=config.JITTER_PARAM,
             ),
             mytransforms.Lightning(
-                LIGHTING_PARAM,
+                config.LIGHTING_PARAM,
                 mytransforms._IMAGENET_PCA["eigval"],
                 mytransforms._IMAGENET_PCA["eigvec"],
             ),
@@ -113,11 +119,13 @@ def train(args):
     )
 
     # Define the optimizer and loss function
-    optimizer = torch.optim.SGD(model.parameters(), lr=START_LR, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
-    scheduler = MultiStepLR(optimizer, milestones=LR_STEPS, gamma=LR_FACTOR)
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=config.START_LR, momentum=config.MOMENTUM, weight_decay=config.WEIGHT_DECAY
+    )
+    scheduler = MultiStepLR(optimizer, milestones=config.LR_STEPS, gamma=config.LR_FACTOR)
     loss_function = nn.CrossEntropyLoss()
 
-    total_steps = len(train_loader) * NUM_EPOCH
+    total_steps = len(train_loader) * config.NUM_EPOCH
 
     print(f"Total number of steps: {total_steps}")
 
@@ -130,7 +138,7 @@ def train(args):
         model_path = Path(args.output_dir) / "model_epoch_{}.pth"
 
     # Training loop
-    for epoch in range(NUM_EPOCH):
+    for epoch in range(config.NUM_EPOCH):
         epoch_begin_ts = datetime.now()
         metric.reset()
         for step, (img, family_idx, _) in enumerate(train_loader):
@@ -154,13 +162,13 @@ def train(args):
             loss.backward()
 
             # if args.normalize:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP_GRADIENT)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), config.CLIP_GRADIENT)
 
             # Print statistics
             cur_lr = optimizer.param_groups[0]["lr"]
-            log(loss.item(), metric, epoch, step, global_step, cur_lr, args)
+            log(loss.item(), metric, epoch, step, global_step, cur_lr, args.output_dir, config)
             # Update learning rate (warmup or cooldown only)
-            update_lr(optimizer, global_step, total_steps)
+            update_lr(optimizer, global_step, total_steps, config)
             # Update parameters
             optimizer.step()
 
@@ -168,7 +176,9 @@ def train(args):
 
         # Save model checkpoints
         if epoch % 10 == 9:  # Save every 10 epochs
-            torch.save(model.state_dict(), str(model_path).format(epoch + 1))
+            model_path = str(model_path).format(epoch + 1)
+            print(f"Saving model at epoch {epoch + 1} in {model_path}.")
+            torch.save(model.state_dict(), model_path)
 
         # Print epoch accuracy
         epoch_end_ts = datetime.now()
@@ -196,8 +206,16 @@ if __name__ == "__main__":
     args.output_dir = args.output_dir / f"{num_experiments + 1}_{now.strftime('%Y%m%d%H%M%S')}"
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    print(args)
+    config = Config()
+    print(config)
+
     # Write args to args.yaml
     with open(args.output_dir / "args.yaml", "w") as f:
         f.write(str(args))
 
-    train(args)
+    # Write config to config.yaml
+    with open(args.output_dir / "config.yaml", "w") as f:
+        f.write(str(config))
+
+    train(args, config)

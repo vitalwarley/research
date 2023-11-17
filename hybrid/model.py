@@ -9,7 +9,7 @@ class InsightFace(torch.nn.Module):
         super(InsightFace, self).__init__()
         self.normalize = normalize
         # Load the pre-trained backbone
-        self.backbone = get_model("r100", fp16=False)
+        self.backbone = get_model("r100", fp16=True)
         if weights:
             print("Loaded insightface model.")
             self.backbone.load_state_dict(torch.load(weights))

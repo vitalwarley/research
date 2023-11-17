@@ -36,6 +36,7 @@ class Config:
     WARMUP: int = 200
     COOLDOWN: int = 400
     NUM_EPOCH: int = 50
+    BATCH_SIZE: int = 64
     CLIP_GRADIENT: float = 1.5
 
     JITTER_PARAM: float = 0.15
@@ -112,7 +113,7 @@ def train(args, config):
     # Define the DataLoader for the training set
     train_loader = DataLoader(
         train_dataset,
-        batch_size=48,  # Assuming a batch size of 48 as in the original script
+        batch_size=config.BATCH_SIZE,
         shuffle=True,
         num_workers=12,  # Assuming 12 workers for loading data
         pin_memory=True,
@@ -162,7 +163,7 @@ def train(args, config):
             loss.backward()
 
             # if args.normalize:
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), config.CLIP_GRADIENT)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), config.CLIP_GRADIENT)
 
             # Print statistics
             cur_lr = optimizer.param_groups[0]["lr"]

@@ -1,0 +1,5 @@
+guildai
+torch
+torchvision
+torchmetrics
+scikit-learn

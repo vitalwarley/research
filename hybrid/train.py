@@ -1,6 +1,4 @@
 from argparse import ArgumentParser
-from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 import torch
@@ -14,66 +12,35 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 
-@dataclass
-class Config:
-    NUM_CLASSES: int = 570  # FIW train families
-    EMBEDDING_DIM: int = 512
-    LR: float = 1e-4
-    START_LR: float = 1e-10
-    END_LR: float = 1e-10
-    MOMENTUM: float = 0.9
-    WEIGHT_DECAY: float = 1e-4
-    LR_STEPS: tuple = (
-        8,
-        14,
-        25,
-        35,
-        40,
-        50,
-        60,
-    )  # Epochs at which to decrease learning rate, however we have only 20 epochs...
-    LR_FACTOR: float = 0.75
-    WARMUP: int = 200
-    COOLDOWN: int = 400
-    NUM_EPOCH: int = 50
-    BATCH_SIZE: int = 64
-    CLIP_GRADIENT: float = 1.5
-
-    JITTER_PARAM: float = 0.15
-    LIGHTING_PARAM: float = 0.15
-
-    LOSS_LOG_STEP: int = 100
-
-
-def update_lr(optimizer, global_step, total_steps, config):
-    if global_step < config.WARMUP:
-        cur_lr = (global_step + 1) * (config.LR - config.START_LR) / config.WARMUP + config.START_LR
+def update_lr(optimizer, global_step, total_steps):
+    if global_step < args.warmup:
+        cur_lr = (global_step + 1) * (args.lr - args.start_lr) / args.warmup + args.start_lr
         for pg in optimizer.param_groups:
             pg["lr"] = cur_lr
     # cool down lr
-    elif global_step > total_steps - config.COOLDOWN:  # cooldown start
+    elif global_step > total_steps - args.cooldown:  # cooldown start
         # TODO: why only the first param group? what are the other param groups?
-        # TODO: config.I should experiment with updating all param groups
+        # TODO: args.i should experiment with updating all param groups
         # There is only one param group.
         cur_lr = (total_steps - global_step) * (
-            optimizer.param_groups[0]["lr"] - config.END_LR
-        ) / config.COOLDOWN + config.END_LR
+            optimizer.param_groups[0]["lr"] - args.end_lr
+        ) / args.cooldown + args.end_lr
         optimizer.param_groups[0]["lr"] = cur_lr
 
 
-def log(loss, metric, epoch, step, global_step, cur_lr, output_dir, config):
+def log(loss, metric, epoch, step, global_step, cur_lr, output_dir):
     accuracy = metric.compute()
     s = (
-        f"Epoch {epoch + 1:>2} | Step {global_step + 1:>5} - "
-        f"Loss: {loss:.3f}, Acc: {accuracy:.3f}, LR: {cur_lr:.10f}"
+        f"epoch: {epoch + 1:>2} | step: {global_step + 1:>5} | "
+        f"loss: {loss:.3f} | acc: {accuracy:.3f} | lr: {cur_lr:.10f}"
     )
-    if step % config.LOSS_LOG_STEP == config.LOSS_LOG_STEP - 1:  # Print every 100 mini-batches
+    if step == 0 or step % args.loss_log_step == args.loss_log_step - 1:  # Print every 100 mini-batches
         print(s)
     with open(f"{output_dir}/log.txt", "a") as f:
         f.write(s + "\n")
 
 
-def train(args, config):
+def train(args):
     # Set random seed to 100
     torch.manual_seed(100)
 
@@ -82,12 +49,12 @@ def train(args, config):
         [
             transforms.ToPILImage(),
             transforms.ColorJitter(
-                brightness=config.JITTER_PARAM,
-                contrast=config.JITTER_PARAM,
-                saturation=config.JITTER_PARAM,
+                brightness=args.jitter_param,
+                contrast=args.jitter_param,
+                saturation=args.jitter_param,
             ),
             mytransforms.Lightning(
-                config.LIGHTING_PARAM,
+                args.lighting_param,
                 mytransforms._IMAGENET_PCA["eigval"],
                 mytransforms._IMAGENET_PCA["eigvec"],
             ),
@@ -113,7 +80,7 @@ def train(args, config):
     # Define the DataLoader for the training set
     train_loader = DataLoader(
         train_dataset,
-        batch_size=config.BATCH_SIZE,
+        batch_size=args.batch_size,
         shuffle=True,
         num_workers=12,  # Assuming 12 workers for loading data
         pin_memory=True,
@@ -121,17 +88,12 @@ def train(args, config):
 
     # Define the optimizer and loss function
     optimizer = torch.optim.SGD(
-        model.parameters(), lr=config.START_LR, momentum=config.MOMENTUM, weight_decay=config.WEIGHT_DECAY
+        model.parameters(), lr=args.start_lr, momentum=args.momentum, weight_decay=args.weight_decay
     )
-    scheduler = MultiStepLR(optimizer, milestones=config.LR_STEPS, gamma=config.LR_FACTOR)
+    scheduler = MultiStepLR(optimizer, milestones=args.lr_steps, gamma=args.lr_factor)
     loss_function = nn.CrossEntropyLoss()
 
-    total_steps = len(train_loader) * config.NUM_EPOCH
-
-    print(f"Total number of steps: {total_steps}")
-
-    train_begin_ts = datetime.now()
-    print(f"Start training at {train_begin_ts.strftime('%Y-%m-%d %H:%M:%S')}")
+    total_steps = len(train_loader) * args.num_epoch
 
     if args.normalize:
         model_path = Path(args.output_dir) / "model_epoch_{}_norm.pth"
@@ -139,9 +101,9 @@ def train(args, config):
         model_path = Path(args.output_dir) / "model_epoch_{}.pth"
 
     # Training loop
-    for epoch in range(config.NUM_EPOCH):
-        epoch_begin_ts = datetime.now()
+    for epoch in range(args.num_epoch):
         metric.reset()
+        epoch_loss = 0.0
         for step, (img, family_idx, _) in enumerate(train_loader):
             global_step = step + epoch * len(train_loader)
             # Transfer to GPU if available
@@ -163,13 +125,15 @@ def train(args, config):
             loss.backward()
 
             # if args.normalize:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), config.CLIP_GRADIENT)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_gradient)
 
             # Print statistics
             cur_lr = optimizer.param_groups[0]["lr"]
-            log(loss.item(), metric, epoch, step, global_step, cur_lr, args.output_dir, config)
+            step_loss = loss.item()
+            epoch_loss += step_loss
+            log(step_loss, metric, epoch, step, global_step, cur_lr, args.output_dir)
             # Update learning rate (warmup or cooldown only)
-            update_lr(optimizer, global_step, total_steps, config)
+            update_lr(optimizer, global_step, total_steps)
             # Update parameters
             optimizer.step()
 
@@ -181,44 +145,52 @@ def train(args, config):
             print(f"Saving model at epoch {epoch + 1} in {mp}.")
             torch.save(model.state_dict(), mp)
 
-        # Print epoch accuracy
-        epoch_end_ts = datetime.now()
-        epoch_total_time = epoch_end_ts - epoch_begin_ts
         accuracy = metric.compute()
-        steps_per_second = len(train_loader) / epoch_total_time.total_seconds()
-        print(f"Epoch {epoch + 1:02} - Acc: {accuracy:.3f}, Time: {epoch_total_time}, Steps/s: {steps_per_second:.3f}")
-
-    now = datetime.now()
-    elapsed_time = now - train_begin_ts
-    print(f"Finished training at {now.strftime('%Y-%m-%d %H:%M:%S')}. Total time taken: {elapsed_time}")
+        print(f"epoch {epoch + 1:02} | epoch_acc: {accuracy:.3f} | epoch_loss: {epoch_loss / len(train_loader):.3f}")
 
 
-if __name__ == "__main__":
-    parser = ArgumentParser()
+def create_parser():
+    parser = ArgumentParser(description="Configuration for the training script")
+
     parser.add_argument("--dataset-path", type=str, required=True)
     parser.add_argument("--insightface-weights", type=str, required=True)
     parser.add_argument("--output-dir", type=str, required=True)
     parser.add_argument("--normalize", action="store_true")
+    parser.add_argument("--num-classes", type=int, default=570, help="Number of classes")
+    parser.add_argument("--embedding-dim", type=int, default=512, help="Dimension of the embedding")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--start-lr", type=float, default=1e-10, help="Start learning rate")
+    parser.add_argument("--end-lr", type=float, default=1e-10, help="End learning rate")
+    parser.add_argument("--momentum", type=float, default=0.9, help="Momentum")
+    parser.add_argument("--weight-decay", type=float, default=1e-4, help="Weight decay")
+    parser.add_argument(
+        "--lr-steps", type=int, nargs="+", default=[8, 14, 25, 35, 40, 50, 60], help="Epochs to decrease learning rate"
+    )
+    parser.add_argument("--lr-factor", type=float, default=0.75, help="Learning rate decrease factor")
+    parser.add_argument("--warmup", type=int, default=200, help="Warmup iterations")
+    parser.add_argument("--cooldown", type=int, default=400, help="Cooldown iterations")
+    parser.add_argument("--num-epoch", type=int, default=50, help="Number of epochs")
+    parser.add_argument("--batch-size", type=int, default=64, help="Batch size")
+    parser.add_argument("--clip-gradient", type=float, default=1.5, help="Gradient clipping")
+    parser.add_argument("--jitter-param", type=float, default=0.15, help="Jitter parameter")
+    parser.add_argument("--lighting-param", type=float, default=0.15, help="Lighting parameter")
+    parser.add_argument("--loss-log-step", type=int, default=100, help="Steps for logging loss")
+
+    return parser
+
+
+if __name__ == "__main__":
+    parser = create_parser()
     args = parser.parse_args()
 
     args.output_dir = Path(args.output_dir)
-    # Get total experiments in output_dir
-    num_experiments = len(list(args.output_dir.glob("*")))
     # Create output directory
-    now = datetime.now()
-    args.output_dir = args.output_dir / f"{num_experiments + 1}_{now.strftime('%Y%m%d%H%M%S')}"
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     print(args)
-    config = Config()
-    print(config)
 
     # Write args to args.yaml
     with open(args.output_dir / "args.yaml", "w") as f:
         f.write(str(args))
 
-    # Write config to config.yaml
-    with open(args.output_dir / "config.yaml", "w") as f:
-        f.write(str(config))
-
-    train(args, config)
+    train(args)

@@ -95,11 +95,6 @@ def train(args):
 
     total_steps = len(train_loader) * args.num_epoch
 
-    if args.normalize:
-        model_path = Path(args.output_dir) / "model_epoch_{}_norm.pth"
-    else:
-        model_path = Path(args.output_dir) / "model_epoch_{}.pth"
-
     # Training loop
     for epoch in range(args.num_epoch):
         metric.reset()
@@ -141,9 +136,7 @@ def train(args):
 
         # Save model checkpoints
         if epoch % 10 == 9:  # Save every 10 epochs
-            mp = str(model_path).format(epoch + 1)
-            print(f"Saving model at epoch {epoch + 1} in {mp}.")
-            torch.save(model.state_dict(), mp)
+            torch.save(model.state_dict(), "last.pth")
 
         accuracy = metric.compute()
         print(f"epoch {epoch + 1:02} | epoch_acc: {accuracy:.3f} | epoch_loss: {epoch_loss / len(train_loader):.3f}")

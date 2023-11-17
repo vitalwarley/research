@@ -2,14 +2,51 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F
 import torchmetrics as tm
 import transforms as mytransforms
-from dataset import FamiliesDataset
+from dataset import FamiliesDataset, PairDataset
 from model import InsightFace
 from torch import nn
 from torch.optim.lr_scheduler import MultiStepLR
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from tqdm import tqdm
+
+TQDM_BAR_FORMAT = "Validating... {bar}|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
+
+
+# Validation loop
+def predict(model, val_loader, device=0):
+    similarities = []
+    y_true = []
+
+    for i, (img1, img2, label) in tqdm(enumerate(val_loader), total=len(val_loader), bar_format=TQDM_BAR_FORMAT):
+        # Transfer to GPU if available
+        img1, img2 = img1.to(device), img2.to(device)
+        label = label.to(device)
+
+        # Forward pass
+        (emb1, _) = model(img1, return_features=True)
+        (emb2, _) = model(img2, return_features=True)
+
+        sim = F.cosine_similarity(emb1, emb2).detach()
+        similarities.append(sim)
+        y_true.append(label)
+
+    # Concat
+    similarities = torch.concatenate(similarities)
+    y_true = torch.concatenate(y_true)
+
+    return similarities, y_true
+
+
+def validate(model, dataloader):
+    model.eval()
+    predictions, y_true = predict(model, dataloader)
+    auroc = tm.AUROC(task="binary")
+    auc = auroc(predictions, y_true)
+    return auc
 
 
 def update_lr(optimizer, global_step, total_steps):
@@ -61,17 +98,23 @@ def train(args):
             transforms.ToTensor(),
         ]
     )
+    transform_img_val = transforms.Compose(
+        [
+            transforms.ToTensor(),
+        ]
+    )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Define the training dataset
-    train_dataset = FamiliesDataset(Path(args.dataset_path), transform=transform_img_train)
+    train_dataset = FamiliesDataset(Path(args.train_dataset_path), transform=transform_img_train)
     num_classes = len(train_dataset.families)  # This should be the number of families or classes
+    fam_dataset = FamiliesDataset(Path(args.val_dataset_path), transform=transform_img_val)
+    val_dataset = PairDataset(fam_dataset)  # Reads val_pairs.csv
 
     # Define the model
     model = InsightFace(num_classes=num_classes, weights=args.insightface_weights, normalize=args.normalize)
     model.to(device)
-    model.train()
 
     # Define the metric
     metric = tm.Accuracy(task="multiclass", num_classes=num_classes)
@@ -86,6 +129,15 @@ def train(args):
         pin_memory=True,
     )
 
+    # Define the DataLoader for the training set
+    val_dataloader = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size // 2,
+        shuffle=False,
+        num_workers=12,  # Assuming 12 workers for loading data
+        pin_memory=True,
+    )
+
     # Define the optimizer and loss function
     optimizer = torch.optim.SGD(
         model.parameters(), lr=args.start_lr, momentum=args.momentum, weight_decay=args.weight_decay
@@ -94,9 +146,11 @@ def train(args):
     loss_function = nn.CrossEntropyLoss()
 
     total_steps = len(train_loader) * args.num_epoch
+    best_auc = 0.0
 
     # Training loop
     for epoch in range(args.num_epoch):
+        model.train()
         metric.reset()
         epoch_loss = 0.0
         for step, (img, family_idx, _) in enumerate(train_loader):
@@ -135,17 +189,23 @@ def train(args):
         scheduler.step()
 
         # Save model checkpoints
-        if epoch % 10 == 9:  # Save every 10 epochs
-            torch.save(model.state_dict(), "last.pth")
+        auc = validate(model, val_dataloader)
+        if auc > best_auc:
+            best_auc = auc
+            torch.save(model.state_dict(), args.output_dir / "best.pth")
 
         accuracy = metric.compute()
-        print(f"epoch {epoch + 1:02} | epoch_acc: {accuracy:.3f} | epoch_loss: {epoch_loss / len(train_loader):.3f}")
+        print(
+            f"epoch {epoch + 1:02} | epoch_acc: {accuracy:.3f} "
+            + f"| epoch_loss: {epoch_loss / len(train_loader):.3f} | epoch_auc: {auc:.3f}"
+        )
 
 
 def create_parser():
     parser = ArgumentParser(description="Configuration for the training script")
 
-    parser.add_argument("--dataset-path", type=str, required=True)
+    parser.add_argument("--train-dataset-path", type=str, required=True)
+    parser.add_argument("--val-dataset-path", type=str, required=True)
     parser.add_argument("--insightface-weights", type=str, required=True)
     parser.add_argument("--output-dir", type=str, required=True)
     parser.add_argument("--normalize", action="store_true")

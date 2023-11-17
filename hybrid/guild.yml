@@ -5,7 +5,7 @@ train:
     - '*.py'
   flags-import: all
   flags-dest: args
-  output-scalars: '(\key):\s*(\value)'
+  output-scalars: '(\key):\s+(\value)'
   requires:
     - file: ../fitw2020/
       target-type: link

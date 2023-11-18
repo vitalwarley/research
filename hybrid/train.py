@@ -173,8 +173,8 @@ def train(args):
             # Backward pass and optimize
             loss.backward()
 
-            # if args.normalize:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_gradient)
+            if args.clip_gradient:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_gradient)
 
             # Print statistics
             cur_lr = optimizer.param_groups[0]["lr"]
@@ -245,5 +245,14 @@ if __name__ == "__main__":
     # Write args to args.yaml
     with open(args.output_dir / "args.yaml", "w") as f:
         f.write(str(args))
+
+    if torch.cuda.is_available():
+        current_device = torch.cuda.current_device()
+        device_name = torch.cuda.get_device_name(current_device)
+        print(f"Current CUDA Device = {current_device}")
+        print(f"Device Name = {device_name}")
+    else:
+        print("CUDA is not available.")
+
 
     train(args)

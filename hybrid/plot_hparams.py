@@ -35,8 +35,9 @@ def parse_flags(flags):
 
 
 def filter_data(df, metric, metric_value, step_range, flags):
+    max_step = df.step.max() if step_range[1] == -1 else step_range[1]
     _, op, value = parse_flag(f"{metric}{metric_value}")
-    query = f"(metric == '{metric}') & (value {op} {value}) & ({step_range[0]} < step) & (step < {step_range[1]})"
+    query = f"(metric == '{metric}') & (value {op} {value}) & ({step_range[0]} < step) & (step < {max_step})"
     for flag, condition in flags.items():
         query += f" & (`{flag}` {condition})"
     print(f"Query: {query}")
@@ -104,8 +105,8 @@ def parse_arguments():
     parser.add_argument("--file", type=str, required=True, help="Path to the CSV file")
     parser.add_argument("--metric", type=str, required=True, help="Metric to analyze")
     parser.add_argument("--metric-value", type=str, required=True, help="Metric value to analyze")
-    parser.add_argument("--start-step", type=int, required=True, help="Start step for filtering")
-    parser.add_argument("--end-step", type=int, required=True, help="End step for filtering")
+    parser.add_argument("--start-step", type=int, default=0, help="Start step for filtering")
+    parser.add_argument("--end-step", type=int, default=-1, help="End step for filtering")
     parser.add_argument("--top-n", type=int, default=10, help="Number of top experiments to analyze")
     parser.add_argument("--flags", nargs="*", help="Flags to filter data in the format flag=value")
     parser.add_argument("--output-dir", type=str, required=True, help="Output directory")

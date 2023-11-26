@@ -12,3 +12,20 @@ train:
     - file: insightface
     - file: models/
       target-type: link
+
+train-kv:
+  description: Sample training script
+  main: train_kv
+  sourcecode:
+    - '*.py'
+  flags-import: all
+  flags-dest: args
+  output-scalars: '(\key):\s+(\value)'
+  requires:
+    - file: models
+      target-type: link
+    - file: runs
+      target-type: link
+    - file: ../rfiw2021/
+      target-type: link
+    - file: insightface

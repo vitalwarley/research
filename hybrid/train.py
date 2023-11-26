@@ -2,7 +2,6 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import torch
-import torch.nn.functional as F
 import torchmetrics as tm
 import transforms as mytransforms
 from dataset import FamiliesDataset, PairDataset
@@ -11,42 +10,18 @@ from torch import nn
 from torch.optim.lr_scheduler import MultiStepLR
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from tqdm import tqdm
-
-TQDM_BAR_FORMAT = "Validating... {bar}|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
+from utils import validate
 
 
-# Validation loop
-def predict(model, val_loader, device=0):
-    similarities = []
-    y_true = []
+def contrastive_loss(x1, x2, beta=0.08):
+    x1x2 = torch.cat([x1, x2], dim=0)
+    x2x1 = torch.cat([x2, x1], dim=0)
 
-    for i, (img1, img2, label) in tqdm(enumerate(val_loader), total=len(val_loader), bar_format=TQDM_BAR_FORMAT):
-        # Transfer to GPU if available
-        img1, img2 = img1.to(device), img2.to(device)
-        label = label.to(device)
-
-        # Forward pass
-        (emb1, _) = model(img1, return_features=True)
-        (emb2, _) = model(img2, return_features=True)
-
-        sim = F.cosine_similarity(emb1, emb2).detach()
-        similarities.append(sim)
-        y_true.append(label)
-
-    # Concat
-    similarities = torch.concatenate(similarities)
-    y_true = torch.concatenate(y_true)
-
-    return similarities, y_true
-
-
-def validate(model, dataloader):
-    model.eval()
-    predictions, y_true = predict(model, dataloader)
-    auroc = tm.AUROC(task="binary")
-    auc = auroc(predictions, y_true)
-    return auc
+    cosine_mat = torch.cosine_similarity(torch.unsqueeze(x1x2, dim=1), torch.unsqueeze(x1x2, dim=0), dim=2) / beta
+    mask = 1.0 - torch.eye(2 * x1.size(0))
+    numerators = torch.exp(torch.cosine_similarity(x1x2, x2x1, dim=1) / beta)
+    denominators = torch.sum(torch.exp(cosine_mat) * mask, dim=1)
+    return -torch.mean(torch.log(numerators / denominators), dim=0)
 
 
 def update_lr(optimizer, global_step, total_steps):
@@ -253,6 +228,5 @@ if __name__ == "__main__":
         print(f"Device Name = {device_name}")
     else:
         print("CUDA is not available.")
-
 
     train(args)

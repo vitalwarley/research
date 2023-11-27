@@ -35,4 +35,19 @@ def validate(model, dataloader):
     predictions, y_true = predict(model, dataloader)
     auroc = tm.AUROC(task="binary")
     auc = auroc(predictions, y_true)
-    return auc
+    fpr, tpr, thresholds = tm.functional.roc(predictions, y_true, task="binary")
+    diff: torch.Tensor = tpr - fpr
+    maxindex = diff.argmax()
+    threshold = thresholds[maxindex]
+    if threshold.isnan().item():
+        threshold = 0.01
+    else:
+        threshold = threshold.item()
+    return auc, threshold
+
+
+def test(model, dataloader, threshold):
+    model.eval()
+    predictions, y_true = predict(model, dataloader)
+    acc = tm.functional.accuracy(predictions, y_true, threshold=threshold, task="binary")
+    return acc

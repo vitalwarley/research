@@ -6,9 +6,13 @@ from dataset import FIW
 from model import KinshipVerifier
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from utils import validate
+from utils import test, validate
 
 TQDM_BAR_FORMAT = "Validating... {bar}|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
+TRAIN_PAIRS = "rfiw2021/Track1/sample0/train_sort.txt"
+VAL_PAIRS_MODEL_SEL = "rfiw2021/Track1/sample0/val_choose.txt"
+VAL_PAIRS_THRES_SEL = "rfiw2021/Track1/sample0/val.txt"
+TEST_PAIRS = "rfiw2021/Track1/sample0/test.txt"
 
 
 def contrastive_loss(x1, x2, beta=0.08):
@@ -24,22 +28,25 @@ def contrastive_loss(x1, x2, beta=0.08):
 
 def train(args):
     # Define transformations for training and validation sets
-    transform_img_train = transforms.Compose(
-        [
-            transforms.ToTensor(),
-        ]
-    )
-    transform_img_val = transforms.Compose(
+    transform = transforms.Compose(
         [
             transforms.ToTensor(),
         ]
     )
 
-    train_dataset = FIW(args.root_dir, Path(args.train_dataset_path), transform=transform_img_train)
-    val_dataset = FIW(args.root_dir, Path(args.val_dataset_path), transform=transform_img_val)
+    train_dataset = FIW(args.root_dir, Path(TRAIN_PAIRS), transform=transform)
+    val_model_sel_dataset = FIW(args.root_dir, Path(VAL_PAIRS_MODEL_SEL), transform=transform)
+    val_thresh_sel_dataset = FIW(args.root_dir, Path(VAL_PAIRS_THRES_SEL), transform=transform)
+    test_dataset = FIW(args.root_dir, Path(TEST_PAIRS), transform=transform)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=12, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size // 2, num_workers=12, pin_memory=True)
+    val_model_sel_loader = DataLoader(
+        val_model_sel_dataset, batch_size=args.batch_size, num_workers=12, pin_memory=True
+    )
+    val_thres_sel_loader = DataLoader(
+        val_thresh_sel_dataset, batch_size=args.batch_size, num_workers=12, pin_memory=True
+    )
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=12, pin_memory=True)
 
     model = KinshipVerifier(num_classes=args.num_classes, weights=args.insightface_weights, normalize=args.normalize)
     model.to(args.device)
@@ -47,14 +54,17 @@ def train(args):
     optimizer_model = torch.optim.SGD(model.parameters(), lr=1e-4, momentum=0.9)
 
     global_step = 0
-    best_auc = validate(model, val_loader)
-    print(f"auc:  {best_auc:.6f}")
+    best_model_auc, _ = validate(model, val_model_sel_loader)
+    best_thresh_auc, best_threshold = validate(model, val_thres_sel_loader)
+    best_acc = test(model, test_loader, best_threshold)
+    print(
+        f"epoch: 0 | auc:  {best_model_auc:.6f} | "
+        + f"best_threshold_auc: {best_thresh_auc:.6f} | threshold: {best_threshold:.6f} | acc: {best_acc:.6f}"
+    )
 
     for epoch in range(args.num_epoch):
-        contrastive_loss_epoch = 0
-
         model.train()
-
+        contrastive_loss_epoch = 0
         for step, data in enumerate(train_loader):
             global_step = step + epoch * args.steps_per_epoch
 
@@ -82,15 +92,23 @@ def train(args):
         train_dataset.set_bias(use_sample)
 
         # Save model checkpoints
-        auc = validate(model, val_loader)
-        if auc > best_auc:
-            best_auc = auc
+        auc, _ = validate(model, val_model_sel_loader)
+
+        if auc > best_model_auc:
+            best_model_auc = auc
             torch.save(model.state_dict(), args.output_dir / "best.pth")
 
         print(
             f"epoch: {epoch + 1:>2} | step: {global_step} "
             + f"| loss: {contrastive_loss_epoch / args.steps_per_epoch:.3f} | auc: {auc:.6f}"
         )
+
+    best_thresh_auc, best_threshold = validate(model, val_thres_sel_loader)
+    best_acc = test(model, test_loader, best_threshold)
+    print(
+        f"epoch: {args.num_epoch} "
+        + f"| best_threshold_auc: {best_thresh_auc:.6f} | threshold: {best_threshold:.6f} | acc: {best_acc:.6f}"
+    )
 
 
 def create_parser():

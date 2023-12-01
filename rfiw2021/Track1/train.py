@@ -31,7 +31,7 @@ def training(args):
     train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=4, pin_memory=False)
     val_loader = DataLoader(val_dataset, batch_size=val_batch_size, num_workers=4, pin_memory=False)
 
-    model = Net(args.insightface).cuda()
+    model = Net(is_insightface=args.insightface).cuda()
 
     optimizer_model = SGD(model.parameters(), lr=1e-4, momentum=0.9)
     max_auc = 0.0

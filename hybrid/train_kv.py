@@ -51,16 +51,11 @@ def train(args):
     model = KinshipVerifier(num_classes=args.num_classes, weights=args.insightface_weights, normalize=args.normalize)
     model.to(args.device)
 
-    optimizer_model = torch.optim.SGD(model.parameters(), lr=1e-4, momentum=0.9)
+    optimizer_model = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
 
     global_step = 0
     best_model_auc, _ = validate(model, val_model_sel_loader)
-    best_thresh_auc, best_threshold = validate(model, val_thres_sel_loader)
-    best_acc = test(model, test_loader, best_threshold)
-    print(
-        f"epoch: 0 | auc:  {best_model_auc:.6f} | "
-        + f"best_threshold_auc: {best_thresh_auc:.6f} | threshold: {best_threshold:.6f} | acc: {best_acc:.6f}"
-    )
+    print(f"epoch: 0 | auc:  {best_model_auc:.6f}")
 
     for epoch in range(args.num_epoch):
         model.train()
@@ -103,12 +98,12 @@ def train(args):
             + f"| loss: {contrastive_loss_epoch / args.steps_per_epoch:.3f} | auc: {auc:.6f}"
         )
 
-    best_thresh_auc, best_threshold = validate(model, val_thres_sel_loader)
-    best_acc = test(model, test_loader, best_threshold)
-    print(
-        f"epoch: {args.num_epoch} "
-        + f"| best_threshold_auc: {best_thresh_auc:.6f} | threshold: {best_threshold:.6f} | acc: {best_acc:.6f}"
-    )
+    # best_thresh_auc, best_threshold = validate(model, val_thres_sel_loader)
+    # best_acc = test(model, test_loader, best_threshold)
+    # print(
+    #    f"epoch: {args.num_epoch} "
+    #    + f"| best_threshold_auc: {best_thresh_auc:.6f} | threshold: {best_threshold:.6f} | acc: {best_acc:.6f}"
+    # )
 
 
 def create_parser():
@@ -123,6 +118,7 @@ def create_parser():
     parser.add_argument("--num-classes", type=int, default=570, help="Number of classes")
     parser.add_argument("--num-epoch", type=int, default=80, help="Number of epochs")
     parser.add_argument("--batch-size", type=int, default=48, help="Batch size")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--steps-per-epoch", type=int, default=50, help="Steps per epoch")
     parser.add_argument("--beta", type=float, default=0.08, help="Beta for contrastive loss")
     parser.add_argument("--device", type=str, default="0", help="Device to use for training")

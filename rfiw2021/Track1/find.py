@@ -28,7 +28,7 @@ def find(args):
     log_path = args.log_path
     val_dataset = FIW(os.path.join(args.sample, "val.txt"))
     val_loader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, pin_memory=False)
-    model = Net(path, finetuned=args.insightface).cuda()
+    model = Net(path, is_insightface=args.insightface).cuda()
     model.load_state_dict(torch.load(path))
     model.eval()
     with torch.no_grad():

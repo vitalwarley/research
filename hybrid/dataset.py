@@ -7,7 +7,10 @@ from typing import List, Optional, Tuple
 import cv2
 import mytypes as t
 import numpy as np
+import torch
 from torch.utils.data import Dataset
+
+FILE = Path(__file__).parent
 
 
 class TestPairs(Dataset):
@@ -75,7 +78,7 @@ class FamiliesDataset(Dataset):
 
 
 class PairDataset(Dataset):
-    def __init__(
+    def __init__(  # noqa
         self,
         families_dataset: FamiliesDataset,
         mining_strategy: str = "baseline",
@@ -122,7 +125,7 @@ class PairDataset(Dataset):
                 anchor_family.append(self.families.families[family_idx])
                 negative_sample = self.families.families[:family_idx]
                 if family_idx < num_families - 1:
-                    negative_sample += self.families.families[family_idx + 1 :]
+                    negative_sample += self.families.families[family_idx + 1 :]  # noqa: E203
                 negative_family.append(negative_sample[int(negative_idx * (num_families - 1))])
             triplets = list(starmap(self.mine_triplets, zip(anchor_family, negative_family)))
             positive_pairs = [(anchor, positive, 1) for anchor, positive, _ in triplets]
@@ -148,7 +151,7 @@ class PairDataset(Dataset):
         _, negative = random_person_img(negative_family)
         positive_family = anchor_family[:anchor_idx]
         if anchor_idx < len(anchor_family) - 1:
-            positive_family += anchor_family[anchor_idx + 1 :]
+            positive_family += anchor_family[anchor_idx + 1 :]  # noqa: E203
         _, positive = random_person_img(positive_family)
         return anchor, positive, negative
 
@@ -167,3 +170,47 @@ class PairDataset(Dataset):
 
     def __len__(self) -> int:
         return len(self.seq)
+
+
+class FIW(Dataset):
+    def __init__(self, root_dir, sample_path, transform=None):
+        self.root_dir = root_dir
+        self.sample_path = sample_path
+        self.transform = transform
+        self.bias = 0
+        self.sample_list = self.load_sample()
+        print(f"Loaded {len(self.sample_list)} samples from {sample_path}")
+
+    def load_sample(self):
+        sample_list = []
+        f = open(self.sample_path, "r+", encoding="utf-8")
+        while True:
+            line = f.readline().replace("\n", "")
+            if not line:
+                break
+            else:
+                tmp = line.split(" ")
+                sample_list.append([tmp[0], tmp[1], tmp[2], tmp[-1]])
+        f.close()
+        return sample_list
+
+    def __len__(self):
+        return len(self.sample_list)
+
+    def read_image(self, path):
+        img = cv2.imread(f"{self.root_dir}/{path}")
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, (112, 112))
+        return img
+
+    def set_bias(self, bias):
+        self.bias = bias
+
+    def __getitem__(self, item):
+        # id, f1, f2, kin_relation, is_kin
+        sample = self.sample_list[item + self.bias]
+        img1, img2 = self.read_image(sample[1]), self.read_image(sample[2])
+        if self.transform is not None:
+            img1, img2 = self.transform(img1), self.transform(img2)
+        labels = torch.tensor(int(sample[-1]))
+        return img1, img2, labels

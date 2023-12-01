@@ -1,8 +1,9 @@
 import os
 
 import torch
-from insightface.recognition.arcface_torch.backbones import get_model
 from Track1.torch_resnet101 import *
+
+from .insightface.recognition.arcface_torch.backbones import get_model
 
 FILE = os.path.dirname(os.path.abspath(__file__))
 
@@ -20,16 +21,8 @@ class ResNet101(torch.nn.Module):
 
 
 class Net(torch.nn.Module):
-    def __init__(self, insightface_weights: str = "", finetuned: bool = False):
+    def __init__(self, weights: str = "", is_insightface: bool = False, finetuned: bool = False):
         super(Net, self).__init__()
-
-        if insightface_weights:
-            if finetuned:
-                self.encoder = ResNet101()
-            else:
-                self.encoder = ResNet101(insightface_weights)
-        else:
-            self.encoder = KitModel(f"{FILE}/../backbone/kit_resnet101.pkl")
 
         self.projection = nn.Sequential(
             torch.nn.Linear(512, 256),
@@ -38,6 +31,18 @@ class Net(torch.nn.Module):
             torch.nn.Linear(256, 128),
         )
         self._initialize_weights()
+
+        if is_insightface:
+            if finetuned:
+                self.encoder = ResNet101()
+            elif weights:
+                self.encoder = ResNet101(weights)
+            else:
+                raise ValueError(f"Must provide weights or finetuned if is_insightface is True")
+        else:
+            self.encoder = KitModel(f"{FILE}/../backbone/kit_resnet101.pkl")
+            if weights:
+                self.load_state_dict(torch.load(weights))
 
     def _initialize_weights(self):
         for m in self.projection.modules():

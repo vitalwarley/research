@@ -1,0 +1,9 @@
+remotes:
+  rig-1:
+    type: ssh
+    description: RIG1
+    host: localhost
+    user: warley
+    port: 8021
+    guild-env: ~/.virtualenvs/research
+    guild-home: ~/.guild

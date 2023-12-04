@@ -109,8 +109,11 @@ class FIWPair(Dataset):
             data["face2_path"].apply(lambda x: x.split("/")[-3].replace("F", "")).astype(int)
         )
         # Filter the data by family_id
-        data = data[data["face1_family_id"].isin(self.families) | data["face2_family_id"].isin(self.families)]
-        assert len(data) > 0, "No data loaded from csv_path after filtering by families list: {}".format(self.families)
+        if self.families:
+            data = data[data["face1_family_id"].isin(self.families) | data["face2_family_id"].isin(self.families)]
+            assert len(data) > 0, "No data loaded from csv_path after filtering by families list: {}".format(
+                self.families
+            )
         # Drop id column, reset index
         data = data.drop(columns=["id"]).reset_index(drop=True)
         # TODO: make programaticly
@@ -141,4 +144,4 @@ class FIWPair(Dataset):
         face1 = np2tensor(self.preprocess(np.array(face1, dtype=float)))
         face2 = np2tensor(self.preprocess(np.array(face2, dtype=float)))
 
-        return face1, face2, sample.kin_relation, sample.face1_family_id, sample.face2_family_id
+        return face1, face2, sample.kin_relation, sample.face1_family_id, sample.face2_family_id, sample.is_kin

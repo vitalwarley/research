@@ -30,6 +30,7 @@ import numpy as np
 import plotly.graph_objs as go
 import torch
 from cuml.manifold import TSNE
+from sklearn.manifold import TSNE as SKTSNE
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -40,6 +41,26 @@ try:
 except NameError:
     IS_NOTEBOOK = False
     HERE = Path().resolve()
+
+
+# %%
+def seed_everything(seed: int):
+    import os
+    import random
+
+    import numpy as np
+    import torch
+
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.benchmark = False
+
+
+seed_everything(42)
 
 # %%
 print(HERE)
@@ -148,6 +169,7 @@ if Path(embeddings1_path).exists() and Path(embeddings2_path).exists() and Path(
     embeddings2 = np.load(embeddings2_path)
     labels = np.load(labels_path)
     print("Embeddings and labels loaded.")
+    labels = (labels[0].reshape(-1), labels[1].astype(int).reshape(-1), labels[2].astype(int).reshape(-1))
 else:
     # Process the data
     embeddings1, embeddings2, labels = process_data(val_loader, model)  # ~10min
@@ -161,69 +183,129 @@ else:
 fused_concat_embeddings = fuse_embeddings(embeddings1, embeddings2, fusion="concat")
 
 # %%
-labels[1]
-
-# %%
 data = (fused_concat_embeddings, labels)
 
 
-def plot_tsne(n_samples=1000, fids=0, n_components=2, perplexity=30):
+def setup_data(n_samples=1000, fids=0):
     print("Setting up data...")
     embeddings, labels = data
+    print(labels)
     indexes = None
     if fids:
         if isinstance(fids, int):
+            print(f"Selecting {fids} random families from face1.")
             fids_unique = np.unique(labels[1])
+            print(f"Total unique families from face1: {fids_unique}")
             fids = np.random.choice(fids_unique, size=fids, replace=False)
+            print(f"Families selected from face1: {fids}")
             mask = np.in1d(labels[1], fids)
             indexes = np.where(mask)[0]
+            print(f"Selected {len(indexes)} embeddings.")
         elif isinstance(fids, list):
+            print(f"Selecting families {fids} from face1.")
             mask = np.in1d(labels[1], fids)
             indexes = np.where(mask)[0]
+            print(f"Selected {len(indexes)} embeddings.")
     elif n_samples:
+        print(f"Selecting {n_samples} random from embeddings.")
         indexes = np.arange(len(embeddings))
         indexes = np.random.choice(indexes, size=n_samples, replace=False)
 
     X = fused_concat_embeddings[indexes]
     labels = [label[indexes] for label in labels]
 
+    face1_families = labels[1]
+    face2_families = labels[2]
+    kinship_relations_face1 = labels[0]
+    kinship_relations_face2 = labels[0]
+
+    face1_unique_families = np.unique(face1_families)
+    face2_unique_families = np.unique(face2_families)
+    print(f"Selected families for Face1 ({len(face1_unique_families)}): {face1_unique_families}")
+    print(f"Selected families for Face2 ({len(face2_unique_families)}): {face2_unique_families}")
+
+    print(f"Mean individuals per family for Face1: {np.mean(np.bincount(face1_families))}")
+    print(f"SD individuals per family for Face1: {np.std(np.bincount(face1_families))}")
+    print(f"Mean individuals per family for Face2: {np.mean(np.bincount(face2_families))}")
+    print(f"SD individuals per family for Face2: {np.std(np.bincount(face2_families))}")
+
+    # Assuming kinship_relations_face1 & kinship_relations_face2 are strings, let's map them to integers
+    unique_kinship_relations = np.unique(labels[0])
+    kinship_mapping = {relation: i for i, relation in enumerate(unique_kinship_relations)}
+    kinship_relations_face1 = np.array([kinship_mapping[relation] for relation in labels[0]])
+    kinship_relations_face2 = kinship_relations_face1  # they are the same
+    print(f"Kinship mapping: {kinship_mapping}")
+
+    print(f"Count kinship relations for Face1: {np.bincount(kinship_relations_face1)}")
+    print(f"Count kinship relations for Face2: {np.bincount(kinship_relations_face2)}")
+
+    return X, labels
+
+
+def create_tsne_model(n_samples, n_components=2, perplexity=30, early_exaggeration=12):
     print("Setting up t-SNE...")
-    tsne = TSNE(n_components=n_components, perplexity=perplexity, learning_rate="auto", n_iter=5000, verbose=True)
-    tsne_results = tsne.fit_transform(X)
+    if n_components == 2:
+        lr = max(n_samples / early_exaggeration / 4, 50)
+        tsne = TSNE(n_components=n_components, perplexity=perplexity, learning_rate=lr, n_iter=5000, verbose=True)
+    elif n_components == 3:
+        tsne = SKTSNE(
+            n_components=n_components,
+            perplexity=perplexity,
+            learning_rate="auto",
+            n_iter=5000,
+            verbose=True,
+            init="random",
+        )
 
-    print(str(tsne) + f" with n_components={n_components} and {n_samples} embeddings.")
+    return tsne
 
+
+def set_marker_colors(labels):
     # Create markers based on kin_relations
-    # labels -> (kin_relations, face1_famliy_id, face2_family_id)
-    # where kin_relations are 11 possible strings: bb, ss, sibs, ms, md, fs, fd, gfgs, gfgd, gmgs, gmgd
     marker_colors = np.where(labels[1] == labels[2], "blue", "red").reshape(
         -1,
     )
+    return marker_colors
 
-    if n_components == 2:
-        scatter = go.Scatter(
-            x=tsne_results[:, 0],
-            y=tsne_results[:, 1],
-            mode="markers",
-            marker=dict(color=marker_colors, size=10),
-            text=[f"F1 FID: {face1_id}, F2 FID: {face2_id}, Kinship: {kr}" for kr, face1_id, face2_id in zip(*labels)],
-            hoverinfo="text",
-        )
-    elif n_components == 3:
-        scatter = go.Scatter3d(
-            x=tsne_results[:, 0],
-            y=tsne_results[:, 1],
-            z=tsne_results[:, 2],
-            mode="markers",
-            marker=dict(color=marker_colors, size=3),
-            text=[
-                f"F1 FID: {face1_id[0]}, F2 FID: {face2_id[0]}, Kinship: {kr[0]}"
-                for kr, face1_id, face2_id in zip(*labels)
-            ],
-            hoverinfo="text",
-        )
 
-    fig = go.Figure(data=[scatter])
+def create_scatter_plot(tsne_results, labels, marker_colors, n_components=2):
+    unique_kinship_relations = np.unique(labels[0])
+    marker_types = ["circle", "square", "diamond", "cross", "x", "circle-open", "diamond-open", "square-open"]
+    marker_mapping = {
+        relation: marker_types[i % len(marker_types)] for i, relation in enumerate(unique_kinship_relations)
+    }
+    # Create separate scatter plots for each kinship relation
+    scatters = []
+    for kinship_relation in unique_kinship_relations:
+        indexes = [i for i, relation in enumerate(labels[0]) if relation == kinship_relation]
+        marker_symbol = marker_mapping[kinship_relation]
+        marker_color = [marker_colors[i] for i in indexes]
+
+        if n_components == 2:
+            scatter = go.Scatter(
+                x=tsne_results[indexes, 0],
+                y=tsne_results[indexes, 1],
+                mode="markers",
+                marker=dict(color=marker_color, symbol=marker_symbol, size=5),
+                name=kinship_relation,  # Set the name to kinship_relation for the legend
+            )
+        elif n_components == 3:
+            scatter = go.Scatter3d(
+                x=tsne_results[indexes, 0],
+                y=tsne_results[indexes, 1],
+                z=tsne_results[indexes, 2],
+                mode="markers",
+                marker=dict(color=marker_color, symbol=marker_symbol, size=5),
+                name=kinship_relation,  # Set the name to kinship_relation for the legend
+            )
+
+        scatters.append(scatter)
+
+    return scatters
+
+
+def create_final_figure(scatters):
+    fig = go.Figure(data=scatters)
     fig.update_layout(
         autosize=False,
         width=800,
@@ -235,8 +317,31 @@ def plot_tsne(n_samples=1000, fids=0, n_components=2, perplexity=30):
     fig.show()
 
 
-# %%
-plot_tsne(n_components=3, fids=[250, 283, 409, 735, 873], perplexity=100)
+def plot_tsne(n_samples=1000, fids=0, n_components=2, perplexity=30):
+    X, labels = setup_data(n_samples, fids)
+    n_samples = n_samples if not fids else X.shape[0]
+    tsne = create_tsne_model(n_samples, n_components, perplexity)
+    print(tsne)
+    tsne_results = tsne.fit_transform(X)
+    marker_colors = set_marker_colors(labels)
+    scatter = create_scatter_plot(tsne_results, labels, marker_colors, n_components)
+    create_final_figure(scatter)
+
 
 # %%
-plot_tsne(n_components=3, fids=10, perplexity=100)
+for perplexity in [20, 50, 100]:
+    plot_tsne(n_components=3, fids=[250, 283, 409, 735, 873], perplexity=perplexity)
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(n_components=2, fids=[250, 283, 409, 735, 873], perplexity=perplexity)
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(n_components=3, fids=10, perplexity=perplexity)
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(n_components=2, fids=10, perplexity=perplexity)
+
+# %%

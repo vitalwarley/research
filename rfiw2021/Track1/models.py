@@ -21,7 +21,9 @@ class ResNet101(torch.nn.Module):
 
 
 class Net(torch.nn.Module):
-    def __init__(self, weights: str = "", is_insightface: bool = False, finetuned: bool = False):
+    def __init__(
+        self, weights: str = "", is_insightface: bool = False, finetuned: bool = False, classification: bool = False
+    ):
         super(Net, self).__init__()
 
         self.projection = nn.Sequential(
@@ -30,7 +32,9 @@ class Net(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(256, 128),
         )
-        self.classifier = torch.nn.Linear(256, 2)
+        self.classification = classification
+        if self.classification:
+            self.classifier = torch.nn.Linear(256, 2)
         self._initialize_weights()
 
         if is_insightface:
@@ -46,7 +50,10 @@ class Net(torch.nn.Module):
                 self.load_state_dict(torch.load(weights))
 
     def _initialize_weights(self):
-        for m in list(self.projection.modules()) + list(self.classifier.modules()):
+        modules = list(self.projection.modules())
+        if self.classification:
+            modules += list(self.classifier.modules())
+        for m in modules:
             if isinstance(m, nn.Linear):
                 nn.init.uniform_(m.weight - 0.05, 0.05)
                 if m.bias is not None:
@@ -59,9 +66,12 @@ class Net(torch.nn.Module):
         img1, img2 = imgs
         embeding1, embeding2 = self.encoder(img1), self.encoder(img2)
         pro1, pro2 = self.projection(embeding1), self.projection(embeding2)
-        projs = torch.concat([pro1, pro2], dim=1)
-        logits = self.classifier(projs)
-        return embeding1, embeding2, pro1, pro2, logits
+        if self.classification:
+            projs = torch.concat([pro1, pro2], dim=1)
+            logits = self.classifier(projs)
+            return embeding1, embeding2, pro1, pro2, logits
+        else:
+            return embeding1, embeding2, pro1, pro2
 
 
 class NetClassifier(torch.nn.Module):

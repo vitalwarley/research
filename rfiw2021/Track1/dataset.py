@@ -78,7 +78,7 @@ class FIW(Dataset):
             self.preprocess(np.array(img2, dtype=float))
         )
         if self.classification:
-            label = self.name2id[sample[-2]]  # kin relation
+            label = int(self.name2id[sample[-2]])  # kin relation
             if not int(sample[-1]):
                 label = 0
         else:

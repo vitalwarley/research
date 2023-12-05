@@ -7,7 +7,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.15.2
+#       jupytext_version: 1.16.0
 #   kernelspec:
 #     display_name: Python 3 (ipykernel)
 #     language: python
@@ -186,11 +186,11 @@ fused_concat_embeddings = fuse_embeddings(embeddings1, embeddings2, fusion="conc
 data = (fused_concat_embeddings, labels)
 
 
-def setup_data(n_samples=1000, fids=0):
+def setup_embeddings(n_samples=1000, fids=0, kinships=0):
     print("Setting up data...")
     embeddings, labels = data
     print(labels)
-    indexes = None
+    indexes_fids, indexes_krs = None, None
     if fids:
         if isinstance(fids, int):
             print(f"Selecting {fids} random families from face1.")
@@ -199,17 +199,38 @@ def setup_data(n_samples=1000, fids=0):
             fids = np.random.choice(fids_unique, size=fids, replace=False)
             print(f"Families selected from face1: {fids}")
             mask = np.in1d(labels[1], fids)
-            indexes = np.where(mask)[0]
-            print(f"Selected {len(indexes)} embeddings.")
+            indexes_fids = np.where(mask)[0]
+            print(f"Selected {len(indexes_fids)} embeddings.")
         elif isinstance(fids, list):
             print(f"Selecting families {fids} from face1.")
             mask = np.in1d(labels[1], fids)
-            indexes = np.where(mask)[0]
-            print(f"Selected {len(indexes)} embeddings.")
-    elif n_samples:
+            indexes_fids = np.where(mask)[0]
+            print(f"Selected {len(indexes_fids)} embeddings.")
+    if kinships:
+        if isinstance(kinships, int):
+            print(f"Selecting {kinships} random kinships from face1.")
+            kinships_unique = np.unique(labels[0])
+            print(f"Total unique kinships from face1: {kinships_unique}")
+            kinships = np.random.choice(kinships_unique, size=kinships, replace=False)
+            print(f"Kinships selected from face1: {kinships}")
+            mask = np.in1d(labels[0], kinships)
+            indexes_krs = np.where(mask)[0]
+            print(f"Selected {len(indexes_krs)} embeddings.")
+        elif isinstance(kinships, list):
+            print(f"Selecting families {kinships} from face1.")
+            mask = np.in1d(labels[0], kinships)
+            indexes_krs = np.where(mask)[0]
+            print(f"Selected {len(indexes_krs)} embeddings.")
+    if n_samples and not (fids or kinships):
         print(f"Selecting {n_samples} random from embeddings.")
         indexes = np.arange(len(embeddings))
         indexes = np.random.choice(indexes, size=n_samples, replace=False)
+    elif fids and kinships:
+        indexes = np.intersect1d(indexes_fids, indexes_krs)
+    elif fids:
+        indexes = indexes_fids
+    elif kinships:
+        indexes = indexes_krs
 
     X = fused_concat_embeddings[indexes]
     labels = [label[indexes] for label in labels]
@@ -236,24 +257,26 @@ def setup_data(n_samples=1000, fids=0):
     kinship_relations_face2 = kinship_relations_face1  # they are the same
     print(f"Kinship mapping: {kinship_mapping}")
 
+    print(kinship_relations_face1)
     print(f"Count kinship relations for Face1: {np.bincount(kinship_relations_face1)}")
     print(f"Count kinship relations for Face2: {np.bincount(kinship_relations_face2)}")
 
     return X, labels
 
 
-def create_tsne_model(n_samples, n_components=2, perplexity=30, early_exaggeration=12):
+def create_tsne_model(n_samples, n_components=2, perplexity=30, early_exaggeration=12, verbose=False):
     print("Setting up t-SNE...")
     if n_components == 2:
+        print(n_samples, early_exaggeration)
         lr = max(n_samples / early_exaggeration / 4, 50)
-        tsne = TSNE(n_components=n_components, perplexity=perplexity, learning_rate=lr, n_iter=5000, verbose=True)
+        tsne = TSNE(n_components=n_components, perplexity=perplexity, learning_rate=lr, n_iter=5000, verbose=verbose)
     elif n_components == 3:
         tsne = SKTSNE(
             n_components=n_components,
             perplexity=perplexity,
             learning_rate="auto",
             n_iter=5000,
-            verbose=True,
+            verbose=verbose,
             init="random",
         )
 
@@ -313,14 +336,21 @@ def create_final_figure(scatters):
         margin=go.layout.Margin(
             l=0, r=0, b=0, t=0, pad=4  # left margin  # right margin  # bottom margin  # top margin  # padding
         ),
+        legend=dict(
+            orientation="v",  # this sets the legend orientation as horizontal
+            yanchor="bottom",  # this sets the y anchor of the legend to the bottom
+            y=0.00,  # this adjusts the position along y axis (move it slightly above the bottom)
+            xanchor="right",  # this sets the x anchor of the legend to the right
+            x=1,  # this adjusts the position along x axis (put it all the way to the right)
+        ),
     )
     fig.show()
 
 
-def plot_tsne(n_samples=1000, fids=0, n_components=2, perplexity=30):
-    X, labels = setup_data(n_samples, fids)
-    n_samples = n_samples if not fids else X.shape[0]
-    tsne = create_tsne_model(n_samples, n_components, perplexity)
+def plot_tsne(n_samples=1000, fids=0, kinships=0, n_components=2, perplexity=30, verbose=False):
+    X, labels = setup_embeddings(n_samples, fids, kinships)
+    n_samples = n_samples if not (fids or kinships) else X.shape[0]
+    tsne = create_tsne_model(n_samples, n_components, perplexity, verbose=verbose)
     print(tsne)
     tsne_results = tsne.fit_transform(X)
     marker_colors = set_marker_colors(labels)
@@ -328,20 +358,100 @@ def plot_tsne(n_samples=1000, fids=0, n_components=2, perplexity=30):
     create_final_figure(scatter)
 
 
+# %% [markdown]
+# ### t-SNN plots with 3 components for 5 specific families with perplexities 20, 50, 100
+#
+# Families are drawn from face1. That means that face2 can also be from any other family.
+
 # %%
 for perplexity in [20, 50, 100]:
     plot_tsne(n_components=3, fids=[250, 283, 409, 735, 873], perplexity=perplexity)
+
+# %% [markdown]
+# ### t-SNN plots with 2 components for 5 specific families with perplexities 20, 50, 100
+#
+# Families are drawn from face1. That means that face2 can also be from any other family.
 
 # %%
 for perplexity in [20, 50, 100]:
     plot_tsne(n_components=2, fids=[250, 283, 409, 735, 873], perplexity=perplexity)
 
+# %% [markdown]
+# ### t-SNN plots with 3 components for 10 random families with perplexities 20, 50, 100
+#
+# Families are drawn from face1. That means that face2 can also be from any other family.
+
 # %%
 for perplexity in [20, 50, 100]:
     plot_tsne(n_components=3, fids=10, perplexity=perplexity)
 
+# %% [markdown]
+# ### t-SNN plots with 2 components for 10 random families with perplexities 20, 50, 100
+#
+# Families are drawn from face1. That means that face2 can also be from any other family.
+
 # %%
 for perplexity in [20, 50, 100]:
     plot_tsne(n_components=2, fids=10, perplexity=perplexity)
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(n_components=3, fids=[250, 283, 409, 735, 873], kinships=["bb", "sibs", "ss"], perplexity=perplexity)
+
+# %% [markdown]
+# ### t-SNN plots from 5 specific families (n_components = 3, perplexities in [20, 50, 100])
+#
+# Families are drawn from face1. That means that face2 can also be from any other family.
+
+# %% [markdown]
+# #### Only bb, sibs, ss kinship relations
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(n_components=3, fids=[250, 283, 409, 735, 873], kinships=["bb", "sibs", "ss"], perplexity=perplexity)
+
+# %% [markdown]
+# #### Only fd, md, fs, ms kinship relations
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(n_components=3, fids=[250, 283, 409, 735, 873], kinships=["fd", "md", "fs", "ms"], perplexity=perplexity)
+
+# %% [markdown]
+# #### Only gfgd, gmgd, gfgs, gmgs kinship relations
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(
+        n_components=3, fids=[250, 283, 409, 735, 873], kinships=["gfgd", "gmgd", "gfgs", "gmgs"], perplexity=perplexity
+    )
+
+# %% [markdown]
+# ### t-SNN plots from 5 specific families (n_components = 2, perplexities in [20, 50, 100])
+#
+# Families are drawn from face1. That means that face2 can also be from any other family.
+
+# %% [markdown]
+# #### Only bb, sibs, ss kinship relations
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(n_components=2, fids=[250, 283, 409, 735, 873], kinships=["bb", "sibs", "ss"], perplexity=perplexity)
+
+# %% [markdown]
+# #### Only fd, md, fs, ms kinship relations
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(n_components=2, fids=[250, 283, 409, 735, 873], kinships=["fd", "md", "fs", "ms"], perplexity=perplexity)
+
+# %% [markdown]
+# #### Only gfgd, gmgd, gfgs, gmgs kinship relations
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(
+        n_components=2, fids=[250, 283, 409, 735, 873], kinships=["gfgd", "gmgd", "gfgs", "gmgs"], perplexity=perplexity
+    )
 
 # %%

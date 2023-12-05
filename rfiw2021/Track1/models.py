@@ -30,9 +30,7 @@ class Net(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(256, 128),
         )
-        self.classifier = nn.Sequential(
-                torch.nn.Linear(256, 2)
-                )
+        self.classifier = torch.nn.Linear(256, 2)
         self._initialize_weights()
 
         if is_insightface:
@@ -48,7 +46,7 @@ class Net(torch.nn.Module):
                 self.load_state_dict(torch.load(weights))
 
     def _initialize_weights(self):
-        for m in self.projection.modules():
+        for m in list(self.projection.modules()) + list(self.classifier.modules()):
             if isinstance(m, nn.Linear):
                 nn.init.uniform_(m.weight - 0.05, 0.05)
                 if m.bias is not None:

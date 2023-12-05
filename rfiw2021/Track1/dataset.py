@@ -15,22 +15,23 @@ class FIW(Dataset):
         self.transform = transform
         self.classification = classification
         self.bias = 0
-        self.name2id = {
-            "non-kin": 0,
-            "md": 1,
-            "ms": 2,
-            "sibs": 3,
-            "ss": 4,
-            "bb": 5,
-            "fd": 6,
-            "fs": 7,
-            "gfgd": 8,
-            "gfgs": 9,
-            "gmgd": 10,
-            "gmgs": 11,
-        }
-        # keep ids from 0 to len(classes)
-        self.name2id = {k: idx for idx, k in enumerate(classes) if k in self.name2id.keys()}
+        if classes:
+            self.name2id = {k: idx for idx, k in enumerate(classes) if k in self.name2id.keys()}
+        else:
+            self.name2id = {
+                "non-kin": 0,
+                "md": 1,
+                "ms": 2,
+                "sibs": 3,
+                "ss": 4,
+                "bb": 5,
+                "fd": 6,
+                "fs": 7,
+                "gfgd": 8,
+                "gfgs": 9,
+                "gmgd": 10,
+                "gmgs": 11,
+            }
         self.sample_list = self.load_sample()
         print(
             f"Loaded {len(self.sample_list)} samples from {sample_path}"
@@ -49,7 +50,7 @@ class FIW(Dataset):
                 if self.classification:
                     # Only add if tmp[-2] is in classes
                     if tmp[-2] in self.name2id.keys():
-                        sample_list.append(tmp)
+                        sample_list.append([tmp[0], tmp[1], tmp[2], tmp[3], tmp[-1]])
                 else:
                     sample_list.append([tmp[0], tmp[1], tmp[2], tmp[-1]])
         f.close()
@@ -80,7 +81,7 @@ class FIW(Dataset):
         if self.classification:
             label = int(self.name2id[sample[-2]])  # kin relation
             if not int(sample[-1]):
-                label = 0
+                label = 0 # non-kin
         else:
             label = np2tensor(np.array(sample[-1], dtype=float))
         return img1, img2, label

@@ -25,9 +25,11 @@ def training(args):
     save_path = args.save_path
     beta = args.beta
     log_path = args.log_path
+    lambda_factor = 0.8
+    classification = True
 
-    train_dataset = FIW(os.path.join(args.sample, "train_sort.txt"))
-    val_dataset = FIW(os.path.join(args.sample, "val_choose.txt"))
+    train_dataset = FIW(os.path.join(args.sample, "train_sort.txt"), classification=classification)
+    val_dataset = FIW(os.path.join(args.sample, "val_choose.txt"), classification=classification)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, num_workers=4, pin_memory=False)
     val_loader = DataLoader(val_dataset, batch_size=val_batch_size, num_workers=4, pin_memory=False)
@@ -44,6 +46,7 @@ def training(args):
         mylog("epoch " + str(epoch_i + 1), path=log_path)
         contrastive_loss_epoch = 0
         ce_loss_epoch = 0
+        total_loss_epoch = 0
 
         model.train()
 
@@ -53,15 +56,16 @@ def training(args):
             e1, e2, x1, x2, logits = model([image1, image2])
 
             c_loss = contrastive_loss(x1, x2, beta=beta)
-            ce_loss = ce_loss_fn(logits, labels.to(torch.long))
-            loss = c_loss + ce_loss
+            ce_loss = ce_loss_fn(logits, labels.to(torch.device('cuda:0'), dtype=torch.long))
+            loss = lambda_factor  * c_loss + (1 - lambda_factor) * ce_loss
 
             optimizer_model.zero_grad()
             loss.backward()
             optimizer_model.step()
 
             contrastive_loss_epoch += c_loss.item()
-            ce_loss_epoch += ce_loss
+            ce_loss_epoch += ce_loss.item()
+            total_loss_epoch += loss.item()
 
             if (index_i + 1) == steps_per_epoch:
                 break
@@ -71,9 +75,10 @@ def training(args):
 
         mylog("contrastive_loss:" + "%.6f" % (contrastive_loss_epoch / steps_per_epoch), path=log_path)
         mylog("ce_loss:" + "%.6f" % (ce_loss_epoch / steps_per_epoch), path=log_path)
+        mylog("total_loss:" + "%.6f" % (total_loss_epoch / steps_per_epoch), path=log_path)
         model.eval()
         with torch.no_grad():
-            auc = val_model(model, val_loader)
+            auc = val_model(model, val_loader, classification=classification)
         mylog("auc is %.6f " % auc, path=log_path)
         if max_auc < auc:
             mylog("auc improve from :" + "%.6f" % max_auc + " to %.6f" % auc, path=log_path)
@@ -88,13 +93,15 @@ def save_model(model, path):
     torch.save(model.state_dict(), path)
 
 
-def val_model(model, val_loader):
+def val_model(model, val_loader, classification):
     y_true = []
     y_pred = []
     for img1, img2, labels in val_loader:
         e1, e2, _, _, _ = model([img1.cuda(), img2.cuda()])
+        labels = labels.cpu().detach().numpy().tolist()
+        labels = [1 if label else 0 for label in labels]  # non-kin is 0
         y_pred.extend(torch.cosine_similarity(e1, e2, dim=1).cpu().detach().numpy().tolist())
-        y_true.extend(labels.cpu().detach().numpy().tolist())
+        y_true.extend(labels)
     fpr, tpr, _ = roc_curve(y_true, y_pred)
     return auc(fpr, tpr)
 

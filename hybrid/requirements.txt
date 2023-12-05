@@ -4,3 +4,4 @@ torchvision==0.15.2
 torchmetrics
 scikit-learn
 opencv-python
+tqdm

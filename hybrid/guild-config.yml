@@ -7,3 +7,10 @@ remotes:
     port: 8021
     guild-env: ~/.virtualenvs/research
     guild-home: ~/.guild
+  rig-1-local:
+    type: ssh
+    description: RIG1
+    host: rig-1
+    user: warley
+    guild-env: ~/.virtualenvs/research
+    guild-home: ~/.guild

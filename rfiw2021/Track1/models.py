@@ -34,7 +34,7 @@ class Net(torch.nn.Module):
         )
         self.classification = classification
         if self.classification:
-            self.classifier = torch.nn.Linear(256, 2)
+            self.classifier = torch.nn.Linear(256, 12)
         self._initialize_weights()
 
         if is_insightface:

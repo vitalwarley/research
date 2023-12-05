@@ -1,0 +1,607 @@
+
+*************
+epoch 1
+contrastive_loss:3.624260
+ce_loss:0.684038
+auc is 0.786386 
+auc improve from :0.000000 to 0.786386
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 2
+contrastive_loss:3.520455
+ce_loss:0.687468
+auc is 0.790732 
+auc improve from :0.786386 to 0.790732
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 3
+contrastive_loss:3.425758
+ce_loss:0.687507
+auc is 0.793278 
+auc improve from :0.790732 to 0.793278
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 4
+contrastive_loss:3.338792
+ce_loss:0.689614
+
+*************
+epoch 1
+contrastive_loss:3.624604
+ce_loss:0.493731
+auc is 0.786393 
+auc improve from :0.000000 to 0.786393
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 2
+contrastive_loss:3.522872
+ce_loss:0.216833
+auc is 0.790663 
+auc improve from :0.786393 to 0.790663
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 3
+contrastive_loss:3.442532
+ce_loss:0.122832
+auc is 0.792764 
+auc improve from :0.790663 to 0.792764
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 4
+contrastive_loss:3.375834
+ce_loss:0.085631
+auc is 0.794935 
+auc improve from :0.792764 to 0.794935
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 5
+contrastive_loss:3.339334
+ce_loss:0.067696
+auc is 0.793078 
+auc did not improve from 0.794935
+
+*************
+epoch 6
+contrastive_loss:3.250434
+ce_loss:0.057690
+auc is 0.813931 
+auc improve from :0.794935 to 0.813931
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 7
+contrastive_loss:3.112677
+ce_loss:0.052039
+auc is 0.804060 
+auc did not improve from 0.813931
+
+*************
+epoch 8
+contrastive_loss:3.077467
+ce_loss:0.050080
+auc is 0.806946 
+auc did not improve from 0.813931
+
+*************
+epoch 9
+contrastive_loss:2.963117
+ce_loss:0.048900
+auc is 0.819573 
+auc improve from :0.813931 to 0.819573
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 10
+contrastive_loss:2.847229
+ce_loss:0.049564
+auc is 0.821347 
+auc improve from :0.819573 to 0.821347
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 11
+contrastive_loss:2.680804
+ce_loss:0.051585
+auc is 0.828562 
+auc improve from :0.821347 to 0.828562
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 12
+contrastive_loss:2.565227
+ce_loss:0.053678
+auc is 0.827569 
+auc did not improve from 0.828562
+
+*************
+epoch 13
+contrastive_loss:2.427441
+ce_loss:0.055315
+auc is 0.839884 
+auc improve from :0.828562 to 0.839884
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 14
+contrastive_loss:2.364194
+ce_loss:0.055939
+auc is 0.831228 
+auc did not improve from 0.839884
+
+*************
+epoch 15
+contrastive_loss:2.287422
+ce_loss:0.055514
+auc is 0.830906 
+auc did not improve from 0.839884
+
+*************
+epoch 16
+contrastive_loss:2.181163
+ce_loss:0.055072
+auc is 0.836713 
+auc did not improve from 0.839884
+
+*************
+epoch 17
+contrastive_loss:2.167565
+ce_loss:0.054722
+auc is 0.842354 
+auc improve from :0.839884 to 0.842354
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 18
+contrastive_loss:2.091315
+ce_loss:0.053985
+auc is 0.830506 
+auc did not improve from 0.842354
+
+*************
+epoch 19
+contrastive_loss:2.089248
+ce_loss:0.053323
+auc is 0.842647 
+auc improve from :0.842354 to 0.842647
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 20
+contrastive_loss:2.018361
+ce_loss:0.052969
+auc is 0.845767 
+auc improve from :0.842647 to 0.845767
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 21
+contrastive_loss:2.003506
+ce_loss:0.051926
+auc is 0.842811 
+auc did not improve from 0.845767
+
+*************
+epoch 22
+contrastive_loss:1.984282
+ce_loss:0.050445
+auc is 0.837494 
+auc did not improve from 0.845767
+
+*************
+epoch 23
+contrastive_loss:1.896550
+ce_loss:0.050482
+auc is 0.836299 
+auc did not improve from 0.845767
+
+*************
+epoch 24
+contrastive_loss:1.907575
+ce_loss:0.051210
+auc is 0.852555 
+auc improve from :0.845767 to 0.852555
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 25
+contrastive_loss:1.852145
+ce_loss:0.050967
+auc is 0.841014 
+auc did not improve from 0.852555
+
+*************
+epoch 26
+contrastive_loss:1.749154
+ce_loss:0.051493
+auc is 0.833121 
+auc did not improve from 0.852555
+
+*************
+epoch 27
+contrastive_loss:1.743902
+ce_loss:0.052747
+auc is 0.853311 
+auc improve from :0.852555 to 0.853311
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 28
+contrastive_loss:1.712805
+ce_loss:0.052908
+auc is 0.852302 
+auc did not improve from 0.853311
+
+*************
+epoch 29
+contrastive_loss:1.697642
+ce_loss:0.052639
+auc is 0.839802 
+auc did not improve from 0.853311
+
+*************
+epoch 30
+contrastive_loss:1.569664
+ce_loss:0.053697
+auc is 0.855151 
+auc improve from :0.853311 to 0.855151
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 31
+contrastive_loss:1.647158
+ce_loss:0.054221
+auc is 0.818329 
+auc did not improve from 0.855151
+
+*************
+epoch 32
+contrastive_loss:1.578557
+ce_loss:0.053369
+auc is 0.840002 
+auc did not improve from 0.855151
+
+*************
+epoch 33
+contrastive_loss:1.556723
+ce_loss:0.052699
+auc is 0.846741 
+auc did not improve from 0.855151
+
+*************
+epoch 34
+contrastive_loss:1.506686
+ce_loss:0.052233
+auc is 0.851636 
+auc did not improve from 0.855151
+
+*************
+epoch 35
+contrastive_loss:1.521848
+ce_loss:0.052398
+auc is 0.852196 
+auc did not improve from 0.855151
+
+*************
+epoch 36
+contrastive_loss:1.464989
+ce_loss:0.051417
+auc is 0.841321 
+auc did not improve from 0.855151
+
+*************
+epoch 37
+contrastive_loss:1.449965
+ce_loss:0.051708
+auc is 0.846487 
+auc did not improve from 0.855151
+
+*************
+epoch 38
+contrastive_loss:1.405526
+ce_loss:0.051634
+auc is 0.840678 
+auc did not improve from 0.855151
+
+*************
+epoch 39
+contrastive_loss:1.310454
+ce_loss:0.051135
+auc is 0.841643 
+auc did not improve from 0.855151
+
+*************
+epoch 40
+contrastive_loss:1.325876
+ce_loss:0.051639
+auc is 0.827542 
+auc did not improve from 0.855151
+
+*************
+epoch 41
+contrastive_loss:1.322097
+ce_loss:0.050943
+auc is 0.849793 
+auc did not improve from 0.855151
+
+*************
+epoch 42
+contrastive_loss:1.231911
+ce_loss:0.051166
+auc is 0.859066 
+auc improve from :0.855151 to 0.859066
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 43
+contrastive_loss:1.205252
+ce_loss:0.050629
+auc is 0.846442 
+auc did not improve from 0.859066
+
+*************
+epoch 44
+contrastive_loss:1.260349
+ce_loss:0.049759
+auc is 0.834615 
+auc did not improve from 0.859066
+
+*************
+epoch 45
+contrastive_loss:1.158442
+ce_loss:0.049197
+auc is 0.828864 
+auc did not improve from 0.859066
+
+*************
+epoch 46
+contrastive_loss:1.148296
+ce_loss:0.049550
+auc is 0.860755 
+auc improve from :0.859066 to 0.860755
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 47
+contrastive_loss:1.175899
+ce_loss:0.049419
+auc is 0.832260 
+auc did not improve from 0.860755
+
+*************
+epoch 48
+contrastive_loss:1.051588
+ce_loss:0.049125
+auc is 0.848922 
+auc did not improve from 0.860755
+
+*************
+epoch 49
+contrastive_loss:1.048343
+ce_loss:0.049712
+auc is 0.841560 
+auc did not improve from 0.860755
+
+*************
+epoch 50
+contrastive_loss:1.052976
+ce_loss:0.048808
+auc is 0.852234 
+auc did not improve from 0.860755
+
+*************
+epoch 51
+contrastive_loss:1.069963
+ce_loss:0.047548
+auc is 0.853655 
+auc did not improve from 0.860755
+
+*************
+epoch 52
+contrastive_loss:1.033077
+ce_loss:0.046310
+auc is 0.857051 
+auc did not improve from 0.860755
+
+*************
+epoch 53
+contrastive_loss:1.012010
+ce_loss:0.045806
+auc is 0.845871 
+auc did not improve from 0.860755
+
+*************
+epoch 54
+contrastive_loss:0.974824
+ce_loss:0.045724
+auc is 0.852681 
+auc did not improve from 0.860755
+
+*************
+epoch 55
+contrastive_loss:0.939416
+ce_loss:0.045393
+auc is 0.846900 
+auc did not improve from 0.860755
+
+*************
+epoch 56
+contrastive_loss:0.945551
+ce_loss:0.044741
+auc is 0.841238 
+auc did not improve from 0.860755
+
+*************
+epoch 57
+contrastive_loss:0.912787
+ce_loss:0.044170
+auc is 0.856399 
+auc did not improve from 0.860755
+
+*************
+epoch 58
+contrastive_loss:0.837081
+ce_loss:0.044525
+auc is 0.856546 
+auc did not improve from 0.860755
+
+*************
+epoch 59
+contrastive_loss:0.851172
+ce_loss:0.043482
+auc is 0.834142 
+auc did not improve from 0.860755
+
+*************
+epoch 60
+contrastive_loss:0.844478
+ce_loss:0.043363
+auc is 0.844884 
+auc did not improve from 0.860755
+
+*************
+epoch 61
+contrastive_loss:0.872323
+ce_loss:0.042839
+auc is 0.846859 
+auc did not improve from 0.860755
+
+*************
+epoch 62
+contrastive_loss:0.745043
+ce_loss:0.041683
+auc is 0.854332 
+auc did not improve from 0.860755
+
+*************
+epoch 63
+contrastive_loss:0.730720
+ce_loss:0.041835
+auc is 0.846045 
+auc did not improve from 0.860755
+
+*************
+epoch 64
+contrastive_loss:0.714425
+ce_loss:0.041179
+auc is 0.835659 
+auc did not improve from 0.860755
+
+*************
+epoch 65
+contrastive_loss:0.715190
+ce_loss:0.040373
+auc is 0.847322 
+auc did not improve from 0.860755
+
+*************
+epoch 66
+contrastive_loss:0.731164
+ce_loss:0.039489
+auc is 0.850361 
+auc did not improve from 0.860755
+
+*************
+epoch 67
+contrastive_loss:0.672977
+ce_loss:0.038670
+auc is 0.846086 
+auc did not improve from 0.860755
+
+*************
+epoch 68
+contrastive_loss:0.691302
+ce_loss:0.038278
+auc is 0.854556 
+auc did not improve from 0.860755
+
+*************
+epoch 69
+contrastive_loss:0.604995
+ce_loss:0.037696
+auc is 0.843010 
+auc did not improve from 0.860755
+
+*************
+epoch 70
+contrastive_loss:0.599757
+ce_loss:0.037289
+auc is 0.857266 
+auc did not improve from 0.860755
+
+*************
+epoch 71
+contrastive_loss:0.583392
+ce_loss:0.036498
+auc is 0.831828 
+auc did not improve from 0.860755
+
+*************
+epoch 72
+contrastive_loss:0.597650
+ce_loss:0.035795
+auc is 0.838798 
+auc did not improve from 0.860755
+
+*************
+epoch 73
+contrastive_loss:0.540470
+ce_loss:0.035229
+auc is 0.853773 
+auc did not improve from 0.860755
+
+*************
+epoch 74
+contrastive_loss:0.563003
+ce_loss:0.034853
+auc is 0.864300 
+auc improve from :0.860755 to 0.864300
+save model Track1/models/arcface_cl_bceloss.pth
+
+*************
+epoch 75
+contrastive_loss:0.533144
+ce_loss:0.033860
+auc is 0.853183 
+auc did not improve from 0.864300
+
+*************
+epoch 76
+contrastive_loss:0.504002
+ce_loss:0.033535
+auc is 0.844432 
+auc did not improve from 0.864300
+
+*************
+epoch 77
+contrastive_loss:0.502439
+ce_loss:0.032621
+auc is 0.836442 
+auc did not improve from 0.864300
+
+*************
+epoch 78
+contrastive_loss:0.504408
+ce_loss:0.031543
+auc is 0.845974 
+auc did not improve from 0.864300
+
+*************
+epoch 79
+contrastive_loss:0.444571
+ce_loss:0.031586
+auc is 0.840175 
+auc did not improve from 0.864300
+
+*************
+epoch 80
+contrastive_loss:0.448978
+ce_loss:0.031281
+auc is 0.853268 
+auc did not improve from 0.864300

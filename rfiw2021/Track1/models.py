@@ -30,6 +30,9 @@ class Net(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(256, 128),
         )
+        self.classifier = nn.Sequential(
+                torch.nn.Linear(256, 2)
+                )
         self._initialize_weights()
 
         if is_insightface:
@@ -58,7 +61,9 @@ class Net(torch.nn.Module):
         img1, img2 = imgs
         embeding1, embeding2 = self.encoder(img1), self.encoder(img2)
         pro1, pro2 = self.projection(embeding1), self.projection(embeding2)
-        return embeding1, embeding2, pro1, pro2
+        projs = torch.concat([pro1, pro2], dim=1)
+        logits = self.classifier(projs)
+        return embeding1, embeding2, pro1, pro2, logits
 
 
 class NetClassifier(torch.nn.Module):

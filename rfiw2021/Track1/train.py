@@ -11,6 +11,7 @@ import argparse
 
 from torch.optim import SGD
 from torch.utils.data import DataLoader
+from torch.nn import CrossEntropyLoss
 from Track1.dataset import *
 from Track1.losses import *
 from Track1.models import *
@@ -36,25 +37,31 @@ def training(args):
     optimizer_model = SGD(model.parameters(), lr=1e-4, momentum=0.9)
     max_auc = 0.0
 
+    ce_loss_fn = CrossEntropyLoss()
+
     for epoch_i in range(epochs):
         mylog("\n*************", path=log_path)
         mylog("epoch " + str(epoch_i + 1), path=log_path)
         contrastive_loss_epoch = 0
+        ce_loss_epoch = 0
 
         model.train()
 
         for index_i, data in enumerate(train_loader):
             image1, image2, labels = data
 
-            e1, e2, x1, x2 = model([image1, image2])
+            e1, e2, x1, x2, logits = model([image1, image2])
 
-            loss = contrastive_loss(x1, x2, beta=beta)
+            c_loss = contrastive_loss(x1, x2, beta=beta)
+            ce_loss = ce_loss_fn(logits, labels.to(torch.long))
+            loss = c_loss + ce_loss
 
             optimizer_model.zero_grad()
             loss.backward()
             optimizer_model.step()
 
-            contrastive_loss_epoch += loss.item()
+            contrastive_loss_epoch += c_loss.item()
+            ce_loss_epoch += ce_loss
 
             if (index_i + 1) == steps_per_epoch:
                 break
@@ -63,6 +70,7 @@ def training(args):
         train_dataset.set_bias(use_sample)
 
         mylog("contrastive_loss:" + "%.6f" % (contrastive_loss_epoch / steps_per_epoch), path=log_path)
+        mylog("ce_loss:" + "%.6f" % (ce_loss_epoch / steps_per_epoch), path=log_path)
         model.eval()
         with torch.no_grad():
             auc = val_model(model, val_loader)
@@ -84,7 +92,7 @@ def val_model(model, val_loader):
     y_true = []
     y_pred = []
     for img1, img2, labels in val_loader:
-        e1, e2, _, _ = model([img1.cuda(), img2.cuda()])
+        e1, e2, _, _, _ = model([img1.cuda(), img2.cuda()])
         y_pred.extend(torch.cosine_similarity(e1, e2, dim=1).cpu().detach().numpy().tolist())
         y_true.extend(labels.cpu().detach().numpy().tolist())
     fpr, tpr, _ = roc_curve(y_true, y_pred)

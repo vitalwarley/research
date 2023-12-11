@@ -6,26 +6,16 @@ import torch
 from dataset import FIW
 from model import KinshipVerifier
 from torch.nn import CrossEntropyLoss
+from torch.optim.lr_scheduler import MultiStepLR
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from utils import test, validate
+from utils import contrastive_loss, update_lr, validate
 
 TQDM_BAR_FORMAT = "Validating... {bar}|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
 TRAIN_PAIRS = "rfiw2021/Track1/sample0/train_sort.txt"
 VAL_PAIRS_MODEL_SEL = "rfiw2021/Track1/sample0/val_choose.txt"
 VAL_PAIRS_THRES_SEL = "rfiw2021/Track1/sample0/val.txt"
 TEST_PAIRS = "rfiw2021/Track1/sample0/test.txt"
-
-
-def contrastive_loss(x1, x2, beta=0.08):
-    x1x2 = torch.cat([x1, x2], dim=0)
-    x2x1 = torch.cat([x2, x1], dim=0)
-
-    cosine_mat = torch.cosine_similarity(torch.unsqueeze(x1x2, dim=1), torch.unsqueeze(x1x2, dim=0), dim=2) / beta
-    mask = 1.0 - torch.eye(2 * x1.size(0)).to(x1.device)
-    numerators = torch.exp(torch.cosine_similarity(x1x2, x2x1, dim=1) / beta)
-    denominators = torch.sum(torch.exp(cosine_mat) * mask, dim=1)
-    return -torch.mean(torch.log(numerators / denominators), dim=0)
 
 
 def train(args):
@@ -53,10 +43,15 @@ def train(args):
     model = KinshipVerifier(num_classes=args.num_classes, weights=args.insightface_weights, normalize=args.normalize)
     model.to(args.device)
 
-    optimizer_model = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=args.start_lr, momentum=args.momentum, weight_decay=args.weight_decay
+    )
+    scheduler = MultiStepLR(optimizer, milestones=args.lr_steps, gamma=args.lr_factor)
 
     ce_loss = CrossEntropyLoss()
 
+    total_steps = len(train_loader)
+    print(f"Total steps: {total_steps}")
     global_step = 0
     best_model_auc, _, val_acc = validate(model, val_model_sel_loader, args.num_classes)
     print(f"epoch: 0 | auc:  {best_model_auc:.6f} | acc: {val_acc:.6f}")
@@ -88,12 +83,16 @@ def train(args):
 
             loss_epoch += loss.item()
 
-            optimizer_model.zero_grad()
+            update_lr(optimizer, global_step, total_steps, args)
+
+            optimizer.zero_grad()
             loss.backward()
-            optimizer_model.step()
+            optimizer.step()
 
             if (step + 1) == args.steps_per_epoch:
                 break
+
+        scheduler.step()
 
         use_sample = (epoch + 1) * args.batch_size * args.steps_per_epoch
         train_dataset.set_bias(use_sample)
@@ -105,9 +104,10 @@ def train(args):
             best_model_auc = auc
             torch.save(model.state_dict(), args.output_dir / "best.pth")
 
+        cur_lr = optimizer.param_groups[0]["lr"]
         print(
             f"epoch: {epoch + 1:>2} | step: {global_step} "
-            + f"| loss: {loss_epoch / args.steps_per_epoch:.3f} | auc: {auc:.6f} | acc: {val_acc:.6f}"
+            + f"| loss: {loss_epoch / args.steps_per_epoch:.3f} | auc: {auc:.6f} | acc: {val_acc:.6f} | lr: {cur_lr}"
         )
 
     # best_thresh_auc, best_threshold = validate(model, val_thres_sel_loader)
@@ -131,7 +131,17 @@ def create_parser():
     parser.add_argument("--num-epoch", type=int, default=80, help="Number of epochs")
     parser.add_argument("--batch-size", type=int, default=48, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--start-lr", type=float, default=1e-10, help="Start learning rate")
+    parser.add_argument("--end-lr", type=float, default=1e-10, help="End learning rate")
+    parser.add_argument("--lr-factor", type=float, default=0.75, help="Learning rate decrease factor")
+    parser.add_argument("--warmup", type=int, default=200, help="Warmup iterations")
+    parser.add_argument("--cooldown", type=int, default=400, help="Cooldown iterations")
     parser.add_argument("--steps-per-epoch", type=int, default=50, help="Steps per epoch")
+    parser.add_argument("--momentum", type=float, default=0.9, help="Momentum")
+    parser.add_argument("--weight-decay", type=float, default=1e-4, help="Weight decay")
+    parser.add_argument(
+        "--lr-steps", type=int, nargs="+", default=[8, 14, 25, 35, 40, 50, 60], help="Epochs to decrease learning rate"
+    )
     parser.add_argument("--beta", type=float, default=0.08, help="Beta for contrastive loss")
     parser.add_argument("--device", type=str, default="0", help="Device to use for training")
     parser.add_argument("--scl", action="store_true", help="Use SCL")

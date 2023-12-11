@@ -11,23 +11,7 @@ from torch import nn
 from torch.optim.lr_scheduler import MultiStepLR
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from utils import validate
-
-
-def update_lr(optimizer, global_step, total_steps):
-    if global_step < args.warmup:
-        cur_lr = (global_step + 1) * (args.lr - args.start_lr) / args.warmup + args.start_lr
-        for pg in optimizer.param_groups:
-            pg["lr"] = cur_lr
-    # cool down lr
-    elif global_step > total_steps - args.cooldown:  # cooldown start
-        # TODO: why only the first param group? what are the other param groups?
-        # TODO: args.i should experiment with updating all param groups
-        # There is only one param group.
-        cur_lr = (total_steps - global_step) * (
-            optimizer.param_groups[0]["lr"] - args.end_lr
-        ) / args.cooldown + args.end_lr
-        optimizer.param_groups[0]["lr"] = cur_lr
+from utils import supervised_contrastive_loss, update_lr, validate_pairs
 
 
 def log(loss, metric, epoch, step, global_step, cur_lr, output_dir):
@@ -108,7 +92,7 @@ def train(args):
         model.parameters(), lr=args.start_lr, momentum=args.momentum, weight_decay=args.weight_decay
     )
     scheduler = MultiStepLR(optimizer, milestones=args.lr_steps, gamma=args.lr_factor)
-    loss_function = nn.CrossEntropyLoss()
+    ce_loss = nn.CrossEntropyLoss()
 
     total_steps = len(train_loader) * args.num_epoch
     best_auc = 0.0
@@ -127,13 +111,18 @@ def train(args):
             optimizer.zero_grad()
 
             # Forward pass
-            outputs = model(inputs)
+            features, outputs = model(inputs, return_features=True)
 
             # Compute metric
             metric(outputs, labels)
 
             # Compute loss
-            loss = loss_function(outputs, labels)
+            if args.scl:
+                loss = (1 - args.scl_lambda) * supervised_contrastive_loss(
+                    features, labels, tau=args.tau
+                ) + args.scl_lambda * ce_loss(outputs, labels)
+            else:
+                loss = ce_loss(outputs, labels)
 
             # Backward pass and optimize
             loss.backward()
@@ -147,14 +136,14 @@ def train(args):
             epoch_loss += step_loss
             log(step_loss, metric, epoch, step, global_step, cur_lr, args.output_dir)
             # Update learning rate (warmup or cooldown only)
-            update_lr(optimizer, global_step, total_steps)
+            update_lr(optimizer, global_step, total_steps, args)
             # Update parameters
             optimizer.step()
 
         scheduler.step()
 
         # Save model checkpoints
-        auc = validate(model, val_dataloader)
+        auc = validate_pairs(model, val_dataloader, device=args.device)
         if auc > best_auc:
             best_auc = auc
             torch.save(model.state_dict(), args.output_dir / "best.pth")
@@ -193,6 +182,10 @@ def create_parser():
     parser.add_argument("--jitter-param", type=float, default=0.15, help="Jitter parameter")
     parser.add_argument("--lighting-param", type=float, default=0.15, help="Lighting parameter")
     parser.add_argument("--loss-log-step", type=int, default=100, help="Steps for logging loss")
+    parser.add_argument("--tau", type=float, default=0.3, help="Temperature parameter for supervised contrastive loss")
+    parser.add_argument("--scl", action="store_true", help="Use SCL")
+    parser.add_argument("--scl-lambda", type=float, default=0.9, help="Lambda for SCL")
+    parser.add_argument("--device", type=str, default="0", help="Device to use for training")
 
     return parser
 
@@ -216,7 +209,9 @@ if __name__ == "__main__":
         device_name = torch.cuda.get_device_name(current_device)
         print(f"Current CUDA Device = {current_device}")
         print(f"Device Name = {device_name}")
+        args.device = torch.device(f"cuda:{args.device}")
     else:
         print("CUDA is not available.")
+        args.device = torch.device("cpu")
 
     train(args)

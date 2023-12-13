@@ -1,8 +1,13 @@
-train:
+family-clf:
   description: Sample training script
-  main: train
+  main: train_fc
   sourcecode:
-    - '*.py'
+    - dataset.py
+    - model.py
+    - mytypes.py
+    - train_fc.py
+    - transforms.py
+    - utils.py
   flags-import: all
   flags-dest: args
   output-scalars: '(\key):\s+(\value)'

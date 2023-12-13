@@ -1,4 +1,4 @@
-family-clf:
+sota2020:
   description: Sample training script
   main: train_fc
   sourcecode:
@@ -18,11 +18,15 @@ family-clf:
     - file: models/
       target-type: link
 
-train-kv:
+sota2021:
   description: Sample training script
   main: train_kv
   sourcecode:
-    - '*.py'
+    - dataset.py
+    - model.py
+    - mytypes.py
+    - train_kv.py
+    - utils.py
   flags-import: all
   flags-dest: args
   output-scalars: '(\key):\s+(\value)'

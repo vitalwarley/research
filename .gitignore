@@ -135,7 +135,7 @@ weights/
 outputs/
 plots/
 datasets/
-models/
+**/models/*.pth
 lightning_logs/
 
 fitw2020

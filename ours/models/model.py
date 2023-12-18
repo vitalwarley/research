@@ -1,5 +1,5 @@
 import torch
-from insightface.recognition.arcface_torch.backbones import get_model
+from models.insightface.recognition.arcface_torch.backbones import get_model
 from torch import nn
 from torch.nn import functional as F
 
@@ -97,3 +97,17 @@ class KinshipVerifier(nn.Module):
     def classify(self, x1, x2):
         x = torch.cat([x1, x2], dim=1)
         return self.clf(x)
+
+
+# Create a test prediction as script
+if __name__ == "__main__":
+    # Create a dummy input
+    image1 = torch.randn(1, 3, 112, 112)
+    # Create the model
+    model = InsightFace(num_classes=11)
+    model.eval()
+    # Make a prediction
+    with torch.no_grad():
+        prediction = model(image1)
+    # Print the prediction
+    print(prediction)

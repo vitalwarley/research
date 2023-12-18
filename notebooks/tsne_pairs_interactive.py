@@ -17,6 +17,9 @@
 # %% [markdown]
 # Using rfiw2021 venv.
 
+# %% [markdown]
+# # Import libraries
+
 # %%
 """
 Adapted from Track1/find.py
@@ -43,6 +46,10 @@ except NameError:
     HERE = Path().resolve()
 
 
+# %% [markdown]
+# ## Define seed
+
+
 # %%
 def seed_everything(seed: int):
     import os
@@ -62,15 +69,23 @@ def seed_everything(seed: int):
 
 seed_everything(42)
 
+# %% [markdown]
+# ## Adjust paths
+
 # %%
 print(HERE)
 sys.path.insert(0, str(Path(HERE, "..")))  # kinship root
 sys.path.insert(0, str(Path(HERE, "..", "rfiw2021")))  # rfiw2021 dir
 
+# %% [markdown]
+# ## Import dataset and model
+
 # %%
 from dataset import FIWPair  # noqa: E402
 from Track1.models import Net  # noqa: E402
-from Track1.utils import set_seed  # noqa: E402
+
+# %% [markdown]
+# ## Define core functions
 
 
 # %%
@@ -121,145 +136,50 @@ def process_data(val_loader, model):
 
 
 # %%
-def setup_data(root_dir, csv_path, batch_size, samples_per_member: int = 0, families: list = []):
-    # Loading and sampling the dataset
-    val_dataset = FIWPair(
-        root_dir=root_dir, csv_path=csv_path, families=families, samples_per_member=samples_per_member
-    )
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, pin_memory=False)
-    return val_loader
+def select_items(labels, items, index):
+    print(f"Selecting {items} from face1.")
+    items_unique = np.unique(labels[index])
+    if isinstance(items, int):
+        items = np.random.choice(items_unique, size=items, replace=False)
+    print(f"Items selected from face1: {items}")
+    mask = np.in1d(labels[index], items)
+    indexes = np.where(mask)[0]
+    print(f"Selected {len(indexes)} embeddings.")
+    return indexes
 
 
-def setup_model(model_path):
-    # Loading model
-    model = Net().cuda()
-    model.load_state_dict(torch.load(model_path))
-    model.eval()
-
-    set_seed(100)
-
-    return model
-
-
-# %%
-root_dir = Path(HERE, "../rfiw2021/Track1/")
-csv_path = Path(HERE, "../rfiw2021/Track1/sample0/val.txt")
-batch_size = 40
-model_path = Path(HERE, "../rfiw2021/Track1/model_track1.pth")
-plot_path = ""
-
-# %%
-model = setup_model(model_path)
-
-# %%
-val_loader = setup_data(root_dir, csv_path, batch_size)
-
-# %%
-# Specify the files' paths
-embeddings1_path = "data/embeddings/embeddings1.npy"
-embeddings2_path = "data/embeddings/embeddings2.npy"
-labels_path = "data/embeddings/labels.npy"
-
-Path("data/embeddings").mkdir(parents=True, exist_ok=True)
-
-# Check if the files exist
-if Path(embeddings1_path).exists() and Path(embeddings2_path).exists() and Path(labels_path).exists():
-    # Load the data
-    embeddings1 = np.load(embeddings1_path)
-    embeddings2 = np.load(embeddings2_path)
-    labels = np.load(labels_path)
-    print("Embeddings and labels loaded.")
-    labels = (labels[0].reshape(-1), labels[1].astype(int).reshape(-1), labels[2].astype(int).reshape(-1))
-else:
-    # Process the data
-    embeddings1, embeddings2, labels = process_data(val_loader, model)  # ~10min
-
-    # Save the data
-    np.save(embeddings1_path, embeddings1)
-    np.save(embeddings2_path, embeddings2)
-    np.save(labels_path, labels)
-    print("Embeddings and labels computed and saved.")
-
-fused_concat_embeddings = fuse_embeddings(embeddings1, embeddings2, fusion="concat")
-
-# %%
-data = (fused_concat_embeddings, labels)
-
-
-def setup_embeddings(n_samples=1000, fids=0, kinships=0):
+def setup_embeddings(data, n_samples=1000, fids=0, kinships=0):
     print("Setting up data...")
     embeddings, labels = data
-    print(labels)
-    indexes_fids, indexes_krs = None, None
+    indexes = np.arange(len(embeddings))
+
     if fids:
-        if isinstance(fids, int):
-            print(f"Selecting {fids} random families from face1.")
-            fids_unique = np.unique(labels[1])
-            print(f"Total unique families from face1: {fids_unique}")
-            fids = np.random.choice(fids_unique, size=fids, replace=False)
-            print(f"Families selected from face1: {fids}")
-            mask = np.in1d(labels[1], fids)
-            indexes_fids = np.where(mask)[0]
-            print(f"Selected {len(indexes_fids)} embeddings.")
-        elif isinstance(fids, list):
-            print(f"Selecting families {fids} from face1.")
-            mask = np.in1d(labels[1], fids)
-            indexes_fids = np.where(mask)[0]
-            print(f"Selected {len(indexes_fids)} embeddings.")
+        indexes_fids = select_items(labels, fids, 1)
+        indexes = np.intersect1d(indexes, indexes_fids)
     if kinships:
-        if isinstance(kinships, int):
-            print(f"Selecting {kinships} random kinships from face1.")
-            kinships_unique = np.unique(labels[0])
-            print(f"Total unique kinships from face1: {kinships_unique}")
-            kinships = np.random.choice(kinships_unique, size=kinships, replace=False)
-            print(f"Kinships selected from face1: {kinships}")
-            mask = np.in1d(labels[0], kinships)
-            indexes_krs = np.where(mask)[0]
-            print(f"Selected {len(indexes_krs)} embeddings.")
-        elif isinstance(kinships, list):
-            print(f"Selecting families {kinships} from face1.")
-            mask = np.in1d(labels[0], kinships)
-            indexes_krs = np.where(mask)[0]
-            print(f"Selected {len(indexes_krs)} embeddings.")
+        indexes_krs = select_items(labels, kinships, 0)
+        indexes = np.intersect1d(indexes, indexes_krs)
     if n_samples and not (fids or kinships):
         print(f"Selecting {n_samples} random from embeddings.")
-        indexes = np.arange(len(embeddings))
         indexes = np.random.choice(indexes, size=n_samples, replace=False)
-    elif fids and kinships:
-        indexes = np.intersect1d(indexes_fids, indexes_krs)
-    elif fids:
-        indexes = indexes_fids
-    elif kinships:
-        indexes = indexes_krs
 
-    X = fused_concat_embeddings[indexes]
+    X = embeddings[indexes]
     labels = [label[indexes] for label in labels]
 
-    face1_families = labels[1]
-    face2_families = labels[2]
-    kinship_relations_face1 = labels[0]
-    kinship_relations_face2 = labels[0]
-
-    face1_unique_families = np.unique(face1_families)
-    face2_unique_families = np.unique(face2_families)
-    print(f"Selected families for Face1 ({len(face1_unique_families)}): {face1_unique_families}")
-    print(f"Selected families for Face2 ({len(face2_unique_families)}): {face2_unique_families}")
-
-    print(f"Mean individuals per family for Face1: {np.mean(np.bincount(face1_families))}")
-    print(f"SD individuals per family for Face1: {np.std(np.bincount(face1_families))}")
-    print(f"Mean individuals per family for Face2: {np.mean(np.bincount(face2_families))}")
-    print(f"SD individuals per family for Face2: {np.std(np.bincount(face2_families))}")
+    for i in range(1, 3):  # i=1 for Face1, i=2 for Face2
+        face_families = labels[i]
+        unique_families = np.unique(face_families)
+        print(f"Selected families for Face{i}: {len(unique_families)}")
 
     # Assuming kinship_relations_face1 & kinship_relations_face2 are strings, let's map them to integers
     unique_kinship_relations = np.unique(labels[0])
     kinship_mapping = {relation: i for i, relation in enumerate(unique_kinship_relations)}
-    kinship_relations_face1 = np.array([kinship_mapping[relation] for relation in labels[0]])
-    kinship_relations_face2 = kinship_relations_face1  # they are the same
-    print(f"Kinship mapping: {kinship_mapping}")
 
-    print(kinship_relations_face1)
-    print(f"Count kinship relations for Face1: {np.bincount(kinship_relations_face1)}")
-    print(f"Count kinship relations for Face2: {np.bincount(kinship_relations_face2)}")
+    is_kin = labels[1] == labels[2]
+    for relation, index in kinship_mapping.items():
+        n_kr_pos = sum(labels[0][is_kin] == relation)
+        n_kr_neg = sum(labels[0][~is_kin] == relation)
+        print(f"{relation}: {n_kr_pos} positives and {n_kr_neg} negatives")
 
     return X, labels
 
@@ -347,19 +267,119 @@ def create_final_figure(scatters):
     fig.show()
 
 
-def plot_tsne(n_samples=1000, fids=0, kinships=0, n_components=2, perplexity=30, verbose=False):
-    X, labels = setup_embeddings(n_samples, fids, kinships)
-    n_samples = n_samples if not (fids or kinships) else X.shape[0]
-    tsne = create_tsne_model(n_samples, n_components, perplexity, verbose=verbose)
-    print(tsne)
-    tsne_results = tsne.fit_transform(X)
+def plot_tsne(data, n_samples=1000, fids=0, kinships=0, n_components=2, perplexity=30, verbose=False, filter="before"):
+    embeddings, labels = data
+    n_samples = None
+    if filter == "before":
+        # Filter embeddings
+        embeddings, labels = setup_embeddings(data, n_samples, fids, kinships)
+        n_samples = n_samples if not (fids or kinships) else embeddings.shape[0]
+        # Create t-SNE model
+        tsne = create_tsne_model(n_samples, n_components, perplexity, verbose=verbose)
+        # Fit model to embeddings
+        tsne_results = tsne.fit_transform(embeddings)
+    elif filter == "after":
+        n_samples = embeddings.shape[0]
+        # Create t-SNE model
+        tsne = create_tsne_model(n_samples, n_components, perplexity, verbose=verbose)
+        # Fit model to embeddings
+        tsne_results = tsne.fit_transform(embeddings)
+        # Filter embeddings
+        embeddings, labels = setup_embeddings(data, n_samples, fids, kinships)
+    else:
+        raise ValueError(f"filter={filter} invalid.")
+    n_samples_to_plot = embeddings.shape[0]
+    print(f"# embeddings to plot: {n_samples_to_plot} [filter={filter}]")
     marker_colors = set_marker_colors(labels)
     scatter = create_scatter_plot(tsne_results, labels, marker_colors, n_components)
     create_final_figure(scatter)
 
 
 # %% [markdown]
-# ### t-SNN plots with 3 components for 5 specific families with perplexities 20, 50, 100
+# ### Define tetup data and model function
+
+
+# %%
+def setup_data(root_dir, csv_path, batch_size, samples_per_member: int = 0, families: list = []):
+    # Loading and sampling the dataset
+    val_dataset = FIWPair(
+        root_dir=root_dir, csv_path=csv_path, families=families, samples_per_member=samples_per_member
+    )
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, pin_memory=False)
+    return val_loader
+
+
+def setup_model(model_path):
+    # Loading model
+    model = Net().cuda()
+    model.load_state_dict(torch.load(model_path))
+    model.eval()
+
+    return model
+
+
+# %% [markdown]
+# ## Define main paths
+
+# %%
+root_dir = Path(HERE, "../rfiw2021/Track1/")
+csv_path = Path(HERE, "../rfiw2021/Track1/sample0/val.txt")
+batch_size = 40
+model_path = Path(HERE, "../rfiw2021/Track1/model_track1.pth")
+plot_path = ""
+
+# %% [markdown]
+# ## Load model
+
+# %%
+model = setup_model(model_path)
+
+# %% [markdown]
+# ## Load dataloader
+
+# %%
+val_loader = setup_data(root_dir, csv_path, batch_size)
+
+# %% [markdown]
+# ## Compute embeddings
+
+# %%
+# Specify the files' paths
+embeddings1_path = "data/embeddings/embeddings1.npy"
+embeddings2_path = "data/embeddings/embeddings2.npy"
+labels_path = "data/embeddings/labels.npy"
+
+Path("data/embeddings").mkdir(parents=True, exist_ok=True)
+
+# Check if the files exist
+if Path(embeddings1_path).exists() and Path(embeddings2_path).exists() and Path(labels_path).exists():
+    # Load the data
+    embeddings1 = np.load(embeddings1_path)
+    embeddings2 = np.load(embeddings2_path)
+    labels = np.load(labels_path)
+    print("Embeddings and labels loaded.")
+    labels = (labels[0].reshape(-1), labels[1].astype(int).reshape(-1), labels[2].astype(int).reshape(-1))
+else:
+    # Process the data
+    embeddings1, embeddings2, labels = process_data(val_loader, model)  # ~10min
+
+    # Save the data
+    np.save(embeddings1_path, embeddings1)
+    np.save(embeddings2_path, embeddings2)
+    np.save(labels_path, labels)
+    print("Embeddings and labels computed and saved.")
+
+fused_concat_embeddings = fuse_embeddings(embeddings1, embeddings2, fusion="concat")
+data = (fused_concat_embeddings, labels)
+
+# %% [markdown]
+# # t-SNE with filtering before .fit
+
+# %% [markdown]
+# ## t-SNE plotsfor 5 specific families
+
+# %% [markdown]
+# ### t-SNN plots (n_componeents = 3, perplexities in [20, 50, 100])
 #
 # Families are drawn from face1. That means that face2 can also be from any other family.
 
@@ -368,7 +388,7 @@ for perplexity in [20, 50, 100]:
     plot_tsne(n_components=3, fids=[250, 283, 409, 735, 873], perplexity=perplexity)
 
 # %% [markdown]
-# ### t-SNN plots with 2 components for 5 specific families with perplexities 20, 50, 100
+# ### t-SNN plots (n_components=2, perplexities in [20, 50, 100])
 #
 # Families are drawn from face1. That means that face2 can also be from any other family.
 
@@ -377,7 +397,10 @@ for perplexity in [20, 50, 100]:
     plot_tsne(n_components=2, fids=[250, 283, 409, 735, 873], perplexity=perplexity)
 
 # %% [markdown]
-# ### t-SNN plots with 3 components for 10 random families with perplexities 20, 50, 100
+# ## t-SNN plots for 10 random families
+
+# %% [markdown]
+# ### t-SNN plots (n_components=3, perplexities in [20, 50, 100])
 #
 # Families are drawn from face1. That means that face2 can also be from any other family.
 
@@ -386,7 +409,7 @@ for perplexity in [20, 50, 100]:
     plot_tsne(n_components=3, fids=10, perplexity=perplexity)
 
 # %% [markdown]
-# ### t-SNN plots with 2 components for 10 random families with perplexities 20, 50, 100
+# ### t-SNN plots (n_components=2, perplexities in [20, 50, 100])
 #
 # Families are drawn from face1. That means that face2 can also be from any other family.
 
@@ -399,7 +422,10 @@ for perplexity in [20, 50, 100]:
     plot_tsne(n_components=3, fids=[250, 283, 409, 735, 873], kinships=["bb", "sibs", "ss"], perplexity=perplexity)
 
 # %% [markdown]
-# ### t-SNN plots from 5 specific families (n_components = 3, perplexities in [20, 50, 100])
+# ## t-SNN plots for 5 specific families
+
+# %% [markdown]
+# ### t-SNN plots (n_components = 3, perplexities in [20, 50, 100])
 #
 # Families are drawn from face1. That means that face2 can also be from any other family.
 
@@ -427,7 +453,57 @@ for perplexity in [20, 50, 100]:
     )
 
 # %% [markdown]
-# ### t-SNN plots from 5 specific families (n_components = 2, perplexities in [20, 50, 100])
+# ## t-SNN plots for 5 specific families
+#
+# Families are drawn from face1. That means that face2 can also be from any other family.
+
+# %% [markdown]
+# ### n_components = 2, perplexities in [20, 50, 100]
+
+# %% [markdown]
+# #### Only bb, sibs, ss kinship relations
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(
+        data,
+        n_components=2,
+        fids=[250, 283, 409, 735, 873],
+        kinships=["bb", "sibs", "ss"],
+        perplexity=perplexity,
+        verbose=True,
+    )
+
+# %% [markdown]
+# #### Only fd, md, fs, ms kinship relations
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(
+        data, n_components=2, fids=[250, 283, 409, 735, 873], kinships=["fd", "md", "fs", "ms"], perplexity=perplexity
+    )
+
+# %% [markdown]
+# #### Only gfgd, gmgd, gfgs, gmgs kinship relations
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(
+        data,
+        n_components=2,
+        fids=[250, 283, 409, 735, 873],
+        kinships=["gfgd", "gmgd", "gfgs", "gmgs"],
+        perplexity=perplexity,
+    )
+
+# %% [markdown]
+# # SNE with filtering after .fit
+
+# %% [markdown]
+# ## t-SNN plots for 5 specific families
+
+# %% [markdown]
+# ### t-SNN plots (n_components = 3, perplexities in [20, 50, 100])
 #
 # Families are drawn from face1. That means that face2 can also be from any other family.
 
@@ -436,14 +512,21 @@ for perplexity in [20, 50, 100]:
 
 # %%
 for perplexity in [20, 50, 100]:
-    plot_tsne(n_components=2, fids=[250, 283, 409, 735, 873], kinships=["bb", "sibs", "ss"], perplexity=perplexity)
+    plot_tsne(
+        data,
+        n_components=3,
+        fids=[250, 283, 409, 735, 873],
+        kinships=["bb", "sibs", "ss"],
+        perplexity=perplexity,
+        filter="after",
+    )
 
 # %% [markdown]
 # #### Only fd, md, fs, ms kinship relations
 
 # %%
 for perplexity in [20, 50, 100]:
-    plot_tsne(n_components=2, fids=[250, 283, 409, 735, 873], kinships=["fd", "md", "fs", "ms"], perplexity=perplexity)
+    plot_tsne(n_components=3, fids=[250, 283, 409, 735, 873], kinships=["fd", "md", "fs", "ms"], perplexity=perplexity)
 
 # %% [markdown]
 # #### Only gfgd, gmgd, gfgs, gmgs kinship relations
@@ -451,7 +534,58 @@ for perplexity in [20, 50, 100]:
 # %%
 for perplexity in [20, 50, 100]:
     plot_tsne(
-        n_components=2, fids=[250, 283, 409, 735, 873], kinships=["gfgd", "gmgd", "gfgs", "gmgs"], perplexity=perplexity
+        n_components=3, fids=[250, 283, 409, 735, 873], kinships=["gfgd", "gmgd", "gfgs", "gmgs"], perplexity=perplexity
+    )
+
+# %% [markdown]
+# ## t-SNN plots for 5 specific families
+#
+# Families are drawn from face1. That means that face2 can also be from any other family.
+
+# %% [markdown]
+# ### n_components = 2, perplexities in [20, 50, 100]
+
+# %% [markdown]
+# #### Only bb, sibs, ss kinship relations
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(
+        data,
+        n_components=2,
+        fids=[250, 283, 409, 735, 873],
+        kinships=["bb", "sibs", "ss"],
+        perplexity=perplexity,
+        verbose=True,
+        filter="after",
+    )
+
+# %% [markdown]
+# #### Only fd, md, fs, ms kinship relations
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(
+        data,
+        n_components=2,
+        fids=[250, 283, 409, 735, 873],
+        kinships=["fd", "md", "fs", "ms"],
+        perplexity=perplexity,
+        filter="after",
+    )
+
+# %% [markdown]
+# #### Only gfgd, gmgd, gfgs, gmgs kinship relations
+
+# %%
+for perplexity in [20, 50, 100]:
+    plot_tsne(
+        data,
+        n_components=2,
+        fids=[250, 283, 409, 735, 873],
+        kinships=["gfgd", "gmgd", "gfgs", "gmgs"],
+        perplexity=perplexity,
+        filter="after",
     )
 
 # %%

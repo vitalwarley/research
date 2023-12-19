@@ -91,7 +91,7 @@ if __name__ == "__main__":
     y = torch.zeros(1, 11)
     y[0, 5] = 1
     # Create the model
-    weights = HERE / "ms1mv3_arcface_r100_fp16.pth"
+    weights = HERE.parent / "weights/ms1mv3_arcface_r100_fp16.pth"
     model = MTCFNet(weights=str(weights))
     model.eval()
     # Make a prediction

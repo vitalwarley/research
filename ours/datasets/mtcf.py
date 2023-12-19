@@ -146,6 +146,7 @@ if __name__ == "__main__":
             transform=transforms,
         )
         print(len(dataset))
+        print(dataset[0])
         # Count frequency of each kinship relation
         from collections import Counter
 

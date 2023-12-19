@@ -83,9 +83,9 @@ def train(args):
 
     # Define the optimizer and loss function
     optimizer = torch.optim.Adam(model.comparator.parameters(), lr=args.start_lr, weight_decay=args.l2_factor)
-    ce_loss = nn.CrossEntropyLoss()
+    bce_loss = nn.BCEWithLogitsLoss()
 
-    total_steps = len(train_loader) * args.num_epoch // args.batch_size
+    total_steps = len(train_loader) * args.num_epoch
     print(f"Total steps = {total_steps}")
     best_auc = 0.0
 
@@ -94,25 +94,29 @@ def train(args):
         model.train()
         metric.reset()
         epoch_loss = 0.0
+
+        # Update learning rate
+        update_lr_mtcf(optimizer, epoch, args.end_lr)
+
         for step, (img1, img2, labels) in enumerate(train_loader):
             global_step = step + epoch * len(train_loader)
             # Transfer to GPU if available
             img1, img2 = img1.to(device), img2.to(device)
             kin_1hot, is_kin = labels
-            kin_1hot, is_kin = kin_1hot.to(device), is_kin.to(device)
+            kin_1hot, is_kin = kin_1hot.to(device), is_kin.to(device=device, dtype=torch.float32)
 
             # Zero the parameter gradients
             optimizer.zero_grad()
 
             # Forward pass
             predictions = model(img1, img2, kin_1hot)
+            z = torch.max(predictions, dim=1)[0]
 
             # Compute metric
-            z = torch.max(predictions, dim=1)[0]
             metric(z, is_kin)
 
             # Compute loss
-            loss = ce_loss(predictions, is_kin)
+            loss = bce_loss(z, is_kin)
 
             # Backward pass and optimize
             loss.backward()
@@ -122,8 +126,6 @@ def train(args):
             step_loss = loss.item()
             epoch_loss += step_loss
             log(step_loss, metric, epoch, step, global_step, cur_lr)
-            # Update learning rate (warmup or cooldown only)
-            update_lr_mtcf(optimizer, epoch, args.end_lr)
             # Update parameters
             optimizer.step()
 

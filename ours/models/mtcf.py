@@ -52,14 +52,23 @@ class KinshipComparator(nn.Module):
 
 
 # Step 4: Final Network that combines everything
-class KinshipNetwork(nn.Module):
+class MTCFNet(nn.Module):
     def __init__(self, weights: str = ""):
         super().__init__()
-        self.backbone = get_model("r100", fp16=True)
+        # Create the backbone
+        self.backbone = get_model("r100", fp16=True)  # TODO: enable selection of backbone
         if weights:
             print("Loaded insightface model.")
             self.backbone.load_state_dict(torch.load(weights))
+
+        # Freeze backbone
+        for param in self.backbone.parameters():
+            param.requires_grad = False
+
+        # Create the comparator
         self.comparator = KinshipComparator(1024, 192, 11)
+        # Add dropout layer
+        self.dropout = nn.Dropout(p=0.2)
 
     def forward(self, image1, image2, y):
         f1 = self.backbone(image1)
@@ -67,6 +76,7 @@ class KinshipNetwork(nn.Module):
         # print dtypes
         # kinship_one_hot = one_hot_encode_kinship(kinship_relation)
         combined_features = torch.cat((f1, f2), dim=1)
+        combined_features = self.dropout(combined_features)
         comparison_output = self.comparator(combined_features, y)
         return comparison_output
 
@@ -79,10 +89,10 @@ if __name__ == "__main__":
     image2 = torch.randn(1, 3, 112, 112)
     # Make y a one-hot vector
     y = torch.zeros(1, 11)
-    y[0, 0] = 1
+    y[0, 5] = 1
     # Create the model
     weights = HERE / "ms1mv3_arcface_r100_fp16.pth"
-    model = KinshipNetwork(weights=str(weights))
+    model = MTCFNet(weights=str(weights))
     model.eval()
     # Make a prediction
     with torch.no_grad():

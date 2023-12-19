@@ -34,7 +34,7 @@ class Sample:
 
 def one_hot_encode_kinship(relation):
     index = Sample.NAME2LABEL[relation] - 1
-    one_hot = torch.zeros(len(Sample.NAME2LABEL) - 1)
+    one_hot = torch.zeros(len(Sample.NAME2LABEL))
     one_hot[index] = 1
     return one_hot
 

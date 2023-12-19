@@ -64,6 +64,30 @@ def predict_kinship(model, val_loader, device=0):
     return similarities, y_true
 
 
+def predict_kinship_mtcf(model, val_loader, device=0):
+    zs = []
+    y_true = []
+
+    with torch.no_grad():
+        for _, (img1, img2, labels) in tqdm(enumerate(val_loader), total=len(val_loader), bar_format=TQDM_BAR_FORMAT):
+            # Transfer to GPU if available
+            img1, img2 = img1.to(device), img2.to(device)
+            kin_1hot, is_kin = labels
+            kin_1hot, is_kin = kin_1hot.to(device), is_kin.to(device)
+
+            z = model(img1, img2, kin_1hot)
+            z = torch.max(z, dim=1)[0]
+
+            zs.append(z)
+            y_true.append(is_kin)
+
+    # Concat
+    zs = torch.concatenate(zs)
+    y_true = torch.concatenate(y_true)
+
+    return zs, y_true
+
+
 def validate(model, dataloader, num_classes, device=0):
     model.eval()
     (predictions, y_true), (logits, y_true_kin_relations) = predict(model, dataloader)
@@ -88,9 +112,9 @@ def validate(model, dataloader, num_classes, device=0):
     return auc, threshold, acc
 
 
-def validate_pairs(model, dataloader, device, return_thresh=False):
+def validate_pairs(model, dataloader, device, return_thresh=False, predict=predict_kinship):
     model.eval()
-    predictions, y_true = predict_kinship(model, dataloader)
+    predictions, y_true = predict(model, dataloader)
     # move all to device
     predictions = predictions.to(device)
     y_true = y_true.to(device)
@@ -131,6 +155,12 @@ def update_lr(optimizer, global_step, total_steps, args):
             optimizer.param_groups[0]["lr"] - args.end_lr
         ) / args.cooldown + args.end_lr
         optimizer.param_groups[0]["lr"] = cur_lr
+
+
+def update_lr_mtcf(optimizer, epoch, lr):
+    if epoch > 0:
+        for pg in optimizer.param_groups:
+            pg["lr"] = lr
 
 
 def contrastive_loss(x1, x2, beta=0.08):

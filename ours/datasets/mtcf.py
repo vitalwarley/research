@@ -6,10 +6,11 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from utils import Sample, one_hot_encode_kinship, read_image
+
+from .utils import Sample, one_hot_encode_kinship, read_image
 
 
-class MTCFFIW(Dataset):
+class MTCFDataset(Dataset):
     """
     Similar to Zhang et al. (2021)
     """
@@ -20,7 +21,7 @@ class MTCFFIW(Dataset):
         self.transform = transform
         self.samples = self.load_sample()
         print(
-            f"Loaded {len(self.samples)} samples from {sample_path}"
+            f"Loaded {len(self.samples)} samples from {sample_path} "
             + "(with duplicated samples for same generation bb, ss, sibs)."
         )
         self.add_negative_samples(negatives_per_sample)
@@ -133,20 +134,27 @@ if __name__ == "__main__":
             transforms.ToTensor(),
         ]
     )
-    HERE = Path(__file__).parent.parent.parent
-    rfiw2021_root = HERE / "rfiw2021/Track1"
-    sample_path = rfiw2021_root / "sample0/train_sort.txt"
-    dataset = MTCFFIW(
-        root_dir=rfiw2021_root,
-        sample_path=sample_path,
-        transform=transforms,
-    )
-    print(len(dataset))
-    # Count frequency of each kinship relation
-    from collections import Counter
 
-    counter = Counter()
-    for sample in dataset.samples:
-        counter[sample.kin_relation] += 1
-    for k, v in counter.items():
-        print(k, v)
+    HERE = Path(__file__).parent.parent.parent
+
+    def get_set_info(set: str):
+        rfiw2021_root = HERE / "rfiw2021/Track1"
+        sample_path = rfiw2021_root / f"sample0/{set}.txt"
+        dataset = MTCFDataset(
+            root_dir=rfiw2021_root,
+            sample_path=sample_path,
+            transform=transforms,
+        )
+        print(len(dataset))
+        # Count frequency of each kinship relation
+        from collections import Counter
+
+        counter = Counter()
+        for sample in dataset.samples:
+            counter[sample.kin_relation] += 1
+        for k, v in counter.items():
+            print(k, v)
+
+    get_set_info("train_sort")
+    get_set_info("val_choose")
+    get_set_info("val")

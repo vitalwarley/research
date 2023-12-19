@@ -38,3 +38,24 @@ sota2021:
     - file: ../rfiw2021/
       target-type: link
     - file: insightface
+
+mtcf:
+  description: Reproduction of Hörmann et al. (2020)
+  main: tasks.mtcf
+  sourcecode:
+    - utils.py
+    - models/mtcf.py
+    - datasets/mtcf.py
+    - datasets/utils.py
+    - tasks/mtcf.py
+  flags-import: all
+  flags-dest: args
+  output-scalars: '(\key):\s+(\value)'
+  requires:
+    - file: weights
+      target-type: link
+    - file: ../rfiw2021/
+      target-type: link
+    - file: models/insightface
+      rename: models/insightface
+      target-type: link

@@ -15,17 +15,26 @@ class MTCFDataset(Dataset):
     Similar to Zhang et al. (2021)
     """
 
-    def __init__(self, root_dir: Path, sample_path: Path, negatives_per_sample: int = 1, transform=None):
+    def __init__(
+        self,
+        root_dir: Path,
+        sample_path: Path,
+        negatives_per_sample: int = 1,
+        extend_with_same_gen: bool = True,
+        transform=None,
+    ):
         self.root_dir = root_dir
         self.sample_path = sample_path
+        self.extend_with_same_gen = extend_with_same_gen
         self.transform = transform
         self.samples = self.load_sample()
         print(
             f"Loaded {len(self.samples)} samples from {sample_path} "
             + "(with duplicated samples for same generation bb, ss, sibs)."
         )
-        self.add_negative_samples(negatives_per_sample)
-        print(f"Added negative samples, now we have {len(self.samples)} samples.")
+        if negatives_per_sample:
+            self.add_negative_samples(negatives_per_sample)
+            print(f"Added negative samples, now we have {len(self.samples)} samples.")
 
     def load_sample(self):
         sample_list = []
@@ -36,7 +45,7 @@ class MTCFDataset(Dataset):
             tmp = line.split(" ")
             sample = Sample(tmp[0], tmp[1], tmp[2], tmp[-2], tmp[-1])
             sample_list.append(sample)
-            if sample.is_same_generation:
+            if sample.is_same_generation and self.extend_with_same_gen:
                 # Create new sample swapping f1 and f2
                 sample_list.append(Sample(tmp[0], tmp[2], tmp[1], tmp[-2], tmp[-1]))
         return sample_list

@@ -9,7 +9,7 @@ from models.mtcf import MTCFNet
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from utils import predict_kinship_mtcf, update_lr_mtcf, validate_pairs
+from utils import predict_kinship_mtcf, test_pairs, update_lr_mtcf, validate_pairs
 
 
 def log(loss, metric, epoch, step, global_step, cur_lr):
@@ -23,9 +23,6 @@ def log(loss, metric, epoch, step, global_step, cur_lr):
 
 
 def train(args):
-    # Set random seed to 100
-    torch.manual_seed(100)
-
     # Define transformations for training and validation sets
     transform_img_train = transforms.Compose(
         [
@@ -144,9 +141,80 @@ def train(args):
         )
 
 
-def create_parser():
-    parser = ArgumentParser(description="Configuration for the training script")
+def val(args):
+    transform_img_val = transforms.Compose(
+        [
+            transforms.ToTensor(),
+        ]
+    )
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Define the training dataset
+    val_dataset = MTCFDataset(Path(args.root_dir), Path(args.dataset_path), transform=transform_img_val)
+
+    # Define the model
+    model = MTCFNet()
+    # Load the model weights
+    model.load_state_dict(torch.load(args.weights))
+    model.to(device)
+
+    # Define the DataLoader for the training set
+    val_dataloader = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=4,  # Assuming 12 workers for loading data
+        pin_memory=True,
+    )
+
+    auc, thresh = validate_pairs(
+        model, val_dataloader, device=args.device, return_thresh=True, predict=predict_kinship_mtcf
+    )
+
+    print(f"auc: {auc:.3f} | thresh: {thresh:.3f}")
+
+
+def test(args):
+    transform_img_test = transforms.Compose(
+        [
+            transforms.ToTensor(),
+        ]
+    )
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Define the training dataset
+    test_dataset = MTCFDataset(
+        Path(args.root_dir),
+        Path(args.dataset_path),
+        negatives_per_sample=0,
+        extend_with_same_gen=False,
+        transform=transform_img_test,
+    )
+
+    # Define the model
+    model = MTCFNet()
+    # Load the model weights
+    model.load_state_dict(torch.load(args.weights))
+    model.to(device)
+
+    # Define the DataLoader for the training set
+    test_dataloader = DataLoader(
+        test_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=12,  # Assuming 12 workers for loading data
+        pin_memory=True,
+    )
+
+    acc = test_pairs(model, test_dataloader, device=args.device, thresh=args.threshold, predict=predict_kinship_mtcf)
+
+    print(f"acc: {acc:.3f}")
+
+
+def create_parser_train(subparsers):
+    parser = subparsers.add_parser("train", help="Train the model")
     parser.add_argument("--root-dir", type=str, required=True)
     parser.add_argument("--train-dataset-path", type=str, required=True)
     parser.add_argument("--val-dataset-path", type=str, required=True)
@@ -159,12 +227,43 @@ def create_parser():
     parser.add_argument("--batch-size", type=int, default=200, help="Batch size")
     parser.add_argument("--loss-log-step", type=int, default=100, help="Steps for logging loss")
     parser.add_argument("--device", type=str, default="0", help="Device to use for training")
+    parser.set_defaults(func=train)
 
-    return parser
+
+def create_parser_val(subparsers):
+    parser = subparsers.add_parser("val", help="Train the model")
+    parser.add_argument("--root-dir", type=str, required=True)
+    parser.add_argument("--dataset-path", type=str, required=True)
+    parser.add_argument("--weights", type=str, required=True)
+    parser.add_argument("--output-dir", type=str, required=True)
+    parser.add_argument("--batch-size", type=int, default=1024, help="Batch size")
+    parser.add_argument("--device", type=str, default="0", help="Device to use for training")
+    parser.set_defaults(func=val)
+
+
+def create_parser_test(subparsers):
+    parser = subparsers.add_parser("test", help="Train the model")
+    parser.add_argument("--root-dir", type=str, required=True)
+    parser.add_argument("--dataset-path", type=str, required=True)
+    parser.add_argument("--weights", type=str, required=True)
+    parser.add_argument("--threshold", type=float, required=True)
+    parser.add_argument("--output-dir", type=str, required=True)
+    parser.add_argument("--batch-size", type=int, default=1024, help="Batch size")
+    parser.add_argument("--device", type=str, default="0", help="Device to use for training")
+    parser.set_defaults(func=test)
 
 
 if __name__ == "__main__":
-    parser = create_parser()
+    # Set random seed to 100
+    torch.manual_seed(100)
+
+    parser = ArgumentParser(description="Configuration for the MTCF strategy")
+    subparsers = parser.add_subparsers()
+
+    create_parser_train(subparsers)
+    create_parser_val(subparsers)
+    create_parser_test(subparsers)
+
     args = parser.parse_args()
 
     args.output_dir = Path(args.output_dir)
@@ -187,4 +286,4 @@ if __name__ == "__main__":
         print("CUDA is not available.")
         args.device = torch.device("cpu")
 
-    train(args)
+    args.func(args)

@@ -134,6 +134,18 @@ def validate_pairs(model, dataloader, device, return_thresh=False, predict=predi
     return auc
 
 
+def test_pairs(model, dataloader, device, thresh, predict=predict_kinship):
+    model.eval()
+    predictions, y_true = predict(model, dataloader)
+    # move all to device
+    predictions = predictions.to(device)
+    y_true = y_true.to(device)
+    # compute metrics
+    acc = tm.Accuracy(task="binary", threshold=thresh).to(device)
+    acc = acc(predictions, y_true)
+    return acc
+
+
 def test(model, dataloader, threshold):
     model.eval()
     predictions, y_true = predict(model, dataloader)

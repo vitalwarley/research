@@ -1,61 +1,109 @@
-sota2020:
-  description: Sample training script
-  main: train_fc
-  sourcecode:
-    - dataset.py
-    - model.py
-    - mytypes.py
-    - train_fc.py
-    - transforms.py
-    - utils.py
-  flags-import: all
-  flags-dest: args
-  output-scalars: '(\key):\s+(\value)'
-  requires:
-    - file: ../fitw2020/
-      target-type: link
-    - file: insightface
-    - file: models/
-      target-type: link
+- model: sota
+  operations:
+    sota2020:
+      description: Sample training script
+      main: train_fc
+      sourcecode:
+        - dataset.py
+        - model.py
+        - mytypes.py
+        - train_fc.py
+        - transforms.py
+        - utils.py
+      flags-import: all
+      flags-dest: args
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: ../fitw2020/
+          target-type: link
+        - file: insightface
+        - file: models/
+          target-type: link
 
-sota2021:
-  description: Sample training script
-  main: train_kv
-  sourcecode:
-    - dataset.py
-    - model.py
-    - mytypes.py
-    - train_kv.py
-    - utils.py
-  flags-import: all
-  flags-dest: args
-  output-scalars: '(\key):\s+(\value)'
-  requires:
-    - file: models
-      target-type: link
-    - file: runs
-      target-type: link
-    - file: ../rfiw2021/
-      target-type: link
-    - file: insightface
+    sota2021:
+      description: Sample training script
+      main: train_kv
+      sourcecode:
+        - dataset.py
+        - model.py
+        - mytypes.py
+        - train_kv.py
+        - utils.py
+      flags-import: all
+      flags-dest: args
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models
+          target-type: link
+        - file: runs
+          target-type: link
+        - file: ../rfiw2021/
+          target-type: link
+        - file: insightface
 
-mtcf:
-  description: Reproduction of Hörmann et al. (2020)
-  main: tasks.mtcf
-  sourcecode:
-    - utils.py
-    - models/mtcf.py
-    - datasets/mtcf.py
-    - datasets/utils.py
-    - tasks/mtcf.py
-  flags-import: all
-  flags-dest: args
-  output-scalars: '(\key):\s+(\value)'
-  requires:
-    - file: weights
-      target-type: link
-    - file: ../rfiw2021/
-      target-type: link
-    - file: models/insightface
-      rename: models/insightface
-      target-type: link
+- model: mtcf
+  operations:
+    train:
+      description: Reproduction of Hörmann et al. (2020)
+      main: tasks.mtcf train
+      sourcecode:
+        - utils.py
+        - models/mtcf.py
+        - datasets/mtcf.py
+        - datasets/utils.py
+        - tasks/mtcf.py
+      flags-import: all
+      flags-dest: args
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../rfiw2021/
+          target-type: link
+        - file: models/insightface
+          rename: models/insightface
+          target-type: link
+    val:
+      description: Reproduction of Hörmann et al. (2020)
+      main: tasks.mtcf val
+      sourcecode:
+        - utils.py
+        - models/mtcf.py
+        - datasets/mtcf.py
+        - datasets/utils.py
+        - tasks/mtcf.py
+      flags-import: all
+      flags-dest: args
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../rfiw2021/
+          target-type: link
+        - file: models/insightface
+          rename: models/insightface
+          target-type: link
+        - operation: mtcf
+          select: exp
+    test:
+      description: Reproduction of Hörmann et al. (2020)
+      main: tasks.mtcf test
+      sourcecode:
+        - utils.py
+        - models/mtcf.py
+        - datasets/mtcf.py
+        - datasets/utils.py
+        - tasks/mtcf.py
+      flags-import: all
+      flags-dest: args
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../rfiw2021/
+          target-type: link
+        - file: models/insightface
+          rename: models/insightface
+          target-type: link
+        - operation: mtcf
+          select: exp

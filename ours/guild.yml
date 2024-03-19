@@ -130,3 +130,47 @@
         - file: ../datasets/
           target-type: link
           rename: data
+    val:
+      description: Reproduction of Kinship Representation Learning with Face Componential Relation (2023)
+      main: tasks.facornet val
+      sourcecode:
+        - utils.py
+        - losses.py
+        - models/facornet.py
+        - datasets/fiw.py
+        - datasets/facornet.py
+        - datasets/utils.py
+        - tasks/facornet.py
+      flags-import: all
+      flags-dest: args
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - operation: facornet:train
+          select: exp
+    test:
+      description: Reproduction of Kinship Representation Learning with Face Componential Relation (2023)
+      main: tasks.facornet test
+      sourcecode:
+        - utils.py
+        - losses.py
+        - models/facornet.py
+        - datasets/fiw.py
+        - datasets/facornet.py
+        - datasets/utils.py
+        - tasks/facornet.py
+      flags-import: all
+      flags-dest: args
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - operation: facornet:train
+          select: exp

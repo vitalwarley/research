@@ -1,9 +1,24 @@
+import os
+import random
+
+import numpy as np
 import torch
 import torch.nn.functional as F
 import torchmetrics as tm
 from tqdm import tqdm
 
 TQDM_BAR_FORMAT = "Validating... {bar}|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
+
+
+def set_seed(seed):
+    torch.set_default_dtype(torch.float32)
+    torch.set_default_device("cuda")
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    random.seed(seed)
 
 
 # Validation loop

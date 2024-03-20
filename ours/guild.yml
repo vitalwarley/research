@@ -112,7 +112,7 @@
   operations:
     train:
       description: Reproduction of Kinship Representation Learning with Face Componential Relation (2023)
-      main: tasks.facornet train
+      main: tasks.facornet fit
       sourcecode:
         - utils.py
         - losses.py
@@ -132,7 +132,7 @@
           rename: data
     val:
       description: Reproduction of Kinship Representation Learning with Face Componential Relation (2023)
-      main: tasks.facornet val
+      main: tasks.facornet validate
       sourcecode:
         - utils.py
         - losses.py

@@ -30,6 +30,7 @@ def predict(model, val_loader, device: int | str = 0) -> tuple[torch.Tensor, tor
     similarities = torch.zeros(dataset_size, device=device)
     y_true = torch.zeros(dataset_size, dtype=torch.uint8, device=device)
     y_true_kin_relations = torch.zeros(dataset_size, dtype=torch.uint8, device=device)
+    pred_kin_relations = torch.zeros(dataset_size, dtype=torch.uint8, device=device)
 
     current_index = 0
     for img1, img2, labels in tqdm(val_loader, total=len(val_loader), bar_format=TQDM_BAR_FORMAT):
@@ -38,23 +39,24 @@ def predict(model, val_loader, device: int | str = 0) -> tuple[torch.Tensor, tor
         (kin_relation, is_kin) = labels
         kin_relation, is_kin = kin_relation.to(device), is_kin.to(device)
 
-        f1, f2, _ = model([img1, img2])
+        kin, f1, f2, _ = model([img1, img2])
         sim = torch.cosine_similarity(f1, f2)
 
         # Fill preallocated tensors
         similarities[current_index : current_index + batch_size_current] = sim
         y_true[current_index : current_index + batch_size_current] = is_kin
         y_true_kin_relations[current_index : current_index + batch_size_current] = kin_relation
+        pred_kin_relations[current_index : current_index + batch_size_current] = kin.argmax(dim=1)
 
         current_index += batch_size_current
 
-    return similarities, y_true, y_true_kin_relations
+    return similarities, y_true, pred_kin_relations, y_true_kin_relations
 
 
 def validate(model, dataloader, device=0, threshold=None):
     model.eval()
     # Compute similarities
-    similarities, y_true, y_true_kin_relations = predict(model, dataloader)
+    similarities, y_true, pred_kin_relations, y_true_kin_relations = predict(model, dataloader)
     # Compute metrics
     auc = tm.functional.auroc(similarities, y_true, task="binary")
     fpr, tpr, thresholds = tm.functional.roc(similarities, y_true, task="binary")
@@ -75,7 +77,8 @@ def validate(model, dataloader, device=0, threshold=None):
         acc_kin_relations[kin_relation] = tm.functional.accuracy(
             similarities[mask], y_true[mask], task="binary", threshold=threshold
         )
-    return auc, threshold, acc, acc_kin_relations
+    kin_acc = tm.functional.accuracy(pred_kin_relations, y_true_kin_relations, task="multiclass", num_classes=12)
+    return auc, threshold, acc, acc_kin_relations, kin_acc
 
 
 def train(args):
@@ -114,16 +117,17 @@ def train(args):
     total_steps = len(train_loader)
     print(f"Total steps: {total_steps}")
     global_step = 0
-    best_model_auc, _, val_acc, acc_kr = validate(model, val_model_sel_loader)
-    out = f"epoch: 0 | auc:  {best_model_auc:.6f} | acc: {val_acc:.6f}"
-    # Add acc_kr to out
-    for kin_relation, acc in acc_kr.items():
-        out += f" | acc_{kin_relation}: {acc:.6f}"
+    best_model_auc, _, val_acc, acc_kv, acc_clf_kr = validate(model, val_model_sel_loader)
+    out = f"epoch: 0 | auc:  {best_model_auc:.6f} | acc_kv: {val_acc:.6f} | acc_clf_kr: {acc_clf_kr:.6f}"
+    out = acc_kr_to_str(out, acc_kv)
     print(out)
+
+    ce_loss = torch.nn.CrossEntropyLoss()
 
     for epoch in range(args.num_epoch):
         model.train()
-        loss_epoch = 0.0
+        contrastive_loss_epoch = 0.0
+        kin_loss_epoch = 0.0
         for step, data in enumerate(train_loader):
             global_step = step + epoch * args.steps_per_epoch
 
@@ -135,10 +139,13 @@ def train(args):
             kin_relation = kin_relation.to(args.device)
             is_kin = is_kin.to(args.device)
 
-            x1, x2, att = model([image1, image2])
-            loss = facornet_contrastive_loss(x1, x2, beta=att)
+            kin, x1, x2, att = model([image1, image2])
+            contrastive_loss = facornet_contrastive_loss(x1, x2, beta=att)
+            kin_loss = ce_loss(kin, kin_relation)
 
-            loss_epoch += loss.item()
+            contrastive_loss_epoch += contrastive_loss.item()
+            kin_loss_epoch += kin_loss.item()
+            loss = contrastive_loss + kin_loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -151,7 +158,7 @@ def train(args):
         train_dataset.set_bias(use_sample)
 
         # Save model checkpoints
-        auc, _, val_acc, acc_kr = validate(model, val_model_sel_loader)
+        auc, _, val_acc, acc_kv, acc_clf_kr = validate(model, val_model_sel_loader)
 
         if auc > best_model_auc:
             best_model_auc = auc
@@ -159,9 +166,11 @@ def train(args):
 
         out = (
             f"epoch: {epoch + 1:>2} | step: {global_step} "
-            + f"| loss: {loss_epoch / args.steps_per_epoch:.3f} | auc: {auc:.6f} | acc: {val_acc:.6f}"
+            + f"| loss: {contrastive_loss_epoch / args.steps_per_epoch:.3f} "
+            + f"| kin_loss: {kin_loss_epoch / args.steps_per_epoch:.3f} "
+            + f"| auc: {auc:.6f} | acc_kv: {val_acc:.6f} | acc_clf_kr: {acc_clf_kr:.6f}"
         )
-        out = acc_kr_to_str(out, acc_kr)
+        out = acc_kr_to_str(out, acc_kv)
         print(out)
 
 

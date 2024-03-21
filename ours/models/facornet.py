@@ -51,33 +51,44 @@ def to_input(pil_rgb_image):
     return tensor
 
 
-class FaCoR(torch.nn.Module):
-    def __init__(self):
-        super(FaCoR, self).__init__()
-        self.backbone = load_pretrained_model("ir_101")
-        self.projection = nn.Sequential(
-            torch.nn.Linear(512 * 6, 256),
-            torch.nn.BatchNorm1d(256),
+class HeadKin(nn.Module):  # couldn't be HeadFamily because there is no family label
+    def __init__(self, in_features=512, out_features=4, ratio=8):
+        super().__init__()
+        self.projection_head = nn.Sequential(
+            torch.nn.Linear(2 * in_features, in_features // ratio),
+            torch.nn.BatchNorm1d(in_features // ratio),
             torch.nn.ReLU(),
-            torch.nn.Linear(256, 1),
+            torch.nn.Linear(in_features // ratio, out_features),
         )
-        self.channel = 64
-        self.spatial_ca = SpatialCrossAttention(self.channel * 8, CA=True)
-        self.channel_ca = ChannelCrossAttention(self.channel * 8)
-        self.CCA = ChannelInteraction(1024)
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
 
-        self._initialize_weights()
+        self.initialize_weights(self.projection_head)
 
-    def _initialize_weights(self):
-        for m in self.projection.modules():
+    def initialize_weights(self, proj_head):
+        for m in proj_head.modules():
             if isinstance(m, nn.Linear):
                 nn.init.uniform_(m.weight - 0.05, 0.05)
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm1d):
                 nn.init.constant_(m.weight, 1)
+
                 nn.init.constant_(m.bias, 0)
+
+    def forward(self, em):
+        return self.projection_head(em)
+
+
+class FaCoR(torch.nn.Module):
+    def __init__(self):
+        super(FaCoR, self).__init__()
+        self.backbone = load_pretrained_model("ir_101")
+        self.channel = 64
+        self.spatial_ca = SpatialCrossAttention(self.channel * 8, CA=True)
+        self.channel_ca = ChannelCrossAttention(self.channel * 8)
+        self.CCA = ChannelInteraction(1024)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+
+        self.task_kin = HeadKin(512, 12, 8)
 
     def forward(self, imgs, aug=False):
         img1, img2 = imgs
@@ -110,7 +121,10 @@ class FaCoR(torch.nn.Module):
         f1s = torch.flatten(f1s, 1)
         f2s = torch.flatten(f2s, 1)
 
-        return f1s, f2s, att_map0
+        fc = torch.cat([f1s, f2s], dim=1)
+        kin = self.task_kin(fc)
+
+        return kin, f1s, f2s, att_map0
 
 
 class SpatialCrossAttention(nn.Module):

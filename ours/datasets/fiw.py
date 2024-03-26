@@ -13,6 +13,7 @@ class FIW(Dataset):
         self.sample_path = sample_path
         self.transform = transform
         self.bias = 0
+        self.sample_cls = Sample
         self.sample_list = self.load_sample()
         print(f"Loaded {len(self.sample_list)} samples from {sample_path}")
 
@@ -22,12 +23,12 @@ class FIW(Dataset):
         for line in lines:
             if len(line) < 1:
                 continue
-            tmp = line.split(" ")
+            # tmp = line.split(" ")
             # sample = Sample(tmp[0], tmp[1], tmp[2], tmp[-2], tmp[-1])
             # facornet
             # id, f1, f2, kin, is_kin, sim -> train
             # id, f1, f2, kin, is_kin -> val
-            sample = Sample(tmp[0], tmp[1], tmp[2], tmp[3], tmp[4])
+            sample = self.sample_cls(*line)
             sample_list.append(sample)
         return sample_list
 
@@ -44,13 +45,22 @@ class FIW(Dataset):
     def set_bias(self, bias):
         self.bias = bias
 
-    def __getitem__(self, item):
-        # id, f1, f2, kin_relation, is_kin
-        sample = self.sample_list[item + self.bias]
+    def _process_images(self, sample):
         img1, img2 = self.read_image(sample.f1), self.read_image(sample.f2)
         if self.transform is not None:
             img1, img2 = self.transform(img1), self.transform(img2)
-        is_kin = torch.tensor(int(sample.is_kin))
-        kin_id = Sample.NAME2LABEL[sample.kin_relation] if is_kin else 0
-        labels = (kin_id, is_kin)
+        return img1, img2
+
+    def _process_labels(self, sample):
+        is_kin = torch.tensor(sample.is_kin)
+        kin_id = self.sample_cls.NAME2LABEL[sample.kin_relation] if is_kin else 0
+        fid1, fid2 = int(sample.f1fid), int(sample.f2fid)
+        labels = (kin_id, is_kin, fid1, fid2)
+        return labels
+
+    def __getitem__(self, item):
+        # id, f1, f2, kin_relation, is_kin
+        sample = self.sample_list[item + self.bias]
+        (img1, img2) = self._process_images(sample)
+        labels = self._process_labels(sample)
         return img1, img2, labels

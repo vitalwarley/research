@@ -128,10 +128,11 @@ class FaCoR(torch.nn.Module):
         f1s = torch.flatten(f1s, 1)
         f2s = torch.flatten(f2s, 1)
 
-        fc = torch.cat([f1s, f2s], dim=1)
-        kin = self.task_kin(fc)
+        # fc = torch.cat([f1s, f2s], dim=1)
+        # kin = self.task_kin(fc)
 
-        return kin, f1s, f2s, att_map0
+        # return kin, f1s, f2s, att_map0
+        return f1s, f2s, att_map0
 
 
 class SpatialCrossAttention(nn.Module):
@@ -658,8 +659,8 @@ def IR_SE_200(input_size):
 
 
 class DynamicThresholdAccuracy(tm.Metric):
-    def __init__(self, compute_on_step=True, dist_sync_on_step=False):
-        super().__init__(compute_on_step=compute_on_step, dist_sync_on_step=dist_sync_on_step)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.add_state("correct", default=torch.tensor(0), dist_reduce_fx="sum")
         self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
 
@@ -668,9 +669,7 @@ class DynamicThresholdAccuracy(tm.Metric):
         return self.compute()
 
     def update(self, preds: torch.Tensor, target: torch.Tensor, threshold: torch.Tensor):
-        preds_thresholded = preds >= threshold.unsqueeze(
-            1
-        )  # Assuming threshold is a 1D tensor with the same batch size as preds
+        preds_thresholded = preds >= threshold
         correct = torch.sum(preds_thresholded == target)
         self.correct += correct
         self.total += target.numel()
@@ -680,8 +679,8 @@ class DynamicThresholdAccuracy(tm.Metric):
 
 
 class CollectPreds(tm.Metric):
-    def __init__(self, compute_on_step=False, dist_sync_on_step=False):
-        super().__init__(compute_on_step=compute_on_step, dist_sync_on_step=dist_sync_on_step)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
         self.add_state("predictions", default=[], dist_reduce_fx=None)
 
@@ -702,10 +701,13 @@ class CollectPreds(tm.Metric):
 
 
 class FaCoRNetLightning(pl.LightningModule):
-    def __init__(self, lr=1e-4, momentum=0.9, weight_decay=0, weights_path=None, threshold=None, **kwargs):
+    def __init__(
+        self, model: torch.nn.Module, lr=1e-4, momentum=0.9, weight_decay=0, weights_path=None, threshold=None
+    ):
         super().__init__()
+        print(type(weights_path))
         self.save_hyperparameters()
-        self.model = FaCoR()
+        self.model = FaCoR() or model
 
         self.lr = lr
         self.momentum = momentum
@@ -724,10 +726,10 @@ class FaCoRNetLightning(pl.LightningModule):
         self.train_acc = DynamicThresholdAccuracy()
         self.val_acc = DynamicThresholdAccuracy()
         self.train_acc_kin_relations = tm.MetricCollection(
-            {f"train/acc_{kin}": DynamicThresholdAccuracy() for kin in Sample.NAME2LABEL.values()}
+            {f"acc/{kin}/train": DynamicThresholdAccuracy() for kin in Sample.NAME2LABEL.keys()}
         )
         self.val_acc_kin_relations = tm.MetricCollection(
-            {f"val/acc_{kin}": DynamicThresholdAccuracy() for kin in Sample.NAME2LABEL.values()}
+            {f"acc/{kin}/val": DynamicThresholdAccuracy() for kin in Sample.NAME2LABEL.keys()}
         )
 
     def setup(self, stage):
@@ -743,6 +745,7 @@ class FaCoRNetLightning(pl.LightningModule):
                 print(f"Failed to load weights from {self.hparams.weights_path}. File does not exist.")
             except RuntimeError as e:
                 print(f"Failed to load weights due to a runtime error: {e}")
+        print("Model setup complete")
 
     def forward(self, img1, img2):
         return self.model([img1, img2])
@@ -762,7 +765,7 @@ class FaCoRNetLightning(pl.LightningModule):
             self.is_kin_labels(is_kin.int())
             self.kin_labels(kin_relation)
 
-        self.log(f"{stage}/loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f"loss/{stage}", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return loss
 
@@ -791,7 +794,7 @@ class FaCoRNetLightning(pl.LightningModule):
         self.is_kin_labels.reset()
         self.kin_labels.reset()
 
-    def on_validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self):
         similarities = self.similarities.compute()
         is_kin_labels = self.is_kin_labels.compute()
         kin_labels = self.kin_labels.compute()
@@ -811,25 +814,25 @@ class FaCoRNetLightning(pl.LightningModule):
         else:  # Compute best threshold for training or validation
             fpr, tpr, thresholds = tm.functional.roc(similarities, is_kin_labels, task="binary")
             best_threshold = compute_best_threshold(tpr, fpr, thresholds)
-        self.log(f"{stage}/threshold", best_threshold, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f"threshold/{stage}", best_threshold, on_epoch=True, prog_bar=True, logger=True)
 
         # Log AUC and Accuracy
         auc_fn = self.train_auc if stage == "train" else self.val_auc
         acc_fn = self.train_acc if stage == "train" else self.val_acc
-        auc = auc_fn(similarities, is_kin_labels, best_threshold)
+        auc = auc_fn(similarities, is_kin_labels)
         acc = acc_fn(similarities, is_kin_labels, best_threshold)
-        self.log(f"{stage}/auc", auc, on_epoch=True, prog_bar=True, logger=True)
-        self.log(f"{stage}/acc", acc, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f"accuracy/{stage}", auc, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f"auc/{stage}", acc, on_epoch=True, prog_bar=True, logger=True)
 
         # Accuracy for each kinship relation
         acc_kin_relations = self.train_acc_kin_relations if stage == "train" else self.val_acc_kin_relations
-        for kin_id in Sample.NAME2LABEL.values():
+        for kin, kin_id in Sample.NAME2LABEL.items():
             mask = kin_labels == kin_id
             if torch.any(mask):
-                acc_kin_relations[f"val/acc_{kin_id}"](similarities[mask], is_kin_labels[mask].int(), best_threshold)
+                acc_kin_relations[f"acc/{kin}/{stage}"](similarities[mask], is_kin_labels[mask].int(), best_threshold)
                 self.log(
-                    f"{stage}/acc_{kin_id}",
-                    acc_kin_relations[f"val/acc_{kin_id}"],
+                    f"acc/{kin}/{stage}",
+                    acc_kin_relations[f"acc/{kin}/{stage}"],
                     on_epoch=True,
                     prog_bar=True,
                     logger=True,

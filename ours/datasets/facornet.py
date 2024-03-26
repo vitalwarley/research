@@ -9,10 +9,10 @@ from .fiw import FIW
 
 class FIWFaCoRNet(FIW):
 
-    TRAIN_PAIRS = "facornet/train_sort_A2_m.txt"
-    VAL_PAIRS_MODEL_SEL = "facornet/val_choose_A.txt"
-    VAL_PAIRS_THRES_SEL = "facornet/val_A.txt"
-    TEST_PAIRS = "facornet/test_A.txt"
+    TRAIN_PAIRS = "txt/train_sort_A2_m.txt"
+    VAL_PAIRS_MODEL_SEL = "txt/val_choose_A.txt"
+    VAL_PAIRS_THRES_SEL = "txt/val_A.txt"
+    TEST_PAIRS = "txt/test_A.txt"
 
     # AdaFace uses BGR -- should I revert conversion read_image here?
 
@@ -42,7 +42,7 @@ class FaCoRNetDataModule(pl.LightningDataModule):
             self.val_dataset = FIW(
                 root_dir=self.root_dir, sample_path=Path(FIWFaCoRNet.VAL_PAIRS_MODEL_SEL), transform=self.transform
             )
-        if stage == "val" or stage is None:
+        if stage == "validate" or stage is None:
             self.val_dataset = FIW(
                 root_dir=self.root_dir, sample_path=Path(FIWFaCoRNet.VAL_PAIRS_THRES_SEL), transform=self.transform
             )
@@ -50,6 +50,7 @@ class FaCoRNetDataModule(pl.LightningDataModule):
             self.test_dataset = FIW(
                 root_dir=self.root_dir, sample_path=Path(FIWFaCoRNet.TEST_PAIRS), transform=self.transform
             )
+        print(f"Setup {stage} datasets")
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=4, pin_memory=True)

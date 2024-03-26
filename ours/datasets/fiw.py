@@ -10,6 +10,7 @@ from .utils import Sample
 class FIW(Dataset):
     def __init__(self, root_dir, sample_path, transform=None):
         self.root_dir = Path(root_dir)
+        self.images_dir = "images"
         self.sample_path = sample_path
         self.transform = transform
         self.bias = 0
@@ -18,12 +19,13 @@ class FIW(Dataset):
         print(f"Loaded {len(self.sample_list)} samples from {sample_path}")
 
     def load_sample(self):
+        print(f"Loading samples from {self.sample_path}")
         sample_list = []
         lines = Path(self.root_dir, self.sample_path).read_text().strip().split("\n")
         for line in lines:
             if len(line) < 1:
                 continue
-            # tmp = line.split(" ")
+            line = line.split(" ")
             # sample = Sample(tmp[0], tmp[1], tmp[2], tmp[-2], tmp[-1])
             # facornet
             # id, f1, f2, kin, is_kin, sim -> train
@@ -37,7 +39,7 @@ class FIW(Dataset):
 
     def read_image(self, path):
         # TODO: add to utils.py
-        img = cv2.imread(f"{self.root_dir}/{path}")
+        img = cv2.imread(f"{self.root_dir / self.images_dir}/{path}")
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = cv2.resize(img, (112, 112))
         return img
@@ -54,8 +56,9 @@ class FIW(Dataset):
     def _process_labels(self, sample):
         is_kin = torch.tensor(sample.is_kin)
         kin_id = self.sample_cls.NAME2LABEL[sample.kin_relation] if is_kin else 0
-        fid1, fid2 = int(sample.f1fid), int(sample.f2fid)
-        labels = (kin_id, is_kin, fid1, fid2)
+        # fid1, fid2 = int(sample.f1fid[1:]), int(sample.f2fid[1:])
+        # labels = (kin_id, is_kin, fid1, fid2)
+        labels = (kin_id, is_kin)
         return labels
 
     def __getitem__(self, item):

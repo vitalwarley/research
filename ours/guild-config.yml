@@ -22,3 +22,10 @@ remotes:
     user: warley
     guild-env: ~/.virtualenvs/research
     guild-home: ~/.guild
+  rig-2-facor:
+    type: ssh
+    description: RIG2
+    host: rig2
+    user: warley
+    guild-env: ~/.virtualenvs/facor
+    guild-home: ~/.guild

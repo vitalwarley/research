@@ -21,15 +21,32 @@ class Sample:
         "gmgs": 11,
     }
 
-    def __init__(self, id: str, f1: str, f2: str, kin_relation: str, is_kin: str):
+    def __init__(self, id: str, f1: str, f2: str, kin_relation: str, is_kin: str, **kwargs):
         self.id = id
         self.f1 = f1
         self.f1fid = f1.split("/")[2]
         self.f2 = f2
         self.f2fid = f2.split("/")[2]
         self.kin_relation = kin_relation
-        self.is_kin = is_kin
+        self.is_kin = int(is_kin)
         self.is_same_generation = self.kin_relation in ["bb", "ss", "sibs"]
+
+
+class SampleKFC(Sample):
+    NAME2LABEL = {
+        "fs": 0,
+        "fd": 1,
+        "ms": 2,
+        "md": 3,
+        "fms": 4,
+        "fmd": 5,
+        "fsd": 6,
+        "msd": 7,
+    }
+
+    def __init__(self, id: str, f1: str, f2: str, kin_relation: str, is_kin: str, race: str):
+        super().__init__(id, f1, f2, kin_relation, is_kin)
+        self.race = race
 
 
 def one_hot_encode_kinship(relation):

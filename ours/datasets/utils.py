@@ -7,7 +7,7 @@ import torch
 class Sample:
     # TODO: move to utils.py
     NAME2LABEL = {
-        # "non-kin": 0,
+        "non-kin": 0,
         "md": 1,
         "ms": 2,
         "sibs": 3,

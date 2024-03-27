@@ -122,14 +122,16 @@
         - datasets/utils.py
         - tasks/facornet.py
       flags-import: all
-      flags-dest: config:facornet.yml
-      output-scalars: '(\key):\s+(\value)'
+      flags-dest: config:configs/facornet.yml
+      output-scalars: '(\key)=(\value)'
       requires:
         - file: weights
           target-type: link
         - file: ../datasets/
           target-type: link
           rename: data
+        - file: configs/facornet.yml
+          target-type: link
     val:
       description: Reproduction of Kinship Representation Learning with Face Componential Relation (2023)
       main: tasks.facornet validate

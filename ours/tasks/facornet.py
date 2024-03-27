@@ -2,7 +2,7 @@ from lightning.pytorch.cli import LightningCLI
 
 
 def main(args=None):
-    cli = LightningCLI(args=args, subclass_mode_model=True)  # noqa: F841
+    LightningCLI(args=args, subclass_mode_model=True)
 
 
 if __name__ == "__main__":

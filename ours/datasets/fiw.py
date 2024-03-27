@@ -8,12 +8,14 @@ from .utils import Sample
 
 
 class FIW(Dataset):
-    def __init__(self, root_dir, sample_path, transform=None):
+    def __init__(self, root_dir: str, sample_path: Path, batch_size: int = 20, biased: bool = False, transform=None):
         self.root_dir = Path(root_dir)
         self.images_dir = "images"
         self.sample_path = sample_path
+        self.batch_size = batch_size
         self.transform = transform
         self.bias = 0
+        self.biased = biased
         self.sample_cls = Sample
         self.sample_list = self.load_sample()
         print(f"Loaded {len(self.sample_list)} samples from {sample_path}")
@@ -35,7 +37,7 @@ class FIW(Dataset):
         return sample_list
 
     def __len__(self):
-        return len(self.sample_list)
+        return len(self.sample_list) // self.batch_size if self.biased else len(self.sample_list)
 
     def read_image(self, path):
         # TODO: add to utils.py

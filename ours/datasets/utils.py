@@ -21,7 +21,7 @@ class Sample:
         "gmgs": 11,
     }
 
-    def __init__(self, id: str, f1: str, f2: str, kin_relation: str, is_kin: str, **kwargs):
+    def __init__(self, id: str, f1: str, f2: str, kin_relation: str, is_kin: str, *args, **kwargs):
         self.id = id
         self.f1 = f1
         self.f1fid = f1.split("/")[2]

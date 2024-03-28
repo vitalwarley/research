@@ -31,32 +31,36 @@ def predict(model, val_loader, device: int | str = 0) -> tuple[torch.Tensor, tor
     y_true = torch.zeros(dataset_size, dtype=torch.uint8, device=device)
     y_true_kin_relations = torch.zeros(dataset_size, dtype=torch.uint8, device=device)
     pred_kin_relations = torch.zeros(dataset_size, dtype=torch.uint8, device=device)
+    loss_values = torch.zeros(dataset_size, device=device)
 
     current_index = 0
     for img1, img2, labels in tqdm(val_loader, total=len(val_loader), bar_format=TQDM_BAR_FORMAT):
         batch_size_current = img1.size(0)  # Handle last batch potentially being smaller
         img1, img2 = img1.to(device), img2.to(device)
-        (kin_relation, is_kin) = labels
+        (kin_relation, is_kin, f1fid, f2fid) = labels
         kin_relation, is_kin = kin_relation.to(device), is_kin.to(device)
 
-        kin, f1, f2, _ = model([img1, img2])
+        # kin, f1, f2, att = model([img1, img2])
+        f1, f2, att = model([img1, img2])
         sim = torch.cosine_similarity(f1, f2)
+        loss = facornet_contrastive_loss(f1, f2, beta=att)
 
         # Fill preallocated tensors
         similarities[current_index : current_index + batch_size_current] = sim
+        loss_values[current_index : current_index + batch_size_current] = loss
         y_true[current_index : current_index + batch_size_current] = is_kin
         y_true_kin_relations[current_index : current_index + batch_size_current] = kin_relation
-        pred_kin_relations[current_index : current_index + batch_size_current] = kin.argmax(dim=1)
+        # pred_kin_relations[current_index : current_index + batch_size_current] = kin.argmax(dim=1)
 
         current_index += batch_size_current
 
-    return similarities, y_true, pred_kin_relations, y_true_kin_relations
+    return loss, similarities, y_true, pred_kin_relations, y_true_kin_relations
 
 
 def validate(model, dataloader, device=0, threshold=None):
     model.eval()
     # Compute similarities
-    similarities, y_true, pred_kin_relations, y_true_kin_relations = predict(model, dataloader)
+    loss, similarities, y_true, pred_kin_relations, y_true_kin_relations = predict(model, dataloader)
     # Compute metrics
     auc = tm.functional.auroc(similarities, y_true, task="binary")
     fpr, tpr, thresholds = tm.functional.roc(similarities, y_true, task="binary")
@@ -77,8 +81,9 @@ def validate(model, dataloader, device=0, threshold=None):
         acc_kin_relations[kin_relation] = tm.functional.accuracy(
             similarities[mask], y_true[mask], task="binary", threshold=threshold
         )
-    kin_acc = tm.functional.accuracy(pred_kin_relations, y_true_kin_relations, task="multiclass", num_classes=12)
-    return auc, threshold, acc, acc_kin_relations, kin_acc
+    # kin_acc = tm.functional.accuracy(pred_kin_relations, y_true_kin_relations, task="multiclass", num_classes=12)
+    # return loss, auc, threshold, acc, acc_kin_relations, kin_acc
+    return loss, auc, threshold, acc, acc_kin_relations
 
 
 def train(args):
@@ -117,8 +122,8 @@ def train(args):
     total_steps = len(train_loader)
     print(f"Total steps: {total_steps}")
     global_step = 0
-    best_model_auc, _, val_acc, acc_kv, acc_clf_kr = validate(model, val_model_sel_loader)
-    out = f"epoch: 0 | auc:  {best_model_auc:.6f} | acc_kv: {val_acc:.6f} | acc_clf_kr: {acc_clf_kr:.6f}"
+    val_loss, best_model_auc, _, val_acc, acc_kv = validate(model, val_model_sel_loader)
+    out = f"epoch: 0 | val_loss: {val_loss:.6f} | auc:  {best_model_auc:.6f} | acc_kv: {val_acc:.6f}"
     out = acc_kr_to_str(out, acc_kv)
     print(out)
 
@@ -132,20 +137,22 @@ def train(args):
             global_step = step + epoch * args.steps_per_epoch
 
             image1, image2, labels = data
-            (kin_relation, is_kin) = labels
+            (kin_relation, is_kin, f1fid, f2fid) = labels
 
             image1 = image1.to(args.device)
             image2 = image2.to(args.device)
             kin_relation = kin_relation.to(args.device)
             is_kin = is_kin.to(args.device)
 
-            kin, x1, x2, att = model([image1, image2])
+            # kin, x1, x2, att = model([image1, image2])
+            x1, x2, att = model([image1, image2])
             contrastive_loss = facornet_contrastive_loss(x1, x2, beta=att)
-            kin_loss = ce_loss(kin, kin_relation)
+            # kin_loss = ce_loss(kin, kin_relation)
 
             contrastive_loss_epoch += contrastive_loss.item()
-            kin_loss_epoch += kin_loss.item()
-            loss = contrastive_loss + kin_loss
+            # kin_loss_epoch += kin_loss.item()
+            # loss = contrastive_loss + kin_loss
+            loss = contrastive_loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -158,7 +165,8 @@ def train(args):
         train_dataset.set_bias(use_sample)
 
         # Save model checkpoints
-        auc, _, val_acc, acc_kv, acc_clf_kr = validate(model, val_model_sel_loader)
+        # auc, _, val_acc, acc_kv, acc_clf_kr = validate(model, val_model_sel_loader)
+        loss, auc, _, val_acc, acc_kv = validate(model, val_model_sel_loader)
 
         if auc > best_model_auc:
             best_model_auc = auc
@@ -166,9 +174,9 @@ def train(args):
 
         out = (
             f"epoch: {epoch + 1:>2} | step: {global_step} "
-            + f"| loss: {contrastive_loss_epoch / args.steps_per_epoch:.3f} "
-            + f"| kin_loss: {kin_loss_epoch / args.steps_per_epoch:.3f} "
-            + f"| auc: {auc:.6f} | acc_kv: {val_acc:.6f} | acc_clf_kr: {acc_clf_kr:.6f}"
+            + f"| train_loss: {contrastive_loss_epoch / args.steps_per_epoch:.3f} | val_loss: {loss:.3f} "
+            # + f"| kin_loss: {kin_loss_epoch / args.steps_per_epoch:.3f} "
+            + f"| auc: {auc:.6f} | acc_kv: {val_acc:.6f}"
         )
         out = acc_kr_to_str(out, acc_kv)
         print(out)

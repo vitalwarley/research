@@ -23,7 +23,7 @@ class FIW(Dataset):
         for line in lines:
             if len(line) < 1:
                 continue
-            # tmp = line.split(" ")
+            line = line.split(" ")
             # sample = Sample(tmp[0], tmp[1], tmp[2], tmp[-2], tmp[-1])
             # facornet
             # id, f1, f2, kin, is_kin, sim -> train
@@ -37,7 +37,7 @@ class FIW(Dataset):
 
     def read_image(self, path):
         # TODO: add to utils.py
-        img = cv2.imread(f"{self.root_dir}/{path}")
+        img = cv2.imread(f"{self.root_dir}/images/{path}")
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = cv2.resize(img, (112, 112))
         return img
@@ -54,7 +54,7 @@ class FIW(Dataset):
     def _process_labels(self, sample):
         is_kin = torch.tensor(sample.is_kin)
         kin_id = self.sample_cls.NAME2LABEL[sample.kin_relation] if is_kin else 0
-        fid1, fid2 = int(sample.f1fid), int(sample.f2fid)
+        fid1, fid2 = int(sample.f1fid[1:]), int(sample.f2fid[1:])
         labels = (kin_id, is_kin, fid1, fid2)
         return labels
 

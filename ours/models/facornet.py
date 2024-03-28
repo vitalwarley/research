@@ -88,7 +88,7 @@ class FaCoR(torch.nn.Module):
         self.CCA = ChannelInteraction(1024)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
 
-        self.task_kin = HeadKin(512, 12, 8)
+        # self.task_kin = HeadKin(512, 12, 8)
 
     def forward(self, imgs, aug=False):
         img1, img2 = imgs
@@ -121,10 +121,11 @@ class FaCoR(torch.nn.Module):
         f1s = torch.flatten(f1s, 1)
         f2s = torch.flatten(f2s, 1)
 
-        fc = torch.cat([f1s, f2s], dim=1)
-        kin = self.task_kin(fc)
+        # fc = torch.cat([f1s, f2s], dim=1)
+        # kin = self.task_kin(fc)
 
-        return kin, f1s, f2s, att_map0
+        # return kin, f1s, f2s, att_map0
+        return f1s, f2s, att_map0
 
 
 class SpatialCrossAttention(nn.Module):

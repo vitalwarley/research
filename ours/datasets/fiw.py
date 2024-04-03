@@ -61,6 +61,7 @@ class FIW(Dataset):
         # fid1, fid2 = int(sample.f1fid[1:]), int(sample.f2fid[1:])
         # labels = (kin_id, is_kin, fid1, fid2)
         labels = (kin_id, is_kin)
+        # labels = is_kin
         return labels
 
     def __getitem__(self, item):

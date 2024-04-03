@@ -11,8 +11,8 @@ trainer:
     class_path: lightning.pytorch.callbacks.ModelCheckpoint
     init_args:
       dirpath: ./
-      filename: '{epoch}-{auc/val:.3f}-{auc/train:.3f}'
-      monitor: auc/val
+      filename: '{epoch}-{loss/val:.3f}-{loss/train:.3f}-{auc:.6f}'
+      monitor: auc
       verbose: no
       save_last: yes
       save_top_k: 1

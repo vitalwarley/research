@@ -777,18 +777,6 @@ class FaCoRNetLightning(L.LightningModule):
             fpr, tpr, thresholds = tm.functional.roc(similarities, is_kin_labels, task="binary")
             best_threshold = compute_best_threshold(tpr, fpr, thresholds)
 
-        # Log similarities histogram by is_kin_labels
-        self.logger.experiment.add_histogram(
-            "similarities/positive",
-            similarities[is_kin_labels == 1],
-            global_step=self.current_epoch,
-        )
-        self.logger.experiment.add_histogram(
-            "similarities/negative",
-            similarities[is_kin_labels == 0],
-            global_step=self.current_epoch,
-        )
-
         # Compute metrics
         auc = tm.functional.auroc(similarities, is_kin_labels, task="binary")
         acc = tm.functional.accuracy(similarities, is_kin_labels, threshold=best_threshold, task="binary")
@@ -802,7 +790,22 @@ class FaCoRNetLightning(L.LightningModule):
         self.log("precision", precision, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log("recall", recall, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
-        # Accuracy for each kinship relation
+        # Compute and log accuracy for each kinship relation
+        self.__compute_metrics_kin(similarities, is_kin_labels, kin_labels, best_threshold)
+
+        # Log similarities histogram by is_kin_labels
+        self.logger.experiment.add_histogram(
+            "similarities/positive",
+            similarities[is_kin_labels == 1],
+            global_step=self.current_epoch,
+        )
+        self.logger.experiment.add_histogram(
+            "similarities/negative",
+            similarities[is_kin_labels == 0],
+            global_step=self.current_epoch,
+        )
+
+    def __compute_metrics_kin(self, similarities, is_kin_labels, kin_labels, best_threshold):
         for kin, kin_id in Sample.NAME2LABEL.items():  # TODO: pass Sample class as argument
             mask = kin_labels == kin_id
             if torch.any(mask):

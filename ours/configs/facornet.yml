@@ -6,11 +6,12 @@ trainer:
   deterministic: yes
   fast_dev_run: no
   max_epochs: 53
-  limit_train_batches: 100
+  limit_train_batches: 50
+  default_root_dir: exp/
   callbacks:
     class_path: lightning.pytorch.callbacks.ModelCheckpoint
     init_args:
-      dirpath: ./
+      dirpath: exp/checkpoints/
       filename: '{epoch}-{loss/val:.3f}-{loss/train:.3f}-{auc:.6f}'
       monitor: auc
       verbose: no

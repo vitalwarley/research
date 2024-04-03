@@ -1,9 +1,14 @@
 from collections import namedtuple
 from pathlib import Path
 
+import lightning as L
 import numpy as np
 import torch
 import torch.nn as nn
+import torchmetrics as tm
+from datasets.utils import Sample
+from losses import facornet_contrastive_loss
+from models.utils import compute_best_threshold
 from torch.nn import (
     BatchNorm1d,
     BatchNorm2d,
@@ -17,6 +22,9 @@ from torch.nn import (
     Sequential,
     Sigmoid,
 )
+from torchmetrics.utilities import dim_zero_cat
+
+# Assuming the necessary imports are done for FaCoR, facornet_contrastive_loss, FIW, and other utilities
 
 HERE = Path(__file__).parent
 
@@ -40,7 +48,7 @@ def load_pretrained_model(architecture="ir_101"):
     statedict = torch.load(adaface_models[architecture])["state_dict"]
     model_statedict = {key[6:]: val for key, val in statedict.items() if key.startswith("model.")}
     model.load_state_dict(model_statedict)
-    model.eval()
+    # model.eval()
     return model
 
 
@@ -87,7 +95,6 @@ class FaCoR(torch.nn.Module):
         self.channel_ca = ChannelCrossAttention(self.channel * 8)
         self.CCA = ChannelInteraction(1024)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-
         # self.task_kin = HeadKin(512, 12, 8)
 
     def forward(self, imgs, aug=False):
@@ -651,9 +658,174 @@ def IR_SE_200(input_size):
     return model
 
 
-if __name__ == "__main__":
-    model = IR_101((112, 112))
-    print(model)
-    input = torch.rand(2, 3, 112, 112)
-    output = model(input)
-    print(output)
+class CollectPreds(tm.Metric):
+    def __init__(self, name: str, **kwargs):
+        self.name = name
+        super().__init__(**kwargs)
+        self.add_state("predictions", default=[], dist_reduce_fx="cat")
+
+    def update(self, preds: torch.Tensor):
+        # Append current batch predictions to the list of all predictions
+        self.predictions.append(preds)
+
+    def compute(self):
+        # Concatenate the list of predictions into a single tensor
+        return dim_zero_cat(self.predictions)
+
+
+class FaCoRNetLightning(L.LightningModule):
+    def __init__(
+        self, model: torch.nn.Module, lr=1e-4, momentum=0.9, weight_decay=0, weights_path=None, threshold=None
+    ):
+        super().__init__()
+        self.save_hyperparameters(ignore=("model"))
+
+        self.model = FaCoR() or model
+        self.lr = lr
+        self.momentum = momentum
+        self.weight_decay = weight_decay
+        self.loss_fn = facornet_contrastive_loss
+        self.threshold = threshold
+
+        self.similarities = CollectPreds("similarities")
+        self.is_kin_labels = CollectPreds("is_kin_labels")
+        self.kin_labels = CollectPreds("kin_labels")
+
+    def setup(self, stage):
+        # TODO: use checkpoint callback to load the weights
+        if self.hparams.weights_path is not None:
+            map_location = "cuda" if torch.cuda.is_available() else "cpu"
+            try:
+                # Load the weights
+                state_dict = torch.load(self.hparams.weights_path, map_location=map_location)
+                self.model.load_state_dict(state_dict)
+                print(f"Loaded weights from {self.hparams.weights_path}")
+            except FileNotFoundError:
+                print(f"Failed to load weights from {self.hparams.weights_path}. File does not exist.")
+            except RuntimeError as e:
+                print(f"Failed to load weights due to a runtime error: {e}")
+        print("Model setup complete")
+
+    def forward(self, inputs):
+        return self.model(inputs)
+
+    def _step(self, batch, stage="train"):
+        img1, img2, labels = batch
+        kin_relation, is_kin = labels
+        f1, f2, att = self((img1, img2))
+        loss = self.loss_fn(f1, f2, beta=att)
+        sim = torch.cosine_similarity(f1, f2)
+
+        if stage != "train":
+            # Compute best threshold for training or validation
+            self.similarities(sim)
+            self.is_kin_labels(is_kin)
+            self.kin_labels(kin_relation)
+
+        self.log(f"loss/{stage}", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        return loss
+
+    def training_step(self, batch, batch_idx):
+        return self._step(batch, "train")
+
+    def validation_step(self, batch, batch_idx):
+        self._step(batch, "val")
+
+    def test_step(self, batch, batch_idx):
+        self._step(batch, "test")
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.SGD(
+            self.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay
+        )
+        return optimizer
+
+    def on_train_epoch_end(self):
+        # Calculate the number of samples processed
+        use_sample = (
+            (self.current_epoch + 1) * self.trainer.datamodule.batch_size * int(self.trainer.limit_train_batches)
+        )
+        # Update the dataset's bias or sampling strategy
+        self.trainer.datamodule.train_dataset.set_bias(use_sample)
+        print(f"Updated dataset bias to {use_sample}")
+
+    def on_validation_epoch_end(self):
+        self._on_epoch_end("val")
+
+    def on_test_epoch_end(self):
+        self._on_epoch_end("test")
+
+    def _on_epoch_end(self, stage):
+        # Compute predictions
+        similarities = self.similarities.compute()
+        is_kin_labels = self.is_kin_labels.compute()
+        kin_labels = self.kin_labels.compute()
+        self.__compute_metrics(similarities, is_kin_labels, kin_labels, stage=stage)
+        # Reset predictions
+        self.similarities.reset()
+        self.is_kin_labels.reset()
+        self.kin_labels.reset()
+
+    def __compute_metrics(self, similarities, is_kin_labels, kin_labels, stage="train"):
+        # Compute best threshold
+        if stage == "test" and self.threshold is None:
+            raise ValueError("Threshold must be provided for test stage")
+        elif stage == "test":
+            best_threshold = self.threshold
+        else:  # Compute best threshold for training or validation
+            fpr, tpr, thresholds = tm.functional.roc(similarities, is_kin_labels, task="binary")
+            best_threshold = compute_best_threshold(tpr, fpr, thresholds)
+
+        # Compute metrics
+        auc = tm.functional.auroc(similarities, is_kin_labels, task="binary")
+        acc = tm.functional.accuracy(similarities, is_kin_labels, threshold=best_threshold, task="binary")
+        precision = tm.functional.precision(similarities, is_kin_labels, threshold=best_threshold, task="binary")
+        recall = tm.functional.recall(similarities, is_kin_labels, threshold=best_threshold, task="binary")
+
+        # Log metrics
+        self.log("threshold", best_threshold, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("accuracy", acc, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("auc", auc, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("precision", precision, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("recall", recall, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        # Compute and log accuracy for each kinship relation
+        self.__compute_metrics_kin(similarities, is_kin_labels, kin_labels, best_threshold)
+
+        # Log similarities histogram by is_kin_labels
+        self.logger.experiment.add_histogram(
+            "similarities/positive",
+            similarities[is_kin_labels == 1],
+            global_step=self.current_epoch,
+        )
+        self.logger.experiment.add_histogram(
+            "similarities/negative",
+            similarities[is_kin_labels == 0],
+            global_step=self.current_epoch,
+        )
+
+    def __compute_metrics_kin(self, similarities, is_kin_labels, kin_labels, best_threshold):
+        for kin, kin_id in Sample.NAME2LABEL.items():  # TODO: pass Sample class as argument
+            mask = kin_labels == kin_id
+            if torch.any(mask):
+                acc = tm.functional.accuracy(
+                    similarities[mask], is_kin_labels[mask].int(), threshold=best_threshold, task="binary"
+                )
+                self.log(
+                    f"accuracy/{kin}",
+                    acc,
+                    on_step=False,
+                    on_epoch=True,
+                    prog_bar=False,
+                    logger=True,
+                )
+                # Add similarities
+                # Negative pairs are "non-kin" pairs, which are equal to the overall similarities/negative
+                positives = similarities[mask][is_kin_labels[mask] == 1]
+                if positives.numel() > 0:
+                    self.logger.experiment.add_histogram(
+                        f"similarities/{kin}",
+                        positives,
+                        global_step=self.current_epoch,
+                    )

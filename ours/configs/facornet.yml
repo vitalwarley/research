@@ -1,0 +1,40 @@
+seed_everything: 100
+trainer:
+  num_sanity_val_steps: 1
+  log_every_n_steps: 10
+  accelerator: "gpu"
+  deterministic: yes
+  fast_dev_run: no
+  max_epochs: 53
+  limit_train_batches: 50
+  default_root_dir: exp/
+  callbacks:
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: exp/checkpoints/
+      filename: '{epoch}-{loss/val:.3f}-{loss/train:.3f}-{auc:.6f}'
+      monitor: auc
+      verbose: no
+      save_last: yes
+      save_top_k: 1
+      save_weights_only: no
+      auto_insert_metric_name: no
+      mode: max
+
+
+data:
+   class_path: datasets.facornet.FaCoRNetDataModule
+   init_args:
+     batch_size: 20
+     root_dir: data/facornet
+
+model:
+  class_path: models.facornet.FaCoRNetLightning
+  init_args:
+    lr: 1e-4
+    momentum: 0.9
+    weight_decay: 0
+    weights_path: null
+    threshold: null
+    model:
+      class_path: models.facornet.FaCoR

@@ -112,7 +112,7 @@
   operations:
     train:
       description: Reproduction of Kinship Representation Learning with Face Componential Relation (2023)
-      main: tasks.facornet train
+      exec: python tasks/facornet.py fit --config facornet.yml
       sourcecode:
         - utils.py
         - losses.py
@@ -122,17 +122,19 @@
         - datasets/utils.py
         - tasks/facornet.py
       flags-import: all
-      flags-dest: args
-      output-scalars: '(\key):\s+(\value)'
+      flags-dest: config:configs/facornet.yml
+      output-scalars: '(\key)=(\value)'
       requires:
         - file: weights
           target-type: link
         - file: ../datasets/
           target-type: link
           rename: data
+        - file: configs/facornet.yml
+          target-type: link
     val:
       description: Reproduction of Kinship Representation Learning with Face Componential Relation (2023)
-      main: tasks.facornet val
+      main: tasks.facornet validate
       sourcecode:
         - utils.py
         - losses.py

@@ -31,6 +31,9 @@ data:
 model:
   class_path: models.facornet.FaCoRNetLightning
   init_args:
+    optimizer: AdamW
+    adamw_beta1: 0.9
+    adamw_beta2: 0.999
     lr: 1e-4
     momentum: 0.9
     weight_decay: 0

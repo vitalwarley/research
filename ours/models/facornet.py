@@ -675,15 +675,21 @@ class CollectPreds(tm.Metric):
 
 class FaCoRNetLightning(L.LightningModule):
     def __init__(
-        self, model: torch.nn.Module, lr=1e-4, momentum=0.9, weight_decay=0, weights_path=None, threshold=None
+        self,
+        model: torch.nn.Module,
+        optimizer="SGD",
+        adamw_beta1=0.9,
+        adamw_beta2=0.999,
+        lr=1e-4,
+        momentum=0.9,
+        weight_decay=0,
+        weights_path=None,
+        threshold=None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=("model"))
 
         self.model = FaCoR() or model
-        self.lr = lr
-        self.momentum = momentum
-        self.weight_decay = weight_decay
         self.loss_fn = facornet_contrastive_loss
         self.threshold = threshold
 
@@ -736,9 +742,23 @@ class FaCoRNetLightning(L.LightningModule):
         self._step(batch, "test")
 
     def configure_optimizers(self):
-        optimizer = torch.optim.SGD(
-            self.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay
-        )
+        if self.hparams.optimizer == "SGD":
+            optimizer = torch.optim.SGD(
+                self.parameters(),
+                lr=self.hparams.lr,
+                momentum=self.hparams.momentum,
+                weight_decay=self.hparams.weight_decay,
+            )
+        elif self.hparams.optimizer == "AdamW":
+            optimizer = torch.optim.AdamW(
+                self.parameters(),
+                lr=self.hparams.lr,
+                betas=(self.hparams.adamw_beta1, self.hparams.adamw_beta2),
+                weight_decay=self.hparams.weight_decay,
+            )
+        else:
+            raise ValueError(f"Unsupported optimizer: {self.hparams.optimizer_name}")
+
         return optimizer
 
     def on_train_epoch_end(self):

@@ -683,7 +683,6 @@ class FaCoRNetLightning(L.LightningModule):
         lr=1e-4,
         momentum=0.9,
         weight_decay=0,
-        weights_path=None,
         threshold=None,
     ):
         super().__init__()
@@ -696,21 +695,6 @@ class FaCoRNetLightning(L.LightningModule):
         self.similarities = CollectPreds("similarities")
         self.is_kin_labels = CollectPreds("is_kin_labels")
         self.kin_labels = CollectPreds("kin_labels")
-
-    def setup(self, stage):
-        # TODO: use checkpoint callback to load the weights
-        if self.hparams.weights_path is not None:
-            map_location = "cuda" if torch.cuda.is_available() else "cpu"
-            try:
-                # Load the weights
-                state_dict = torch.load(self.hparams.weights_path, map_location=map_location)
-                self.model.load_state_dict(state_dict)
-                print(f"Loaded weights from {self.hparams.weights_path}")
-            except FileNotFoundError:
-                print(f"Failed to load weights from {self.hparams.weights_path}. File does not exist.")
-            except RuntimeError as e:
-                print(f"Failed to load weights due to a runtime error: {e}")
-        print("Model setup complete")
 
     def forward(self, inputs):
         return self.model(inputs)

@@ -10,7 +10,6 @@ class MyLightningCLI(LightningCLI):
 
 def main(args=None):
     MyLightningCLI(args=args, subclass_mode_model=True)
-    print(args)
 
 
 if __name__ == "__main__":

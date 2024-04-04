@@ -2,13 +2,13 @@ from collections import namedtuple
 from pathlib import Path
 
 import lightning as L
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 import torchmetrics as tm
 from datasets.utils import Sample
 from losses import facornet_contrastive_loss
-from models.utils import compute_best_threshold
 from torch.nn import (
     BatchNorm1d,
     BatchNorm2d,
@@ -778,14 +778,28 @@ class FaCoRNetLightning(L.LightningModule):
         elif stage == "test":
             best_threshold = self.threshold
         else:  # Compute best threshold for training or validation
+            # similarities_ = similarities.cpu().numpy()
+            # is_kin_labels_ = is_kin_labels.cpu().numpy()
+            # fpr, tpr, thresholds = roc_curve(is_kin_labels_, similarities_)
+            # maxindex_ = (tpr - fpr).argmax()
+            # best_threshold = float(thresholds[maxindex_])
+            # torchmetrics: https://github.com/Lightning-AI/pytorch-lightning/issues/19739
             fpr, tpr, thresholds = tm.functional.roc(similarities, is_kin_labels, task="binary")
-            best_threshold = compute_best_threshold(tpr, fpr, thresholds)
+            maxindex = (tpr - fpr).argmax()
+            best_threshold = thresholds[maxindex].item()  # probability
 
-        # Compute metrics
+        # Compute metrics (similarities -> probabilities)
         auc = tm.functional.auroc(similarities, is_kin_labels, task="binary")
         acc = tm.functional.accuracy(similarities, is_kin_labels, threshold=best_threshold, task="binary")
         precision = tm.functional.precision(similarities, is_kin_labels, threshold=best_threshold, task="binary")
         recall = tm.functional.recall(similarities, is_kin_labels, threshold=best_threshold, task="binary")
+
+        # Compute and log accuracy for each kinship relation
+        self.__compute_metrics_kin(similarities, is_kin_labels, kin_labels, best_threshold)
+
+        # Plot ROC curve and histogram of similarities (logits)
+        best_threshold = torch.logit(torch.tensor(best_threshold))
+        self.__plot_roc_curve(auc, fpr, tpr, maxindex, similarities, is_kin_labels, best_threshold)
 
         # Log metrics
         self.log("threshold", best_threshold, on_step=False, on_epoch=True, prog_bar=True, logger=True)
@@ -793,9 +807,6 @@ class FaCoRNetLightning(L.LightningModule):
         self.log("auc", auc, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log("precision", precision, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log("recall", recall, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-
-        # Compute and log accuracy for each kinship relation
-        self.__compute_metrics_kin(similarities, is_kin_labels, kin_labels, best_threshold)
 
         # Log similarities histogram by is_kin_labels
         self.logger.experiment.add_histogram(
@@ -833,3 +844,43 @@ class FaCoRNetLightning(L.LightningModule):
                         positives,
                         global_step=self.current_epoch,
                     )
+
+    def __plot_roc_curve(self, auc, fpr, tpr, maxindex, similarities, is_kin_labels, best_threshold):
+        # Convert to numpy
+        fpr = fpr.cpu().numpy()
+        tpr = tpr.cpu().numpy()
+        similarities = similarities.cpu().numpy()
+        is_kin_labels = is_kin_labels.cpu().numpy()
+        best_threshold = best_threshold.cpu().numpy()
+
+        # Plot ROC Curve
+        fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+
+        axs[0].plot(fpr, tpr, color="darkorange", lw=2, label="ROC curve (area = %0.2f)" % auc)
+        axs[0].plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--")
+        axs[0].scatter(fpr[maxindex], tpr[maxindex], s=50, c="red", label=f"Threshold ({best_threshold:.6f})")
+        axs[0].set_xlim([0.0, 1.0])
+        axs[0].set_ylim([0.0, 1.05])
+        axs[0].set_xlabel("False Positive Rate")
+        axs[0].set_ylabel("True Positive Rate")
+        axs[0].set_title("Receiver Operating Characteristic")
+        axs[0].legend(loc="lower right")
+
+        # Plot Histogram of Similarities
+        positives = [similarities[i] for i in range(len(similarities)) if is_kin_labels[i] == 1]
+        negatives = [similarities[i] for i in range(len(similarities)) if is_kin_labels[i] == 0]
+
+        axs[1].hist(positives, bins=20, alpha=0.5, label="Positive", color="g")
+        axs[1].hist(negatives, bins=20, alpha=0.5, label="Negative", color="r")
+        axs[1].axvline(x=best_threshold, color="b", linestyle="--", label=f"Threshold ({best_threshold:.6f})")
+        axs[1].set_xlabel("Similarity")
+        axs[1].set_ylabel("Frequency")
+        axs[1].set_title("Histogram of Similarities")
+        axs[1].legend(loc="upper right")
+
+        plt.tight_layout()
+
+        self.logger.experiment.add_figure(
+            "ROC Curve and Histogram of Similarities", fig, global_step=self.current_epoch
+        )
+        plt.close(fig)

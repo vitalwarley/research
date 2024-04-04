@@ -9,18 +9,23 @@ trainer:
   limit_train_batches: 50
   default_root_dir: exp/
   callbacks:
-    class_path: lightning.pytorch.callbacks.ModelCheckpoint
-    init_args:
-      dirpath: exp/checkpoints/
-      filename: '{epoch}-{loss/val:.3f}-{loss/train:.3f}-{auc:.6f}'
-      monitor: auc
-      verbose: no
-      save_last: yes
-      save_top_k: 1
-      save_weights_only: no
-      auto_insert_metric_name: no
-      mode: max
-
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: exp/checkpoints/
+        filename: '{epoch}-{loss/val:.3f}-{loss/train:.3f}-{auc:.6f}'
+        monitor: auc
+        verbose: no
+        save_last: yes
+        save_top_k: 1
+        save_weights_only: no
+        auto_insert_metric_name: no
+        mode: max
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: 'auc'  # Replace 'auc' with your chosen metric
+        patience: 10  # Number of epochs to wait for improvement
+        verbose: False
+        mode: 'max'  # Use 'min' if the metric should decrease
 
 data:
    class_path: datasets.facornet.FaCoRNetDataModule
@@ -34,7 +39,7 @@ model:
     optimizer: AdamW
     adamw_beta1: 0.9
     adamw_beta2: 0.999
-    lr: 1e-4
+    lr: 1e-5
     momentum: 0.9
     weight_decay: 0
     weights_path: null

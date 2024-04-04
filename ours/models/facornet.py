@@ -768,7 +768,7 @@ class FaCoRNetLightning(L.LightningModule):
         )
         # Update the dataset's bias or sampling strategy
         self.trainer.datamodule.train_dataset.set_bias(use_sample)
-        print(f"Updated dataset bias to {use_sample}")
+        # print(f"Updated dataset bias to {use_sample}")
 
     def on_validation_epoch_end(self):
         self._on_epoch_end("val")

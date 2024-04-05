@@ -772,53 +772,62 @@ class FaCoRNetLightning(L.LightningModule):
         self.kin_labels.reset()
 
     def __compute_metrics(self, similarities, is_kin_labels, kin_labels, stage="train"):
+
+        fpr, tpr, thresholds = tm.functional.roc(similarities, is_kin_labels, task="binary")
+        maxindex = (tpr - fpr).argmax()
+
         # Compute best threshold
         if stage == "test" and self.threshold is None:
             raise ValueError("Threshold must be provided for test stage")
         elif stage == "test":
             best_threshold = self.threshold
         else:  # Compute best threshold for training or validation
-            # similarities_ = similarities.cpu().numpy()
-            # is_kin_labels_ = is_kin_labels.cpu().numpy()
-            # fpr, tpr, thresholds = roc_curve(is_kin_labels_, similarities_)
-            # maxindex_ = (tpr - fpr).argmax()
-            # best_threshold = float(thresholds[maxindex_])
-            # torchmetrics: https://github.com/Lightning-AI/pytorch-lightning/issues/19739
-            fpr, tpr, thresholds = tm.functional.roc(similarities, is_kin_labels, task="binary")
-            maxindex = (tpr - fpr).argmax()
             best_threshold = thresholds[maxindex].item()  # probability
 
-        # Compute metrics (similarities -> probabilities)
+        # Compute metrics
+        #   - similarities will be converted to probabilites,
+        #   - therefore best_threshold must be a probability
+        if stage == "test":
+            best_threshold = torch.sigmoid(torch.tensor(best_threshold)).item()
+            # val stage computes its own threshold, which is already a probability
+
         auc = tm.functional.auroc(similarities, is_kin_labels, task="binary")
         acc = tm.functional.accuracy(similarities, is_kin_labels, threshold=best_threshold, task="binary")
         precision = tm.functional.precision(similarities, is_kin_labels, threshold=best_threshold, task="binary")
         recall = tm.functional.recall(similarities, is_kin_labels, threshold=best_threshold, task="binary")
 
         # Compute and log accuracy for each kinship relation
+        #   -> best_threshold is a probability
         self.__compute_metrics_kin(similarities, is_kin_labels, kin_labels, best_threshold)
+        self.__log_similarities(similarities, is_kin_labels)
 
         # Plot ROC curve and histogram of similarities (logits)
-        best_threshold = torch.logit(torch.tensor(best_threshold))
-        self.__plot_roc_curve(auc, fpr, tpr, maxindex, similarities, is_kin_labels, best_threshold)
+        best_threshold_logit = torch.logit(torch.tensor(best_threshold))
+        self.__plot_roc_curve(auc, fpr, tpr, maxindex, similarities, is_kin_labels, best_threshold_logit)
 
         # Log metrics
-        self.log("threshold", best_threshold, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("threshold", best_threshold_logit, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log("accuracy", acc, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log("auc", auc, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log("precision", precision, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log("recall", recall, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
+    def __log_similarities(self, similarities, is_kin_labels):
         # Log similarities histogram by is_kin_labels
-        self.logger.experiment.add_histogram(
-            "similarities/positive",
-            similarities[is_kin_labels == 1],
-            global_step=self.current_epoch,
-        )
-        self.logger.experiment.add_histogram(
-            "similarities/negative",
-            similarities[is_kin_labels == 0],
-            global_step=self.current_epoch,
-        )
+        positive = similarities[is_kin_labels == 1]
+        negative = similarities[is_kin_labels == 0]
+        if positive.numel() > 0:
+            self.logger.experiment.add_histogram(
+                "similarities/positive",
+                positive,
+                global_step=self.current_epoch,
+            )
+        if negative.numel() > 0:
+            self.logger.experiment.add_histogram(
+                "similarities/negative",
+                negative,
+                global_step=self.current_epoch,
+            )
 
     def __compute_metrics_kin(self, similarities, is_kin_labels, kin_labels, best_threshold):
         for kin, kin_id in Sample.NAME2LABEL.items():  # TODO: pass Sample class as argument
@@ -838,10 +847,17 @@ class FaCoRNetLightning(L.LightningModule):
                 # Add similarities
                 # Negative pairs are "non-kin" pairs, which are equal to the overall similarities/negative
                 positives = similarities[mask][is_kin_labels[mask] == 1]
+                negatives = similarities[mask][is_kin_labels[mask] == 0]
                 if positives.numel() > 0:
                     self.logger.experiment.add_histogram(
-                        f"similarities/{kin}",
+                        f"similarities/positives/{kin}",
                         positives,
+                        global_step=self.current_epoch,
+                    )
+                if negatives.numel() > 0:
+                    self.logger.experiment.add_histogram(
+                        f"similarities/negatives/{kin}",
+                        negatives,
                         global_step=self.current_epoch,
                     )
 

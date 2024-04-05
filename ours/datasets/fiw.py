@@ -57,7 +57,7 @@ class FIW(Dataset):
 
     def _process_labels(self, sample):
         is_kin = torch.tensor(sample.is_kin)
-        kin_id = self.sample_cls.NAME2LABEL[sample.kin_relation] if is_kin else 0
+        kin_id = self.sample_cls.NAME2LABEL[sample.kin_relation]
         # fid1, fid2 = int(sample.f1fid[1:]), int(sample.f2fid[1:])
         # labels = (kin_id, is_kin, fid1, fid2)
         labels = (kin_id, is_kin)

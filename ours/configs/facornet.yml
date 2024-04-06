@@ -43,6 +43,13 @@ model:
     lr: 1e-4
     momentum: 0.9
     weight_decay: 0
+    start_lr: 1e-10
+    end_lr: 1e-10
+    lr_factor: 0.75
+    lr_steps: [8, 14, 25, 35, 40, 50, 60]
+    warmup: 200
+    cooldown: 400
+    scheduler: null
     threshold: null
     model:
       class_path: models.facornet.FaCoR

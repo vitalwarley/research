@@ -22,6 +22,7 @@ from torch.nn import (
     Sequential,
     Sigmoid,
 )
+from torch.optim.lr_scheduler import MultiStepLR
 from torchmetrics.utilities import dim_zero_cat
 
 # Assuming the necessary imports are done for FaCoR, facornet_contrastive_loss, FIW, and other utilities
@@ -683,6 +684,13 @@ class FaCoRNetLightning(L.LightningModule):
         lr=1e-4,
         momentum=0.9,
         weight_decay=0,
+        start_lr=1e-4,
+        end_lr=1e-10,
+        lr_factor=0.75,
+        lr_steps=[8, 14, 25, 35, 40, 50, 60],
+        warmup=200,
+        cooldown=400,
+        scheduler=None,
         threshold=None,
     ):
         super().__init__()
@@ -695,6 +703,8 @@ class FaCoRNetLightning(L.LightningModule):
         self.similarities = CollectPreds("similarities")
         self.is_kin_labels = CollectPreds("is_kin_labels")
         self.kin_labels = CollectPreds("kin_labels")
+
+        print(self.hparams)
 
     def forward(self, inputs):
         return self.model(inputs)
@@ -717,6 +727,9 @@ class FaCoRNetLightning(L.LightningModule):
         return loss
 
     def training_step(self, batch, batch_idx):
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        # on_step=True to see the warmup and cooldown properly :)
+        self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
         return self._step(batch, "train")
 
     def validation_step(self, batch, batch_idx):
@@ -726,24 +739,68 @@ class FaCoRNetLightning(L.LightningModule):
         self._step(batch, "test")
 
     def configure_optimizers(self):
+        if self.hparams.scheduler is None:
+            self.hparams.start_lr = self.hparams.lr
+
         if self.hparams.optimizer == "SGD":
             optimizer = torch.optim.SGD(
                 self.parameters(),
-                lr=self.hparams.lr,
+                lr=self.hparams.start_lr,
                 momentum=self.hparams.momentum,
                 weight_decay=self.hparams.weight_decay,
             )
         elif self.hparams.optimizer == "AdamW":
             optimizer = torch.optim.AdamW(
                 self.parameters(),
-                lr=self.hparams.lr,
+                lr=self.hparams.start_lr,
                 betas=(self.hparams.adamw_beta1, self.hparams.adamw_beta2),
                 weight_decay=self.hparams.weight_decay,
             )
         else:
             raise ValueError(f"Unsupported optimizer: {self.hparams.optimizer_name}")
 
-        return optimizer
+        config = {
+            "optimizer": optimizer,
+        }
+
+        # FIXME: improve
+        if self.hparams.scheduler == "multistep":
+            config["lr_scheduler"] = {
+                "scheduler": MultiStepLR(
+                    optimizer, milestones=self.hparams.lr_steps, gamma=self.hparams.lr_factor, verbose=True
+                ),
+            }
+
+        print(f"optimizers config = {config}")
+        # LOGGER.info("Model will train for steps=%s", self.trainer.estimated_stepping_batches)
+        return config
+
+    def optimizer_step(
+        self,
+        epoch,
+        batch_idx,
+        optimizer,
+        optimizer_closure,
+    ):
+        # warm up lr
+        if self.trainer.global_step < self.hparams.warmup:
+            # print formula below
+            cur_lr = (self.trainer.global_step + 1) * (
+                self.hparams.lr - self.hparams.start_lr
+            ) / self.hparams.warmup + self.hparams.start_lr
+            for pg in optimizer.param_groups:
+                pg["lr"] = cur_lr
+        # cool down lr
+        elif (
+            self.trainer.global_step > self.trainer.estimated_stepping_batches - self.hparams.cooldown
+        ):  # cooldown start
+            cur_lr = (self.trainer.estimated_stepping_batches - self.trainer.global_step) * (
+                optimizer.param_groups[0]["lr"] - self.hparams.end_lr
+            ) / self.hparams.cooldown + self.hparams.end_lr
+            optimizer.param_groups[0]["lr"] = cur_lr
+
+        # update params
+        optimizer.step(closure=optimizer_closure)
 
     def on_train_epoch_end(self):
         # Calculate the number of samples processed
@@ -831,6 +888,7 @@ class FaCoRNetLightning(L.LightningModule):
 
     def __compute_metrics_kin(self, similarities, is_kin_labels, kin_labels, best_threshold):
         for kin, kin_id in Sample.NAME2LABEL.items():  # TODO: pass Sample class as argument
+            # TODO: fix non-kin accuracy compute
             mask = kin_labels == kin_id
             if torch.any(mask):
                 acc = tm.functional.accuracy(

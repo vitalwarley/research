@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torchmetrics as tm
 from datasets.utils import Sample
-from losses import facornet_contrastive_loss
+from losses import contrastive_loss, facornet_contrastive_loss
 from torch.nn import (
     BatchNorm1d,
     BatchNorm2d,
@@ -60,10 +60,11 @@ def to_input(pil_rgb_image):
     return tensor
 
 
-class HeadKin(nn.Module):  # couldn't be HeadFamily because there is no family label
+class HeadKin(nn.Module):
     def __init__(self, in_features=512, out_features=4, ratio=8):
         super().__init__()
         self.projection_head = nn.Sequential(
+            # TODO: think better
             torch.nn.Linear(2 * in_features, in_features // ratio),
             torch.nn.BatchNorm1d(in_features // ratio),
             torch.nn.ReLU(),
@@ -82,6 +83,20 @@ class HeadKin(nn.Module):  # couldn't be HeadFamily because there is no family l
                 nn.init.constant_(m.weight, 1)
 
                 nn.init.constant_(m.bias, 0)
+
+    def forward(self, em):
+        return self.projection_head(em)
+
+
+class HeadFamily(nn.Module):
+    def __init__(self, in_features=512, out_features=4, ratio=2):
+        super().__init__()
+        self.projection_head = nn.Sequential(
+            torch.nn.Linear(in_features, in_features // ratio),
+            torch.nn.BatchNorm1d(in_features // ratio),
+            torch.nn.ReLU(),
+            torch.nn.Linear(in_features // ratio, out_features),
+        )
 
     def forward(self, em):
         return self.projection_head(em)
@@ -692,6 +707,9 @@ class FaCoRNetLightning(L.LightningModule):
         cooldown=400,
         scheduler=None,
         threshold=None,
+        # TODO: how to add the below params only to the subclass?
+        num_families=0,
+        loss_factor=0,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=("model"))
@@ -709,34 +727,37 @@ class FaCoRNetLightning(L.LightningModule):
     def forward(self, inputs):
         return self.model(inputs)
 
-    def _step(self, batch, stage="train"):
-        img1, img2, labels = batch
-        kin_relation, is_kin = labels
-        f1, f2, att = self((img1, img2))
+    def _step(self, inputs):
+        f1, f2, att = self(inputs)
         loss = self.loss_fn(f1, f2, beta=att)
         sim = torch.cosine_similarity(f1, f2)
-
-        if stage != "train":
-            # Compute best threshold for training or validation
-            self.similarities(sim)
-            self.is_kin_labels(is_kin)
-            self.kin_labels(kin_relation)
-
-        self.log(f"loss/{stage}", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-
-        return loss
+        outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2, att]}
+        return outputs
 
     def training_step(self, batch, batch_idx):
+        img1, img2, _ = batch
+        loss = self._step([img1, img2])["contrastive_loss"]
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
         # on_step=True to see the warmup and cooldown properly :)
         self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-        return self._step(batch, "train")
+        self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        return loss
+
+    def _eval_step(self, batch, batch_idx, stage):
+        img1, img2, labels = batch
+        kin_relation, is_kin = labels
+        outputs = self._step([img1, img2])
+        self.log(f"loss/{stage}", outputs["contrastive_loss"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Compute best threshold for training or validation
+        self.similarities(outputs["sim"])
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)
 
     def validation_step(self, batch, batch_idx):
-        self._step(batch, "val")
+        self._eval_step(batch, batch_idx, "val")
 
     def test_step(self, batch, batch_idx):
-        self._step(batch, "test")
+        self._eval_step(batch, batch_idx, "test")
 
     def configure_optimizers(self):
         if self.hparams.scheduler is None:
@@ -767,7 +788,9 @@ class FaCoRNetLightning(L.LightningModule):
         if self.hparams.scheduler == "multistep":
             config["lr_scheduler"] = {
                 "scheduler": MultiStepLR(
-                    optimizer, milestones=self.hparams.lr_steps, gamma=self.hparams.lr_factor, verbose=True
+                    optimizer,
+                    milestones=self.hparams.lr_steps,
+                    gamma=self.hparams.lr_factor,
                 ),
             }
 
@@ -958,3 +981,120 @@ class FaCoRNetLightning(L.LightningModule):
             "ROC Curve and Histogram of Similarities", fig, global_step=self.current_epoch
         )
         plt.close(fig)
+
+
+# Define a custom L2 normalization layer
+class L2Norm(nn.Module):
+    def __init__(self, axis=1):
+        super(L2Norm, self).__init__()
+        self.axis = axis
+
+    def forward(self, x):
+        # L2 normalization
+        return nn.functional.normalize(x, p=2, dim=self.axis)
+
+
+class FaCoRNetMTFamily(FaCoRNetLightning):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.nf = self.hparams.num_families
+        self.classifier = HeadFamily(in_features=512, out_features=self.nf)
+        self.cross_entropy = nn.CrossEntropyLoss()
+        self.accuracy_family = tm.Accuracy(
+            num_classes=self.nf, task="multiclass"
+        )  # nf will change for val and test, therefore won't be compute
+
+    def training_step(self, batch, batch_idx):
+        pair_batch, family_batch = batch
+        img1, img2, labels = pair_batch
+        imgs, families, _ = family_batch
+        # Forward pass
+        outputs = super()._step([img1, img2])
+        fam_features, _ = self.model.backbone(imgs[:, [2, 1, 0]])  # why? the original code has this.
+        fam_features = l2_norm(fam_features)
+        fam_preds = self.classifier(fam_features)
+        # Compute losses
+        contrastive_loss = outputs["contrastive_loss"]
+        family_loss = self.cross_entropy(fam_preds, families)
+        if self.hparams.loss_factor:
+            loss = (1 - self.hparams.loss_factor) * contrastive_loss + self.hparams.loss_factor * family_loss
+        else:
+            loss = contrastive_loss + family_loss
+        # Compute and log family accuracy
+        family_accuracy = self.accuracy_family(fam_preds, families)
+        self.log(
+            "accuracy/classification/family", family_accuracy, on_step=False, on_epoch=True, prog_bar=False, logger=True
+        )
+        # Log lr and losses
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("loss/contrastive/train", contrastive_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("loss/classification/train", family_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        return loss
+
+    def _eval_step(self, batch, batch_idx, stage):
+        img1, img2, labels = batch
+        kin_relation, is_kin = labels
+        # Forward pass
+        outputs = super()._step([img1, img2])
+        # Compute losses
+        contrastive_loss = outputs["contrastive_loss"]
+        # Log losses
+        self.log(f"loss/{stage}", contrastive_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Compute best threshold for training or validation
+        self.similarities(outputs["sim"])
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)
+
+
+class FamilyClassifier(FaCoRNetLightning):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.model = load_pretrained_model("ir_101")
+        self.nf = self.hparams.num_families
+        self.classifier = HeadFamily(in_features=512, out_features=self.nf)
+        self.cross_entropy = nn.CrossEntropyLoss()
+        self.accuracy_family = tm.Accuracy(
+            num_classes=self.nf, task="multiclass"
+        )  # nf will change for val and test, therefore won't be compute
+
+    def forward(self, inputs):
+        return self.model(inputs[:, [2, 1, 0]])[0]
+
+    def training_step(self, batch, batch_idx):
+        imgs, families, _ = batch
+        # Forward pass
+        fam_features = self(imgs)
+        fam_features = l2_norm(fam_features)
+        fam_preds = self.classifier(fam_features)
+        # Compute losses
+        loss = self.cross_entropy(fam_preds, families)
+        # Compute and log family accuracy
+        family_accuracy = self.accuracy_family(fam_preds, families)
+        self.log(
+            "accuracy/classification/family", family_accuracy, on_step=False, on_epoch=True, prog_bar=True, logger=True
+        )
+        # Log lr and losses
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        return loss
+
+    def _eval_step(self, batch, batch_idx, stage):
+        img1, img2, labels = batch
+        kin_relation, is_kin = labels
+        # Forward pass
+        f1 = self(img1)
+        f2 = self(img2)
+        sim = torch.cosine_similarity(f1, f2)
+        # Compute losses
+        loss = contrastive_loss(f1, f2, beta=0.08)  # R2021
+        # Log losses
+        self.log(f"loss/{stage}", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Compute best threshold for training or validation
+        self.similarities(sim)
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)

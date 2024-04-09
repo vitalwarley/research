@@ -7,7 +7,7 @@ trainer:
   accelerator: "gpu"
   deterministic: yes
   fast_dev_run: no
-  max_epochs: 107
+  max_epochs: 43
   limit_train_batches: 50
   default_root_dir: exp/
   callbacks:
@@ -32,12 +32,15 @@ trainer:
 data:
    class_path: datasets.facornet.FaCoRNetDataModule
    init_args:
+     dataset: facornet
      batch_size: 20
      root_dir: data/facornet
 
 model:
   class_path: models.facornet.FaCoRNetLightning
   init_args:
+    num_families: 0
+    loss_factor: 0
     optimizer: SGD
     adamw_beta1: 0.9
     adamw_beta2: 0.999

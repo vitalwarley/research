@@ -24,9 +24,9 @@ class Sample:
     def __init__(self, id: str, f1: str, f2: str, kin_relation: str, is_kin: str, *args, **kwargs):
         self.id = id
         self.f1 = f1
-        self.f1fid = f1.split("/")[2]
+        self.f1fid = int(f1.split("/")[2][1:])
         self.f2 = f2
-        self.f2fid = f2.split("/")[2]
+        self.f2fid = int(f2.split("/")[2][1:])
         self.kin_relation = kin_relation
         self.is_kin = int(is_kin)
         self.is_same_generation = self.kin_relation in ["bb", "ss", "sibs"]

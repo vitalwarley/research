@@ -54,7 +54,8 @@ class FIW(Dataset):
         return img
 
     def set_bias(self, bias):
-        self.bias = bias
+        if self.biased:
+            self.bias = bias
 
     def _process_images(self, sample):
         img1, img2 = self.read_image(sample.f1), self.read_image(sample.f2)

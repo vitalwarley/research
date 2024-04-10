@@ -33,6 +33,7 @@ data:
    class_path: datasets.facornet.FaCoRNetDataModule
    init_args:
      dataset: facornet
+     biased: true
      batch_size: 20
      root_dir: data/facornet
 

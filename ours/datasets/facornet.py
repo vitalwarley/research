@@ -54,7 +54,7 @@ class FIWFaCoRNetFamily(FIWFaCoRNet):
 class FaCoRNetDataModule(L.LightningDataModule):
     DATASETS = {"facornet": FIWFaCoRNet, "facornet-family": FIWFaCoRNetFamily}
 
-    def __init__(self, dataset: str, batch_size=20, root_dir=".", transform=None):
+    def __init__(self, dataset: str, biased: bool, batch_size=20, root_dir=".", transform=None):
         super().__init__()
         self.dataset = self.DATASETS[
             dataset
@@ -62,6 +62,7 @@ class FaCoRNetDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.root_dir = root_dir
         self.transform = transform or T.Compose([T.ToTensor()])
+        self.biased = biased
 
     def setup(self, stage=None):
         if stage == "fit" or stage is None:
@@ -69,7 +70,7 @@ class FaCoRNetDataModule(L.LightningDataModule):
                 root_dir=self.root_dir,
                 sample_path=Path(FIWFaCoRNet.TRAIN_PAIRS),
                 batch_size=self.batch_size,
-                biased=True,
+                biased=self.biased,
                 transform=self.transform,
             )
             self.val_dataset = self.dataset(
@@ -95,7 +96,7 @@ class FaCoRNetDataModule(L.LightningDataModule):
         print(f"Setup {stage} datasets")
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
     def val_dataloader(self):
         return DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True)

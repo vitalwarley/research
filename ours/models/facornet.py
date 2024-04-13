@@ -9,6 +9,7 @@ import torch.nn as nn
 import torchmetrics as tm
 from datasets.utils import Sample
 from losses import contrastive_loss, facornet_contrastive_loss
+from pytorch_metric_learning.losses import ArcFaceLoss
 from torch.nn import (
     BatchNorm1d,
     BatchNorm2d,
@@ -22,7 +23,7 @@ from torch.nn import (
     Sequential,
     Sigmoid,
 )
-from torch.optim.lr_scheduler import MultiStepLR
+from torch.optim.lr_scheduler import MultiStepLR, OneCycleLR
 from torchmetrics.utilities import dim_zero_cat
 
 # Assuming the necessary imports are done for FaCoR, facornet_contrastive_loss, FIW, and other utilities
@@ -706,6 +707,7 @@ class FaCoRNetLightning(L.LightningModule):
         warmup=200,
         cooldown=400,
         scheduler=None,
+        anneal_strategy="cos",
         threshold=None,
         # TODO: how to add the below params only to the subclass?
         num_families=0,
@@ -760,6 +762,7 @@ class FaCoRNetLightning(L.LightningModule):
         self._eval_step(batch, batch_idx, "test")
 
     def configure_optimizers(self):
+        print(f"Total steps = {self.trainer.estimated_stepping_batches}")
         if self.hparams.scheduler is None:
             self.hparams.start_lr = self.hparams.lr
 
@@ -784,13 +787,26 @@ class FaCoRNetLightning(L.LightningModule):
             "optimizer": optimizer,
         }
 
-        # FIXME: improve
+        # FIXME: improve -- add as class_path
         if self.hparams.scheduler == "multistep":
             config["lr_scheduler"] = {
                 "scheduler": MultiStepLR(
                     optimizer,
                     milestones=self.hparams.lr_steps,
                     gamma=self.hparams.lr_factor,
+                ),
+            }
+        # OneCycleLR with warmup and cooldown
+        elif self.hparams.scheduler == "onecycle":
+            config["lr_scheduler"] = {
+                "scheduler": OneCycleLR(
+                    optimizer,
+                    max_lr=self.hparams.lr,
+                    total_steps=self.trainer.estimated_stepping_batches,
+                    pct_start=0.3,  # Assume 30% of the time to reach the peak (typical configuration)
+                    div_factor=self.hparams.lr / self.hparams.start_lr,
+                    final_div_factor=self.hparams.end_lr / self.hparams.start_lr,
+                    anneal_strategy=self.hparams.anneal_strategy,
                 ),
             }
 
@@ -805,22 +821,23 @@ class FaCoRNetLightning(L.LightningModule):
         optimizer,
         optimizer_closure,
     ):
-        # warm up lr
-        if self.trainer.global_step < self.hparams.warmup:
-            # print formula below
-            cur_lr = (self.trainer.global_step + 1) * (
-                self.hparams.lr - self.hparams.start_lr
-            ) / self.hparams.warmup + self.hparams.start_lr
-            for pg in optimizer.param_groups:
-                pg["lr"] = cur_lr
-        # cool down lr
-        elif (
-            self.trainer.global_step > self.trainer.estimated_stepping_batches - self.hparams.cooldown
-        ):  # cooldown start
-            cur_lr = (self.trainer.estimated_stepping_batches - self.trainer.global_step) * (
-                optimizer.param_groups[0]["lr"] - self.hparams.end_lr
-            ) / self.hparams.cooldown + self.hparams.end_lr
-            optimizer.param_groups[0]["lr"] = cur_lr
+        if not self.hparams.scheduler == "onecycle":
+            # warm up lr
+            if self.trainer.global_step < self.hparams.warmup:
+                # print formula below
+                cur_lr = (self.trainer.global_step + 1) * (
+                    self.hparams.lr - self.hparams.start_lr
+                ) / self.hparams.warmup + self.hparams.start_lr
+                for pg in optimizer.param_groups:
+                    pg["lr"] = cur_lr
+            # cool down lr
+            elif (
+                self.trainer.global_step > self.trainer.estimated_stepping_batches - self.hparams.cooldown
+            ):  # cooldown start
+                cur_lr = (self.trainer.estimated_stepping_batches - self.trainer.global_step) * (
+                    optimizer.param_groups[0]["lr"] - self.hparams.end_lr
+                ) / self.hparams.cooldown + self.hparams.end_lr
+                optimizer.param_groups[0]["lr"] = cur_lr
 
         # update params
         optimizer.step(closure=optimizer_closure)
@@ -999,10 +1016,17 @@ class FaCoRNetMTFamily(FaCoRNetLightning):
         super().__init__(**kwargs)
         self.nf = self.hparams.num_families
         self.classifier = HeadFamily(in_features=512, out_features=self.nf)
-        self.cross_entropy = nn.CrossEntropyLoss()
+        self.loss = nn.CrossEntropyLoss()
         self.accuracy_family = tm.Accuracy(
             num_classes=self.nf, task="multiclass"
         )  # nf will change for val and test, therefore won't be compute
+
+    def _get_logits(self, x):
+        if isinstance(self.loss, ArcFaceLoss):
+            logits = self.loss.get_logits(x)
+        else:
+            logits = self.classifier(x)
+        return logits
 
     def training_step(self, batch, batch_idx):
         pair_batch, family_batch = batch
@@ -1012,16 +1036,16 @@ class FaCoRNetMTFamily(FaCoRNetLightning):
         outputs = super()._step([img1, img2])
         fam_features, _ = self.model.backbone(imgs[:, [2, 1, 0]])  # why? the original code has this.
         fam_features = l2_norm(fam_features)
-        fam_preds = self.classifier(fam_features)
+        fam_logits = self._get_logits(fam_features)
         # Compute losses
         contrastive_loss = outputs["contrastive_loss"]
-        family_loss = self.cross_entropy(fam_preds, families)
+        family_loss = self.loss(fam_logits, families)
         if self.hparams.loss_factor:
             loss = (1 - self.hparams.loss_factor) * contrastive_loss + self.hparams.loss_factor * family_loss
         else:
             loss = contrastive_loss + family_loss
         # Compute and log family accuracy
-        family_accuracy = self.accuracy_family(fam_preds, families)
+        family_accuracy = self.accuracy_family(fam_logits, families)
         self.log(
             "accuracy/classification/family", family_accuracy, on_step=False, on_epoch=True, prog_bar=False, logger=True
         )

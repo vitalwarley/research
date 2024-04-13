@@ -56,5 +56,6 @@ model:
     cooldown: 400
     scheduler: null
     threshold: null
+    anneal_strategy: cos
     model:
       class_path: models.facornet.FaCoR

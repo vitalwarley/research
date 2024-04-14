@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchmetrics as tm
-from datasets.utils import Sample
+from datasets.utils import Sample, SampleKFC
 from losses import contrastive_loss, facornet_contrastive_loss
 from pytorch_metric_learning.losses import ArcFaceLoss
 from torch.nn import (
@@ -724,6 +724,8 @@ class FaCoRNetLightning(L.LightningModule):
         self.is_kin_labels = CollectPreds("is_kin_labels")
         self.kin_labels = CollectPreds("kin_labels")
 
+        self.sample_cls = Sample
+
         print(self.hparams)
 
     def forward(self, inputs):
@@ -926,7 +928,7 @@ class FaCoRNetLightning(L.LightningModule):
             )
 
     def __compute_metrics_kin(self, similarities, is_kin_labels, kin_labels, best_threshold):
-        for kin, kin_id in Sample.NAME2LABEL.items():  # TODO: pass Sample class as argument
+        for kin, kin_id in self.sample_cls.NAME2LABEL.items():  # TODO: pass Sample class as argument
             # TODO: fix non-kin accuracy compute
             mask = kin_labels == kin_id
             if torch.any(mask):
@@ -1119,5 +1121,22 @@ class FamilyClassifier(FaCoRNetLightning):
         self.log(f"loss/{stage}", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         # Compute best threshold for training or validation
         self.similarities(sim)
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)
+
+
+class FaCoRNetKinRace(FaCoRNetLightning):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.sample_cls = SampleKFC
+
+    def _eval_step(self, batch, batch_idx, stage):
+        img1, img2, labels = batch
+        kin_relation, is_kin, _ = labels
+        outputs = self._step([img1, img2])
+        self.log(f"loss/{stage}", outputs["contrastive_loss"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Compute best threshold for training or validation
+        self.similarities(outputs["sim"])
         self.is_kin_labels(is_kin)
         self.kin_labels(kin_relation)

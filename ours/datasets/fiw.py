@@ -15,6 +15,7 @@ class FIW(Dataset):
         batch_size: int = 20,
         biased: bool = False,
         transform=None,
+        sample_cls=Sample,
     ):
         self.root_dir = Path(root_dir)
         self.images_dir = "images"
@@ -23,7 +24,7 @@ class FIW(Dataset):
         self.transform = transform
         self.bias = 0
         self.biased = biased
-        self.sample_cls = Sample
+        self.sample_cls = sample_cls
         self.sample_list = self.load_sample()
         print(f"Loaded {len(self.sample_list)} samples from {sample_path}")
 

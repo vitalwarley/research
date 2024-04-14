@@ -117,9 +117,7 @@
         - utils.py
         - losses.py
         - models/facornet.py
-        - datasets/fiw.py
-        - datasets/facornet.py
-        - datasets/utils.py
+        - datasets/*.py
         - tasks/facornet.py
       flags-import: all
       flags-dest: config:configs/facornet.yml

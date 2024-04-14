@@ -32,7 +32,8 @@ class Sample:
         self.is_same_generation = self.kin_relation in ["bb", "ss", "sibs"]
 
 
-class SampleKFC(Sample):
+class SampleKFC:
+    # TODO: adjust
     NAME2LABEL = {
         "fs": 0,
         "fd": 1,
@@ -44,8 +45,11 @@ class SampleKFC(Sample):
         "msd": 7,
     }
 
-    def __init__(self, id: str, f1: str, f2: str, kin_relation: str, is_kin: str, race: str):
-        super().__init__(id, f1, f2, kin_relation, is_kin)
+    def __init__(self, f1: str, f2: str, kin_relation: str, is_kin: str, race: str):
+        self.f1 = f1
+        self.f2 = f2
+        self.kin_relation = kin_relation
+        self.is_kin = int(is_kin)
         self.race = race
 
 

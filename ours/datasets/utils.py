@@ -24,12 +24,19 @@ class Sample:
     def __init__(self, id: str, f1: str, f2: str, kin_relation: str, is_kin: str, *args, **kwargs):
         self.id = id
         self.f1 = f1
-        self.f1fid = int(f1.split("/")[2][1:])
         self.f2 = f2
-        self.f2fid = int(f2.split("/")[2][1:])
         self.kin_relation = kin_relation
         self.is_kin = int(is_kin)
         self.is_same_generation = self.kin_relation in ["bb", "ss", "sibs"]
+        self.set_fids(f1, f2)
+
+    def set_fids(self, f1, f2):
+        try:
+            self.f1fid = int(f1.split("/")[2][1:])
+            self.f2fid = int(f2.split("/")[2][1:])
+        except ValueError:
+            self.f1fid = 0
+            self.f2fid = 0
 
 
 class SampleKFC:

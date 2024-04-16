@@ -174,3 +174,70 @@
         - operation: facornet:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt
+
+- model: kfc
+  operations:
+    train:
+      description: Reproduction of Kinship Verification with Fair Contrastive Loss and Multi-Task Learning (2023)
+      exec: python tasks/kfc.py fit --config kfc.yml
+      sourcecode:
+        - utils.py
+        - losses.py
+        - models/*.py
+        - datasets/*.py
+        - tasks/kfc.py
+      flags-import: all
+      flags-dest: config:configs/kfc.yml
+      output-scalars: '(\key)=(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - file: configs/kfc.yml
+          target-type: link
+    val:
+      description: Reproduction of Kinship Verification with Fair Contrastive Loss and Multi-Task Learning (2023)
+      exec: python tasks/kfc.py validate --config kfc.yml
+      sourcecode:
+        - utils.py
+        - losses.py
+        - models/*.py
+        - datasets/*.py
+        - tasks/kfc.py
+      flags-import: all
+      flags-dest: config:configs/kfc.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - file: configs/kfc.yml
+          target-type: link
+        - operation: kfc:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    test:
+      description: Reproduction of Kinship Verification with Fair Contrastive Loss and Multi-Task Learning (2023)
+      exec: python tasks/kfc.py test --config kfc.yml
+      sourcecode:
+        - utils.py
+        - losses.py
+        - models/*.py
+        - datasets/*.py
+        - tasks/kfc.py
+      flags-import: all
+      flags-dest: config:configs/kfc.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - operation: kfc:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt

@@ -3,7 +3,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from datasets.utils import SampleKFC
+from datasets.utils import Sample, SampleKFC
 from models.base import CollectPreds, LightningBaseModel, load_pretrained_model
 from torch.autograd import Function
 
@@ -383,3 +383,35 @@ class KFCLightning(LightningBaseModel):
         super(KFCLightning, self)._on_epoch_end(stage)
         self._compute_race_metrics(stage)
         self.race_labels.reset()
+
+
+class KFCFIW(KFCLightning):
+
+    def __init__(self, **kwargs):
+        super(KFCFIW, self).__init__(**kwargs)
+        self.sample_cls = Sample
+        print(self.hparams)
+
+    def _step(self, inputs, labels):
+        pred_races1, pred_races2, e1, e2, f1, f2, bias_map, bias_pair = self(inputs)
+        sim = torch.cosine_similarity(e1, e2)  # backbone features instead of attention features
+        outputs = {
+            "sim": sim,
+            "features": [f1, f2],
+        }
+        return outputs
+
+    def training_step(self, batch, batch_idx):
+        pass
+
+    def _eval_step(self, batch, batch_idx, stage):
+        img1, img2, labels = batch
+        kin_relation, is_kin = labels
+        outputs = self._step([img1, img2], None)
+        # Compute best threshold for training or validation
+        self.similarities(outputs["sim"])
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)
+
+    def _on_epoch_end(self, stage):
+        super(KFCLightning, self)._on_epoch_end(stage)

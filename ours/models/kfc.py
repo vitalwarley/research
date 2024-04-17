@@ -276,9 +276,8 @@ class KFCLightning(LightningBaseModel):
         self.race_labels = CollectPreds("race_labels")
         self.sample_cls = SampleKFC
         print(self.hparams)
-
         # Define the mapping of indices to race keys, simplify to first part before '&'
-        self.possible_races = [k.split("&")[0] for k, v in sorted(RACE_DICT.items(), key=lambda item: item[1][0])]
+        self.possible_races = [k.split("&")[0] for k, _ in RACE_DICT.items()]
 
     def _step(self, inputs, labels):
         pred_races1, pred_races2, e1, e2, f1, f2, bias_map, bias_pair = self(inputs)

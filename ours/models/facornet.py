@@ -118,33 +118,34 @@ class FaCoRNetLightning(LightningBaseModel):
         f1, f2, att = self(inputs)
         loss = self.criterion(f1, f2, beta=att)
         sim = torch.cosine_similarity(f1, f2)
-        outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2, att]}
-        # debug temperature (improve it some callback)
         psi = self.criterion.m(att)
-        if self.training:
-            self.logger.experiment.add_histogram("psi/train", psi, self.global_step)
-        else:
-            self.logger.experiment.add_histogram("psi/val", psi, self.global_step)
+        outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2, att], "psi": psi}
         return outputs
 
     def training_step(self, batch, batch_idx):
         img1, img2, _ = batch
-        loss = self._step([img1, img2])["contrastive_loss"]
+        outputs = self._step([img1, img2])
+        loss = outputs["contrastive_loss"]
+        psi = outputs["psi"]
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
         # on_step=True to see the warmup and cooldown properly :)
         self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
         self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.logger.experiment.add_histogram("psi/train", psi, self.global_step)
+
         return loss
 
     def _eval_step(self, batch, batch_idx, stage):
         img1, img2, labels = batch
         kin_relation, is_kin = labels
         outputs = self._step([img1, img2])
+        psi = outputs["psi"]
         self.log(f"loss/{stage}", outputs["contrastive_loss"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
         # Compute best threshold for training or validation
         self.similarities(outputs["sim"])
         self.is_kin_labels(is_kin)
         self.kin_labels(kin_relation)
+        self.logger.experiment.add_histogram("psi/val", psi, self.global_step)
 
 
 class FaCoRNetLightningV2(LightningBaseModel):

@@ -227,52 +227,55 @@ class KFCAttention(torch.nn.Module):
             nn.ReLU(),
         )
 
-    def forward(self, embedding1, compact_feature1, embedding2, compact_feature2):
-        # (B, 512)
-        extract_feature1 = self.extract_flatten_feature(compact_feature1).squeeze()
-        extract_feature2 = self.extract_flatten_feature(compact_feature2).squeeze()
+    def extract_and_unsqueeze_features(self, feature, unsqueeze_dim):
+        extracted_feature = self.extract_flatten_feature(feature).squeeze()
+        return torch.unsqueeze(extracted_feature, unsqueeze_dim)
 
+    def compute_correlation_map(self, F1, F2):
+        return torch.exp(torch.matmul(F1, F2) / (512**0.5))
+
+    def compute_cross_attention(self, correlation_map, compact_feature, dimension):
+        denominator = torch.sum(correlation_map, dim=dimension)
+        epsilon = 1e-5
+        reshaped_compact = compact_feature.view(-1, 512, 7 * 7)
+        cross_attention = torch.matmul(
+            correlation_map if dimension == 2 else torch.permute(correlation_map, (0, 2, 1)), reshaped_compact
+        )
+        return cross_attention / (torch.unsqueeze(denominator, dim=2) + epsilon)
+
+    def concatenate_features(self, embedding, aggregate_feature):
+        concatenated = torch.cat([embedding, aggregate_feature], dim=1)
+        return concatenated[..., None, None]
+
+    def forward(self, embedding1, compact_feature1, embedding2, compact_feature2):
         # (B, 512, 1)
-        F1 = torch.unsqueeze(extract_feature1, 2)
+        F1 = self.extract_and_unsqueeze_features(compact_feature1, 2)
         # (B, 1, 512)
-        F2 = torch.unsqueeze(extract_feature2, 1)
+        F2 = self.extract_and_unsqueeze_features(compact_feature2, 1)
 
         # (B, 512, 512)
-        correlation_map = torch.exp(torch.matmul(F1, F2) / (512**0.5))  # (_,512,512)
-        # (B, 512)
-        denominator1 = torch.sum(correlation_map, dim=2)  # sum of each col
-        # (B, 512)
-        denominator2 = torch.sum(correlation_map, dim=1)  # sum of each row
+        correlation_map = self.compute_correlation_map(F1, F2)
 
         # (B, 512, 49)
-        epsilon = 1e-5
-        cross_attention_feature1 = torch.matmul(correlation_map, compact_feature1.view(-1, 512, 7 * 7)) / (
-            torch.unsqueeze(denominator1, dim=2) + epsilon
-        )  # (_,256,) broadcast to each col ->
+        cross_attention_feature1 = self.compute_cross_attention(correlation_map, compact_feature1, 2)
         # (B, 512, 49)
-        cross_attention_feature2 = torch.matmul(
-            torch.permute(correlation_map, (0, 2, 1)), compact_feature2.view(-1, 512, 7 * 7)
-        ) / (
-            torch.unsqueeze(denominator2, dim=2) + epsilon
-        )  # (_,512,7,1) broadcast to each col
+        cross_attention_feature2 = self.compute_cross_attention(correlation_map, compact_feature2, 1)
 
         # (B, 25088)
         aggregate_feature1 = self.cbam(cross_attention_feature1.view(-1, 512, 7, 7) + compact_feature1)
+        # (B, 25088)
         aggregate_feature2 = self.cbam(cross_attention_feature2.view(-1, 512, 7, 7) + compact_feature2)
 
-        # (B, 25600, 1, 1)
-        concate_feature1 = (torch.cat([embedding1, aggregate_feature1], dim=1))[..., None, None]  # 512*7*7+512
-        concate_feature2 = (torch.cat([embedding2, aggregate_feature2], dim=1))[..., None, None]  # 512*7*7+512
+        # (B, 25600, 1, 1) because of 512*7*7+512
+        concate_feature1 = self.concatenate_features(embedding1, aggregate_feature1)
+        concate_feature2 = self.concatenate_features(embedding2, aggregate_feature2)
 
         # (B, 512)
         x_out1 = torch.squeeze(self.conv(concate_feature1))
         x_out2 = torch.squeeze(self.conv(concate_feature2))
 
-        # (B, 25600)
-        concate_feature1 = torch.squeeze(concate_feature1)
-        concate_feature2 = torch.squeeze(concate_feature2)
-
-        return concate_feature1, concate_feature2, x_out1, x_out2
+        # 2x (B, 25600), 2x (B, 512)
+        return torch.squeeze(concate_feature1), torch.squeeze(concate_feature2), x_out1, x_out2
 
 
 class KFCAttentionV2(KFCAttention):
@@ -293,6 +296,39 @@ class KFCAttentionV2(KFCAttention):
         # (B, 512, 50)
         concat_feature = self.conv_concat(concat_feature)
         return x1, x2, concat_feature.view(-1, 512, 50)
+
+
+class KFCAttentionV3(KFCAttention):
+
+    def forward(self, embedding1, compact_feature1, embedding2, compact_feature2):
+        # (B, 512, 1)
+        F1 = self.extract_and_unsqueeze_features(compact_feature1, 2)
+        # (B, 1, 512)
+        F2 = self.extract_and_unsqueeze_features(compact_feature2, 1)
+
+        # (B, 512, 512)
+        correlation_map = self.compute_correlation_map(F1, F2)
+
+        # (B, 512, 49)
+        cross_attention_feature1 = self.compute_cross_attention(correlation_map, compact_feature1, 2)
+        # (B, 512, 49)
+        cross_attention_feature2 = self.compute_cross_attention(correlation_map, compact_feature2, 1)
+
+        # (B, 25088)
+        aggregate_feature1 = self.cbam(cross_attention_feature1.view(-1, 512, 7, 7) + compact_feature1)
+        # (B, 25088)
+        aggregate_feature2 = self.cbam(cross_attention_feature2.view(-1, 512, 7, 7) + compact_feature2)
+
+        # (B, 25600, 1, 1) because of 512*7*7+512
+        concate_feature1 = self.concatenate_features(embedding1, aggregate_feature1)
+        concate_feature2 = self.concatenate_features(embedding2, aggregate_feature2)
+
+        # (B, 512)
+        x_out1 = torch.squeeze(self.conv(concate_feature1))
+        x_out2 = torch.squeeze(self.conv(concate_feature2))
+
+        # (B, 512), (B, 512), (B, 512, 512)
+        return x_out1, x_out2, correlation_map
 
 
 if __name__ == "__main__":

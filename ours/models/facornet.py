@@ -4,7 +4,7 @@ import torch.nn as nn
 import torchmetrics as tm
 from datasets.utils import SampleKFC
 from losses import contrastive_loss
-from models.attention import ChannelCrossAttention, ChannelInteraction, KFCAttentionV2, SpatialCrossAttention
+from models.attention import ChannelCrossAttention, ChannelInteraction, SpatialCrossAttention
 from models.base import LightningBaseModel, load_pretrained_model
 from pytorch_metric_learning.losses import ArcFaceLoss
 
@@ -123,10 +123,10 @@ class FaCoR(torch.nn.Module):
 
 
 class FaCoRV2(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, attention: nn.Module):
         super(FaCoRV2, self).__init__()
         self.backbone = load_pretrained_model("ir_101")
-        self.attention = KFCAttentionV2()
+        self.attention = attention
 
     def forward(self, imgs, aug=False):
         img1, img2 = imgs

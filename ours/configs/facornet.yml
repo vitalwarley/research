@@ -59,6 +59,8 @@ model:
     anneal_strategy: cos
     model:
       class_path: models.facornet.FaCoR
+      init_args:
+        attention: models.attention.KFCAttentionV3
     loss: 
       class_path: losses.FaCoRContrastiveLoss
       init_args:

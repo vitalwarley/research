@@ -777,3 +777,4 @@ class LightningBaseModel(L.LightningModule):
             "ROC Curve and Histogram of Similarities", fig, global_step=self.current_epoch
         )
         plt.close(fig)
+        plt.close("all")

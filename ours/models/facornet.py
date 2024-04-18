@@ -4,6 +4,7 @@ import torch.nn as nn
 import torchmetrics as tm
 from datasets.utils import SampleKFC
 from losses import contrastive_loss
+from models.attention import ChannelCrossAttention, ChannelInteraction, KFCAttentionV2, SpatialCrossAttention
 from models.base import LightningBaseModel, load_pretrained_model
 from pytorch_metric_learning.losses import ArcFaceLoss
 
@@ -70,154 +71,81 @@ class FaCoR(torch.nn.Module):
         self.channel = 64
         self.spatial_ca = SpatialCrossAttention(self.channel * 8, CA=True)
         self.channel_ca = ChannelCrossAttention(self.channel * 8)
-        self.CCA = ChannelInteraction(1024)
+        self.channel_interaction = ChannelInteraction(1024)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         # self.task_kin = HeadKin(512, 12, 8)
 
     def forward(self, imgs, aug=False):
         img1, img2 = imgs
         idx = [2, 1, 0]
-        f1_0, x1_feat = self.backbone(img1[:, idx])
-        f2_0, x2_feat = self.backbone(img2[:, idx])
+        f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
+        f2_0, x2_feat = self.backbone(img2[:, idx])  # ...
 
+        # (B, 49, 49)
         _, _, att_map0 = self.spatial_ca(x1_feat, x2_feat)
 
+        # Both are (B, 512)
         f1_0 = l2_norm(f1_0)
         f2_0 = l2_norm(f2_0)
 
+        # Both are (B, 512, 7, 7)
         x1_feat = l2_norm(x1_feat)
         x2_feat = l2_norm(x2_feat)
 
+        # (B, 512)
         f1_1, f2_1, _ = self.channel_ca(f1_0, f2_0)
+        # 2x (B, 512, 7, 7)
         f1_2, f2_2, _ = self.spatial_ca(x1_feat, x2_feat)
 
+        # Both are (B, 512)
         f1_2 = torch.flatten(self.avg_pool(f1_2), 1)
         f2_2 = torch.flatten(self.avg_pool(f2_2), 1)
 
-        wC = self.CCA(torch.cat([f1_1, f1_2], 1).unsqueeze(2).unsqueeze(3))
+        # (B, 1024, 1, 1)
+        wC = self.channel_interaction(torch.cat([f1_1, f1_2], 1).unsqueeze(2).unsqueeze(3))
+        # (B, 2, 512, 1, 1)
         wC = wC.view(-1, 2, 512)[:, :, :, None, None]
+        # (B, 512, 1, 1)
         f1s = f1_1.unsqueeze(2).unsqueeze(3) * wC[:, 0] + f1_2.unsqueeze(2).unsqueeze(3) * wC[:, 1]
 
-        wC2 = self.CCA(torch.cat([f2_1, f2_2], 1).unsqueeze(2).unsqueeze(3))
+        # (B, 1024, 1, 1)
+        wC2 = self.channel_interaction(torch.cat([f2_1, f2_2], 1).unsqueeze(2).unsqueeze(3))
+        # (B, 2, 512, 1, 1)
         wC2 = wC2.view(-1, 2, 512)[:, :, :, None, None]
+        # (B, 512, 1, 1)
         f2s = f2_1.unsqueeze(2).unsqueeze(3) * wC2[:, 0] + f2_2.unsqueeze(2).unsqueeze(3) * wC2[:, 1]
 
+        # (B, 512)
         f1s = torch.flatten(f1s, 1)
         f2s = torch.flatten(f2s, 1)
 
-        # fc = torch.cat([f1s, f2s], dim=1)
-        # kin = self.task_kin(fc)
-
-        # return kin, f1s, f2s, att_map0
         return f1s, f2s, att_map0
 
 
-class SpatialCrossAttention(nn.Module):
-    """Self attention Layer"""
+class FaCoRV2(torch.nn.Module):
+    def __init__(self):
+        super(FaCoRV2, self).__init__()
+        self.backbone = load_pretrained_model("ir_101")
+        self.attention = KFCAttentionV2()
 
-    def __init__(self, in_dim, CA=False):
-        super(SpatialCrossAttention, self).__init__()
-        self.chanel_in = in_dim
-        reduction_ratio = 16
-        self.query_conv = nn.Conv2d(in_channels=in_dim * 2, out_channels=in_dim // reduction_ratio, kernel_size=1)
-        self.key_conv = nn.Conv2d(in_channels=in_dim * 2, out_channels=in_dim // reduction_ratio, kernel_size=1)
-        self.value_conv1 = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
-        self.value_conv2 = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
-        self.CA = ChannelInteraction(in_dim * 2)
-        self.gamma = nn.Parameter(torch.zeros(1))
-        self.UseCA = CA
-        self.softmax = nn.Softmax(dim=-1)  #
+    def forward(self, imgs, aug=False):
+        img1, img2 = imgs
+        idx = [2, 1, 0]
+        f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
+        f2_0, x2_feat = self.backbone(img2[:, idx])  # ...
 
-    def forward(self, x1, x2):
-        """
-        inputs :
-            x : input feature maps( B X C X W X H)
-        returns :
-            out : self attention value + input feature
-            attention: B X N X N (N is Width*Height)
-        """
-        m_batchsize, C, width, height = x1.size()
-        x = torch.cat([x1, x2], 1)
-        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)  # B X CX(N)
-        proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)  # B X C x (*W*H)
-        energy = torch.bmm(proj_query, proj_key)  # transpose check
-        attention = self.softmax(energy)  # BX (N) X (N)
-        proj_value1 = self.value_conv1(x1)
-        proj_value2 = self.value_conv2(x2)
+        # Both are (B, 512)
+        f1_0 = l2_norm(f1_0)
+        f2_0 = l2_norm(f2_0)
 
-        proj_value1 = proj_value1.view(m_batchsize, -1, width * height)  # B X C X N
-        proj_value2 = proj_value2.view(m_batchsize, -1, width * height)  # B X C X N
+        # Both are (B, 512, 7, 7)
+        x1_feat = l2_norm(x1_feat)
+        x2_feat = l2_norm(x2_feat)
 
-        out1 = torch.bmm(proj_value1, attention.permute(0, 2, 1))
-        out2 = torch.bmm(proj_value2, attention.permute(0, 2, 1))
-        out1 = out1.view(m_batchsize, -1, width, height) + x1.view(m_batchsize, -1, width, height)
-        out2 = out2.view(m_batchsize, -1, width, height) + x2.view(m_batchsize, -1, width, height)
-        # out = self.gamma*out + x.view(m_batchsize,2*C,width,height)
-        return out1, out2, attention
+        # (B, 512), (B, 512), (B, 49, 49)
+        f1s, f2s, attention_map = self.attention(f1_0, x1_feat, f2_0, x2_feat)
 
-
-class ChannelInteraction(nn.Module):
-    def __init__(self, channel):
-        super(ChannelInteraction, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.ca = nn.Sequential(
-            nn.Conv2d(channel, channel // 8, 1, padding=0, bias=True),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(channel // 8, channel, 1, padding=0, bias=True),
-            nn.Sigmoid(),
-        )
-
-    def forward(self, x):
-        # y = self.avg_pool(x)
-        y = x
-        # pdb.set_trace()
-        y = self.ca(y)
-        return y
-
-
-class ChannelCrossAttention(nn.Module):
-    """Channel attention module"""
-
-    def __init__(self, in_dim):
-        super(ChannelCrossAttention, self).__init__()
-        self.chanel_in = in_dim
-
-        self.conv = nn.Conv2d(in_channels=in_dim * 2, out_channels=in_dim, kernel_size=1)
-        self.gamma = nn.Parameter(torch.zeros(1))
-        self.softmax = nn.Softmax(dim=-1)
-
-    def forward(self, x1, x2):
-        """
-        inputs :
-            x : input feature maps( B X C X H X W)
-        returns :
-            out : attention value + input feature
-            attention: B X C X C
-        """
-        x1 = x1.unsqueeze(2).unsqueeze(3)
-        x2 = x2.unsqueeze(2).unsqueeze(3)
-        x = torch.cat([x1, x2], 1)
-        x = self.conv(x)
-        m_batchsize, C, height, width = x.size()
-        proj_query = x.view(m_batchsize, C, -1)
-        proj_key = x.view(m_batchsize, C, -1).permute(0, 2, 1)
-        energy = torch.bmm(proj_query, proj_key)
-        energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy) - energy
-        attention = self.softmax(energy_new)
-
-        proj_value1 = x1.view(m_batchsize, C, -1)
-        proj_value2 = x2.view(m_batchsize, C, -1)
-
-        out1 = torch.bmm(attention, proj_value1)
-        out1 = out1.view(m_batchsize, C, height, width)
-
-        out2 = torch.bmm(attention, proj_value2)
-        out2 = out2.view(m_batchsize, C, height, width)
-
-        out1 = out1 + x1
-        out2 = out2 + x2
-        # out = self.gamma*out + x
-        return out1.reshape(m_batchsize, -1), out2.reshape(m_batchsize, -1), attention
+        return f1s, f2s, attention_map
 
 
 # Define a custom L2 normalization layer
@@ -238,6 +166,12 @@ class FaCoRNetLightning(LightningBaseModel):
         loss = self.criterion(f1, f2, beta=att)
         sim = torch.cosine_similarity(f1, f2)
         outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2, att]}
+        # debug temperature
+        psi = (att**2).sum([1, 2]) / self.criterion.s
+        if self.training:
+            self.logger.experiment.add_histogram("psi/train", psi, self.global_step)
+        else:
+            self.logger.experiment.add_histogram("psi/val", psi, self.global_step)
         return outputs
 
     def training_step(self, batch, batch_idx):
@@ -388,3 +322,10 @@ class FaCoRNetKinRace(FaCoRNetLightning):
         self.similarities(outputs["sim"])
         self.is_kin_labels(is_kin)
         self.kin_labels(kin_relation)
+
+
+if __name__ == "__main__":
+    model = FaCoRV2()
+    model.eval()
+    img = torch.randn(2, 3, 112, 112)
+    model((img, img))

@@ -34,6 +34,27 @@ class ContrastiveLoss(torch.nn.Module):
         return contrastive_loss(x1, x2, self.beta)
 
 
+class FaCoRContrastiveLoss(torch.nn.Module):
+
+    def __init__(self, s=500):
+        super().__init__()
+        self.s = s
+
+    def forward(self, x1, x2, beta):
+        m = 0.0
+        x1x2 = torch.cat([x1, x2], dim=0)
+        x2x1 = torch.cat([x2, x1], dim=0)
+        beta = (beta**2).sum([1, 2]) / self.s
+        beta = torch.cat([beta, beta]).reshape(-1)
+        cosine_mat = torch.cosine_similarity(torch.unsqueeze(x1x2, dim=1), torch.unsqueeze(x1x2, dim=0), dim=2) / (
+            beta + m
+        )
+        mask = 1.0 - torch.eye(2 * x1.size(0)).to(x1.device)
+        numerators = torch.exp(torch.cosine_similarity(x1x2, x2x1, dim=1) / (beta + m))
+        denominators = torch.sum(torch.exp(cosine_mat) * mask, dim=1)
+        return -torch.mean(torch.log(numerators / denominators), dim=0)
+
+
 class KFCContrastiveLoss(ContrastiveLoss):
 
     def forward(self, x1, x2, races, bias_map):

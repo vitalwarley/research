@@ -59,3 +59,7 @@ model:
     anneal_strategy: cos
     model:
       class_path: models.facornet.FaCoR
+    loss: 
+      class_path: losses.FaCoRContrastiveLoss
+      init_args:
+        s: 500

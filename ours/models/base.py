@@ -639,7 +639,12 @@ class LightningBaseModel(L.LightningModule):
         elif stage == "test":
             best_threshold = self.threshold
         else:  # Compute best threshold for training or validation
-            best_threshold = thresholds[maxindex].item()  # probability
+            best_threshold = thresholds[maxindex]  # probability
+            # Check if is nan, if so, set to 0.5
+            if torch.isnan(best_threshold):
+                best_threshold = 0.5
+            else:
+                best_threshold = best_threshold.item()
 
         # Compute metrics
         #   - similarities will be converted to probabilites,

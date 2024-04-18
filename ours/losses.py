@@ -65,6 +65,39 @@ class FaCoRContrastiveLossV2(FaCoRContrastiveLoss):
         return beta
 
 
+class FaCoRContrastiveLossV3(FaCoRContrastiveLoss):
+
+    def m(self, beta, epsilon=1e-6):
+        beta = -(beta * (beta + epsilon).log()).sum(dim=[1, 2])
+        n_features = beta.shape[-1]  # Assuming the last dim of attention holds the class probabilities
+        max_entropy = torch.log(torch.tensor(n_features, dtype=torch.float32))
+        normalized_entropy = beta / max_entropy
+
+        return normalized_entropy
+
+
+class FaCoRContrastiveLossV4(FaCoRContrastiveLoss):
+
+    def m(self, beta):
+        beta = beta.mean(dim=[1, 2])
+        return beta
+
+
+class FaCoRContrastiveLossV5(FaCoRContrastiveLoss):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.min_val = 0.08  # Define your range minimum
+        self.max_val = 0.1  # Define your range maximum
+
+    def m(self, beta):
+        # Normalize the tensor to [0, 1] and then scale to [min_val, max_val]
+        beta = (beta**2).sum(dim=(1, 2))
+        beta = (beta - beta.min()) / (beta.max() - beta.min())
+        beta = beta * (self.max_val - self.min_val) + self.min_val
+        return beta
+
+
 class KFCContrastiveLoss(ContrastiveLoss):
 
     def forward(self, x1, x2, races, bias_map):

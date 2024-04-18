@@ -97,8 +97,10 @@ class ChannelCrossAttention(nn.Module):
         proj_key = x.view(m_batchsize, C, -1).permute(0, 2, 1)
         energy = torch.bmm(proj_query, proj_key)
         # This is wrong: it inverts the attention
-        energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy) - energy
-        attention = self.softmax(energy_new)
+        # energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy) - energy
+        # attention = self.softmax(energy_new)
+        # This is correct
+        attention = self.softmax(energy)
 
         proj_value1 = x1.view(m_batchsize, C, -1)
         proj_value2 = x2.view(m_batchsize, C, -1)

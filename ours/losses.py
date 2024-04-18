@@ -40,11 +40,14 @@ class FaCoRContrastiveLoss(torch.nn.Module):
         super().__init__()
         self.s = s
 
+    def m(self, beta):
+        return (beta**2).sum([1, 2]) / self.s
+
     def forward(self, x1, x2, beta):
         m = 0.0
         x1x2 = torch.cat([x1, x2], dim=0)
         x2x1 = torch.cat([x2, x1], dim=0)
-        beta = (beta**2).sum([1, 2]) / self.s
+        beta = self.m(beta)
         beta = torch.cat([beta, beta]).reshape(-1)
         cosine_mat = torch.cosine_similarity(torch.unsqueeze(x1x2, dim=1), torch.unsqueeze(x1x2, dim=0), dim=2) / (
             beta + m
@@ -53,6 +56,13 @@ class FaCoRContrastiveLoss(torch.nn.Module):
         numerators = torch.exp(torch.cosine_similarity(x1x2, x2x1, dim=1) / (beta + m))
         denominators = torch.sum(torch.exp(cosine_mat) * mask, dim=1)
         return -torch.mean(torch.log(numerators / denominators), dim=0)
+
+
+class FaCoRContrastiveLossV2(FaCoRContrastiveLoss):
+
+    def m(self, beta, epsilon=1e-6):
+        beta = -(beta * (beta + epsilon).log()).sum(dim=[1, 2])
+        return beta
 
 
 class KFCContrastiveLoss(ContrastiveLoss):

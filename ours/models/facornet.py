@@ -4,15 +4,9 @@ import torch.nn as nn
 import torchmetrics as tm
 from datasets.utils import SampleKFC
 from losses import contrastive_loss
-from models.attention import ChannelCrossAttention, ChannelInteraction, SpatialCrossAttention
 from models.base import LightningBaseModel, load_pretrained_model
+from models.utils import l2_norm
 from pytorch_metric_learning.losses import ArcFaceLoss
-
-
-def l2_norm(input, axis=1):
-    norm = torch.norm(input, 2, axis, True)
-    output = torch.div(input, norm)
-    return output
 
 
 def to_input(pil_rgb_image):
@@ -65,15 +59,10 @@ class HeadFamily(nn.Module):
 
 
 class FaCoR(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, attention: nn.Module):
         super(FaCoR, self).__init__()
         self.backbone = load_pretrained_model("ir_101")
-        self.channel = 64
-        self.spatial_ca = SpatialCrossAttention(self.channel * 8, CA=True)
-        self.channel_ca = ChannelCrossAttention(self.channel * 8)
-        self.channel_interaction = ChannelInteraction(1024)
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        # self.task_kin = HeadKin(512, 12, 8)
+        self.attention = attention
 
     def forward(self, imgs, aug=False):
         img1, img2 = imgs
@@ -81,52 +70,16 @@ class FaCoR(torch.nn.Module):
         f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
         f2_0, x2_feat = self.backbone(img2[:, idx])  # ...
 
-        # (B, 49, 49)
-        _, _, att_map0 = self.spatial_ca(x1_feat, x2_feat)
-
         # Both are (B, 512)
         f1_0 = l2_norm(f1_0)
         f2_0 = l2_norm(f2_0)
 
-        # Both are (B, 512, 7, 7)
-        x1_feat = l2_norm(x1_feat)
-        x2_feat = l2_norm(x2_feat)
+        f1s, f2s, attention_map = self.attention(f1_0, x1_feat, f2_0, x2_feat)
 
-        # (B, 512)
-        f1_1, f2_1, _ = self.channel_ca(f1_0, f2_0)
-        # 2x (B, 512, 7, 7)
-        f1_2, f2_2, _ = self.spatial_ca(x1_feat, x2_feat)
-
-        # Both are (B, 512)
-        f1_2 = torch.flatten(self.avg_pool(f1_2), 1)
-        f2_2 = torch.flatten(self.avg_pool(f2_2), 1)
-
-        # (B, 1024, 1, 1)
-        wC = self.channel_interaction(torch.cat([f1_1, f1_2], 1).unsqueeze(2).unsqueeze(3))
-        # (B, 2, 512, 1, 1)
-        wC = wC.view(-1, 2, 512)[:, :, :, None, None]
-        # (B, 512, 1, 1)
-        f1s = f1_1.unsqueeze(2).unsqueeze(3) * wC[:, 0] + f1_2.unsqueeze(2).unsqueeze(3) * wC[:, 1]
-
-        # (B, 1024, 1, 1)
-        wC2 = self.channel_interaction(torch.cat([f2_1, f2_2], 1).unsqueeze(2).unsqueeze(3))
-        # (B, 2, 512, 1, 1)
-        wC2 = wC2.view(-1, 2, 512)[:, :, :, None, None]
-        # (B, 512, 1, 1)
-        f2s = f2_1.unsqueeze(2).unsqueeze(3) * wC2[:, 0] + f2_2.unsqueeze(2).unsqueeze(3) * wC2[:, 1]
-
-        # (B, 512)
-        f1s = torch.flatten(f1s, 1)
-        f2s = torch.flatten(f2s, 1)
-
-        return f1s, f2s, att_map0
+        return f1s, f2s, attention_map
 
 
-class FaCoRV2(torch.nn.Module):
-    def __init__(self, attention: nn.Module):
-        super(FaCoRV2, self).__init__()
-        self.backbone = load_pretrained_model("ir_101")
-        self.attention = attention
+class FaCoRV2(FaCoR):
 
     def forward(self, imgs, aug=False):
         img1, img2 = imgs
@@ -166,8 +119,8 @@ class FaCoRNetLightning(LightningBaseModel):
         loss = self.criterion(f1, f2, beta=att)
         sim = torch.cosine_similarity(f1, f2)
         outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2, att]}
-        # debug temperature
-        psi = (att**2).sum([1, 2]) / self.criterion.s
+        # debug temperature (improve it some callback)
+        psi = self.criterion.m(att)
         if self.training:
             self.logger.experiment.add_histogram("psi/train", psi, self.global_step)
         else:

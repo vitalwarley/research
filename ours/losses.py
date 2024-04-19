@@ -98,6 +98,26 @@ class FaCoRContrastiveLossV5(FaCoRContrastiveLoss):
         return beta
 
 
+class FaCoRContrastiveLossV6(FaCoRContrastiveLoss):
+
+    def m(self, betas):
+        beta_0, beta_1 = betas
+        beta_0 = beta_0.mean(dim=[1, 2])
+        beta_1 = beta_1.mean(dim=[1, 2])
+        beta = beta_0 + beta_1  # / 2
+        return beta
+
+
+class FaCoRContrastiveLossV7(FaCoRContrastiveLoss):
+
+    def m(self, betas):
+        beta_0, beta_1 = betas
+        beta_0 = (beta_0**2).sum([1, 2]) / self.s
+        beta_1 = (beta_1**2).sum([1, 2]) / self.s
+        beta = beta_0 + beta_1  # / 2
+        return beta
+
+
 class KFCContrastiveLoss(ContrastiveLoss):
 
     def forward(self, x1, x2, races, bias_map):

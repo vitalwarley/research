@@ -203,6 +203,44 @@ class FaCoRAttentionV2(FaCoRAttention):
         return f1s, f2s, att_map0
 
 
+class FaCoRAttentionV3(FaCoRAttention):
+
+    def forward(self, f1_0, x1_feat, f2_0, x2_feat):
+
+        # Both are (B, 512, 7, 7)
+        x1_feat = l2_norm(x1_feat)
+        x2_feat = l2_norm(x2_feat)
+
+        # 2x (B, 512), (B, 512, 512)
+        f1_1, f2_1, att_map0 = self.channel_ca(f1_0, f2_0)
+        # 2x (B, 512, 7, 7), (B, 49, 49)
+        f1_2, f2_2, att_map1 = self.spatial_ca(x1_feat, x2_feat)
+
+        # Both are (B, 512)
+        f1_2 = torch.flatten(self.avg_pool(f1_2), 1)
+        f2_2 = torch.flatten(self.avg_pool(f2_2), 1)
+
+        # (B, 1024, 1, 1)
+        wC = self.channel_interaction(torch.cat([f1_1, f1_2], 1).unsqueeze(2).unsqueeze(3))
+        # (B, 2, 512, 1, 1)
+        wC = wC.view(-1, 2, 512)[:, :, :, None, None]
+        # (B, 512, 1, 1)
+        f1s = f1_1.unsqueeze(2).unsqueeze(3) * wC[:, 0] + f1_2.unsqueeze(2).unsqueeze(3) * wC[:, 1]
+
+        # (B, 1024, 1, 1)
+        wC2 = self.channel_interaction(torch.cat([f2_1, f2_2], 1).unsqueeze(2).unsqueeze(3))
+        # (B, 2, 512, 1, 1)
+        wC2 = wC2.view(-1, 2, 512)[:, :, :, None, None]
+        # (B, 512, 1, 1)
+        f2s = f2_1.unsqueeze(2).unsqueeze(3) * wC2[:, 0] + f2_2.unsqueeze(2).unsqueeze(3) * wC2[:, 1]
+
+        # (B, 512)
+        f1s = torch.flatten(f1s, 1)
+        f2s = torch.flatten(f2s, 1)
+
+        return f1s, f2s, [att_map0, att_map1]
+
+
 # KFC
 
 

@@ -96,7 +96,7 @@ class FaCoRV2(FaCoR):
         x2_feat = l2_norm(x2_feat)
 
         # (B, 512), (B, 512), (B, 49, 49)
-        f1s, f2s, attention_map = self.attention(f1_0, x1_feat, f2_0, x2_feat)
+        f1s, f2s, *attention_map = self.attention(f1_0, x1_feat, f2_0, x2_feat)
 
         return f1s, f2s, attention_map
 
@@ -317,8 +317,32 @@ class FaCoRNetKinRace(FaCoRNetLightning):
         self.kin_labels(kin_relation)
 
 
-if __name__ == "__main__":
-    model = FaCoRV2()
-    model.eval()
-    img = torch.randn(2, 3, 112, 112)
-    model((img, img))
+class FaCoRNetKFC(LightningBaseModel):
+
+    def _step(self, inputs):
+        f1, f2, *_ = self(inputs)
+        loss = self.criterion(f1, f2)
+        sim = torch.cosine_similarity(f1, f2)
+        outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2]}
+        return outputs
+
+    def training_step(self, batch, batch_idx):
+        img1, img2, _ = batch
+        outputs = self._step([img1, img2])
+        loss = outputs["contrastive_loss"]
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        # on_step=True to see the warmup and cooldown properly :)
+        self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        return loss
+
+    def _eval_step(self, batch, batch_idx, stage):
+        img1, img2, labels = batch
+        kin_relation, is_kin = labels
+        outputs = self._step([img1, img2])
+        self.log(f"loss/{stage}", outputs["contrastive_loss"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Compute best threshold for training or validation
+        self.similarities(outputs["sim"])
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)

@@ -26,9 +26,18 @@ def contrastive_loss(x1, x2, beta=0.08):
 
 
 class ContrastiveLoss(torch.nn.Module):
-    def __init__(self, beta=0.08):
+    def __init__(self, **kwargs):
         super().__init__()
-        self.beta = beta
+        self.beta = kwargs.get("beta", 0.08)
+
+    def forward(self, x1, x2):
+        return contrastive_loss(x1, x2, self.beta)
+
+
+class ContrastiveLossV2(torch.nn.Module):
+    def __init__(self, s=0.08):
+        super().__init__()
+        self.beta = s
 
     def forward(self, x1, x2):
         return contrastive_loss(x1, x2, self.beta)

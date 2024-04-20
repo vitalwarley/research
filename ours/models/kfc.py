@@ -100,7 +100,6 @@ class KFC(nn.Module):
         idx = [2, 1, 0]
         e1, compact_feature1 = self.encoder(img1[:, idx])  # each featur 16, 512x7x7
         e2, compact_feature2 = self.encoder(img2[:, idx])
-        print(e1.shape, compact_feature1.shape, e2.shape, compact_feature2.shape)
         atten_em1, atten_em2, x1, x2 = self.attention(e1, compact_feature1, e2, compact_feature2)
         reverse_em1, reverse_em2 = grad_reverse(e1, 1.0), grad_reverse(e2, 1.0)
         r1, r2 = self.task_race(reverse_em1), self.task_race(reverse_em2)
@@ -124,6 +123,26 @@ class KFC(nn.Module):
         self.save_model(self.attention, os.path.join(path, f"Atten{num}.pth"))
         self.save_model(self.task_race, os.path.join(path, f"task_race{num}.pth"))
         self.save_model(self.debias_layer, os.path.join(path, f"debias_layer{num}.pth"))
+
+
+class KFCV2(nn.Module):
+    """
+    Traditional kinship verification only.
+    """
+
+    def __init__(self, attention: nn.Module):
+        super().__init__()
+        # self.encoder=KitModel("./kit_resnet101.pkl")
+        self.encoder = load_pretrained_model("ir_101")
+        self.attention = attention
+
+    def forward(self, imgs):
+        img1, img2 = imgs
+        idx = [2, 1, 0]
+        e1, compact_feature1 = self.encoder(img1[:, idx])  # each featur 16, 512x7x7
+        e2, compact_feature2 = self.encoder(img2[:, idx])
+        atten_em1, atten_em2, x1, x2 = self.attention(e1, compact_feature1, e2, compact_feature2)
+        return x1, x2, atten_em1, atten_em2
 
 
 class KFCLightning(LightningBaseModel):

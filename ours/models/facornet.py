@@ -101,6 +101,20 @@ class FaCoRV2(FaCoR):
         return f1s, f2s, attention_map
 
 
+class FaCoRV3(FaCoR):
+
+    def forward(self, imgs, aug=False):
+        img1, img2 = imgs
+        idx = [2, 1, 0]
+        f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
+        f2_0, x2_feat = self.backbone(img2[:, idx])  # ...
+
+        # (B, 512), (B, 512), (B, 49, 49)
+        f1s, f2s, *attention_map = self.attention(f1_0, x1_feat, f2_0, x2_feat)
+
+        return f1s, f2s, attention_map
+
+
 # Define a custom L2 normalization layer
 class L2Norm(nn.Module):
     def __init__(self, axis=1):

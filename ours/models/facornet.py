@@ -80,6 +80,9 @@ class FaCoR(torch.nn.Module):
 
 
 class FaCoRV2(FaCoR):
+    """
+    Similar to FaCoR. Different with respect to the attention. It is designed for KFCAttention.
+    """
 
     def forward(self, imgs, aug=False):
         img1, img2 = imgs
@@ -102,6 +105,13 @@ class FaCoRV2(FaCoR):
 
 
 class FaCoRV3(FaCoR):
+    """
+    Traditional kinship verification only.
+
+    It is designed for KFCAttention. Also differs from FaCoR in the ausence of l2_norm for the features..
+
+    Note that there is a mistake: with KFCAttention, f1s and f2s are the before-conv attention maps.
+    """
 
     def forward(self, imgs, aug=False):
         img1, img2 = imgs
@@ -332,11 +342,50 @@ class FaCoRNetKinRace(FaCoRNetLightning):
 
 
 class FaCoRNetKFC(LightningBaseModel):
+    """
+    Designed for KFC with traditional contrastive loss (ContrasiveLossV2).
+    """
 
     def _step(self, inputs):
         f1, f2, *_ = self(inputs)
         loss = self.criterion(f1, f2)
         sim = torch.cosine_similarity(f1, f2)
+        outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2]}
+        return outputs
+
+    def training_step(self, batch, batch_idx):
+        img1, img2, _ = batch
+        outputs = self._step([img1, img2])
+        loss = outputs["contrastive_loss"]
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        # on_step=True to see the warmup and cooldown properly :)
+        self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        return loss
+
+    def _eval_step(self, batch, batch_idx, stage):
+        img1, img2, labels = batch
+        kin_relation, is_kin = labels
+        outputs = self._step([img1, img2])
+        self.log(f"loss/{stage}", outputs["contrastive_loss"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Compute best threshold for training or validation
+        self.similarities(outputs["sim"])
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)
+
+
+class FaCoRNetKFCV2(LightningBaseModel):
+    """
+    Designed for KFC with traditional contrastive loss (ContrasiveLossV2).
+
+    It uses backbone embeddings at validation and test time to compute the similarity.
+    """
+
+    def _step(self, inputs):
+        e1, e2, f1, f2, *_ = self(inputs)
+        loss = self.criterion(f1, f2)
+        sim = torch.cosine_similarity(e1, e2)
         outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2]}
         return outputs
 

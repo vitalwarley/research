@@ -23,8 +23,8 @@ from torch.nn import (
 from torch.optim.lr_scheduler import MultiStepLR, OneCycleLR
 from torchmetrics.utilities import dim_zero_cat
 
+plt.switch_backend("agg")
 HERE = Path(__file__).parent
-
 adaface_models = {
     "ir_50": "pretrained/adaface_ir50_ms1mv2.ckpt",
     "ir_101": HERE / "../weights/adaface_ir101_webface12m.ckpt",  # "adaface_ir101_webface12m.ckpt",adaface_ir101_ms1mv3

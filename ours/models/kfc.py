@@ -128,6 +128,8 @@ class KFC(nn.Module):
 class KFCV2(nn.Module):
     """
     Traditional kinship verification only.
+
+    It is designed for KFCAttention.
     """
 
     def __init__(self, attention: nn.Module):
@@ -148,6 +150,8 @@ class KFCV2(nn.Module):
 class KFCV3(nn.Module):
     """
     Traditional kinship verification only.
+
+    It is designed for FaCoRAttention. Equal to FaCoRV3 -- no feature normalization.
     """
 
     def __init__(self, attention: nn.Module):
@@ -163,6 +167,30 @@ class KFCV3(nn.Module):
         e2, compact_feature2 = self.encoder(img2[:, idx])
         x1, x2, attention_map = self.attention(e1, compact_feature1, e2, compact_feature2)
         return x1, x2, attention_map
+
+
+class KFCV4(nn.Module):
+    """
+    Traditional kinship verification only.
+
+    It is designed for KFCAttention.
+
+    It also returns backbone features to use with FaCoRNetKFCV2 model.
+    """
+
+    def __init__(self, attention: nn.Module):
+        super().__init__()
+        # self.encoder=KitModel("./kit_resnet101.pkl")
+        self.encoder = load_pretrained_model("ir_101")
+        self.attention = attention
+
+    def forward(self, imgs):
+        img1, img2 = imgs
+        idx = [2, 1, 0]
+        e1, compact_feature1 = self.encoder(img1[:, idx])  # each featur 16, 512x7x7
+        e2, compact_feature2 = self.encoder(img2[:, idx])
+        atten_em1, atten_em2, x1, x2 = self.attention(e1, compact_feature1, e2, compact_feature2)
+        return e1, e2, x1, x2, atten_em1, atten_em2
 
 
 class KFCLightning(LightningBaseModel):

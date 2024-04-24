@@ -64,7 +64,7 @@ class FaCoR(torch.nn.Module):
         self.backbone = load_pretrained_model("ir_101")
         self.attention = attention
 
-    def forward(self, imgs, aug=False):
+    def forward(self, imgs):
         img1, img2 = imgs
         idx = [2, 1, 0]
         f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
@@ -84,7 +84,7 @@ class FaCoRV2(FaCoR):
     Similar to FaCoR. Different with respect to the attention. It is designed for KFCAttention.
     """
 
-    def forward(self, imgs, aug=False):
+    def forward(self, imgs):
         img1, img2 = imgs
         idx = [2, 1, 0]
         f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
@@ -113,7 +113,7 @@ class FaCoRV3(FaCoR):
     Note that there is a mistake: with KFCAttention, f1s and f2s are the before-conv attention maps.
     """
 
-    def forward(self, imgs, aug=False):
+    def forward(self, imgs):
         img1, img2 = imgs
         idx = [2, 1, 0]
         f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
@@ -123,6 +123,29 @@ class FaCoRV3(FaCoR):
         f1s, f2s, *attention_map = self.attention(f1_0, x1_feat, f2_0, x2_feat)
 
         return f1s, f2s, attention_map
+
+
+class FaCoRV4(FaCoR):
+    """
+    Traditional kinship verification only.
+
+    Similar to FaCoR, but also returns the backbone embeddings.
+
+    """
+
+    def forward(self, imgs):
+        img1, img2 = imgs
+        idx = [2, 1, 0]
+        f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
+        f2_0, x2_feat = self.backbone(img2[:, idx])  # ...
+
+        # Both are (B, 512)
+        f1_0 = l2_norm(f1_0)
+        f2_0 = l2_norm(f2_0)
+
+        f1s, f2s, attention_map = self.attention(f1_0, x1_feat, f2_0, x2_feat)
+
+        return f1_0, f2_0, f1s, f2s, attention_map
 
 
 # Define a custom L2 normalization layer

@@ -1,9 +1,6 @@
-import os
-
 import torch
 import torch.nn as nn
 from datasets.utils import Sample, SampleKFC
-from models.attention import KFCAttention
 from models.base import CollectPreds, LightningBaseModel, load_pretrained_model
 from torch.autograd import Function
 
@@ -87,11 +84,11 @@ class Debias(nn.Module):
 
 
 class KFC(nn.Module):
-    def __init__(self):
+    def __init__(self, attention: nn.Module):
         super().__init__()
         # self.encoder=KitModel("./kit_resnet101.pkl")
         self.encoder = load_pretrained_model("ir_101")
-        self.attention = KFCAttention()
+        self.attention = attention
         self.task_race = HeadRace(512, 4, 8)
         self.debias_layer = Debias(512 * 7 * 7 + 512)
 
@@ -108,21 +105,39 @@ class KFC(nn.Module):
 
         return r1, r2, e1, e2, x1, x2, biasmap, bias_pair
 
-    @staticmethod
-    def save_model(model, path):
-        torch.save(model.state_dict(), path)
 
-    def load(self, path, num=0):
-        self.encoder.load_state_dict(torch.load(os.path.join(path, f"encoder{num}.pth")))
-        self.attention.load_state_dict(torch.load(os.path.join(path, f"Atten{num}.pth")))
-        self.task_race.load_state_dict(torch.load(os.path.join(path, f"task_race{num}.pth")))
-        self.debias_layer.load_state_dict(torch.load(os.path.join(path, f"debias_layer{num}.pth")))
+class KFCFullV2(KFC):
+    """
+    KFC wit FaCoRAttentionV3.
+    """
 
-    def save(self, path, num=0):
-        self.save_model(self.encoder, os.path.join(path, f"encoder{num}.pth"))
-        self.save_model(self.attention, os.path.join(path, f"Atten{num}.pth"))
-        self.save_model(self.task_race, os.path.join(path, f"task_race{num}.pth"))
-        self.save_model(self.debias_layer, os.path.join(path, f"debias_layer{num}.pth"))
+    def __init__(self, attention: nn.Module):
+        super().__init__(attention)
+        self.debias_layer = Debias(512)  # Redefine the debias layer for the new attention model
+        self.proj_atten1 = nn.Sequential(
+            nn.Linear(512 * 512, 512),
+            nn.ReLU(),
+        )
+        self.proj_atten2 = nn.Sequential(
+            nn.Linear(49 * 49, 512),
+            nn.ReLU(),
+        )
+
+    def forward(self, imgs):
+        img1, img2 = imgs
+        idx = [2, 1, 0]
+        e1, compact_feature1 = self.encoder(img1[:, idx])  # each featur 16, 512x7x7
+        e2, compact_feature2 = self.encoder(img2[:, idx])
+        x1, x2, (atten_em1, atten_em2) = self.attention(e1, compact_feature1, e2, compact_feature2)
+        reverse_em1, reverse_em2 = grad_reverse(e1, 1.0), grad_reverse(e2, 1.0)
+        r1, r2 = self.task_race(reverse_em1), self.task_race(reverse_em2)
+        atten_em1 = atten_em1.view(atten_em1.size(0), -1)
+        atten_em2 = atten_em2.view(atten_em2.size(0), -1)
+        atten_em1 = self.proj_atten1(atten_em1)  # (B, 512, 512) -> (B, 512)
+        atten_em2 = self.proj_atten2(atten_em2)  # (B, 49, 49) -> (B, 49)
+        biasmap, bias_pair = self.debias_layer(atten_em1, atten_em2)
+
+        return r1, r2, e1, e2, x1, x2, biasmap, bias_pair
 
 
 class KFCV2(nn.Module):

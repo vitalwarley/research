@@ -59,6 +59,8 @@ model:
     anneal_strategy: cos
     model:
       class_path: models.kfc.KFC
+      init_args:
+        attention: models.attention.KFCAttention
     loss: 
       - class_path: losses.KFCContrastiveLossV2
         init_args:

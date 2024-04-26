@@ -241,6 +241,20 @@ class FaCoRAttentionV3(FaCoRAttention):
         return f1s, f2s, [att_map0, att_map1]
 
 
+class FaCoRAttentionDummy(nn.Module):
+    """
+    Dummy FaCoR Attention module that does not perform any computation.
+
+    Designed for FaCoRV5.
+    """
+
+    def __init__(self):
+        super(FaCoRAttentionDummy, self).__init__()
+
+    def forward(self, f1_0, x1_feat, f2_0, x2_feat):
+        return f1_0, f2_0
+
+
 # KFC
 
 

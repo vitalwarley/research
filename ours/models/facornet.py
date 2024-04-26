@@ -148,6 +148,26 @@ class FaCoRV4(FaCoR):
         return f1_0, f2_0, f1s, f2s, attention_map
 
 
+class FaCoRV5(FaCoR):
+    """
+    Designed for FaCoRNetBasic.
+    """
+
+    def forward(self, imgs):
+        img1, img2 = imgs
+        idx = [2, 1, 0]
+        f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
+        f2_0, x2_feat = self.backbone(img2[:, idx])  # ...
+
+        # Both are (B, 512)
+        f1_0 = l2_norm(f1_0)
+        f2_0 = l2_norm(f2_0)
+
+        f1s, f2s = self.attention(f1_0, x1_feat, f2_0, x2_feat)
+
+        return f1s, f2s
+
+
 # Define a custom L2 normalization layer
 class L2Norm(nn.Module):
     def __init__(self, axis=1):
@@ -409,6 +429,40 @@ class FaCoRNetKFCV2(LightningBaseModel):
         e1, e2, f1, f2, *_ = self(inputs)
         loss = self.criterion(f1, f2)
         sim = torch.cosine_similarity(e1, e2)
+        outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2]}
+        return outputs
+
+    def training_step(self, batch, batch_idx):
+        img1, img2, _ = batch
+        outputs = self._step([img1, img2])
+        loss = outputs["contrastive_loss"]
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        # on_step=True to see the warmup and cooldown properly :)
+        self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        return loss
+
+    def _eval_step(self, batch, batch_idx, stage):
+        img1, img2, labels = batch
+        kin_relation, is_kin = labels
+        outputs = self._step([img1, img2])
+        self.log(f"loss/{stage}", outputs["contrastive_loss"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Compute best threshold for training or validation
+        self.similarities(outputs["sim"])
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)
+
+
+class FaCoRNetBasic(LightningBaseModel):
+    """
+    Designed for traditional contrastive loss (ContrasiveLossV2). No attention mechanism.
+    """
+
+    def _step(self, inputs):
+        f1, f2 = self(inputs)
+        loss = self.criterion(f1, f2)
+        sim = torch.cosine_similarity(f1, f2)
         outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2]}
         return outputs
 

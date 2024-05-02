@@ -239,7 +239,7 @@ class FaCoRNetTask3(L.LightningModule):
             self._read_lists(self.list_dir)
 
     def _read_lists(self, list_dir):
-        self.probe_fids = self._load_fids(f"{list_dir}/probe_list.csv")[:2]
+        self.probe_fids = self._load_fids(f"{list_dir}/probe_list.csv")
         self.gallery_fids = self._load_fids(f"{list_dir}/gallery_list.csv")
         self.n_probes = len(self.probe_fids)
         self.n_gallery = len(self.gallery_fids)

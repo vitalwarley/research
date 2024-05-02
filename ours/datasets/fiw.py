@@ -123,7 +123,7 @@ class FIWSearchRetrieval(Dataset):
     def __init__(self, probe_dataset, gallery_dataset):
         super().__init__()
         self.probe_dataset = probe_dataset
-        self.probe_samples = list(iter(probe_dataset))[:2]  # Cache probe samples
+        self.probe_samples = list(iter(probe_dataset))  # Cache probe samples
 
         self.gallery_dataset = gallery_dataset
         self.gallery_samples = list(iter(gallery_dataset))  # Cache gallery samples

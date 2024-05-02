@@ -1,10 +1,14 @@
+from pathlib import Path
+
+import lightning as L
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torchmetrics as tm
 from datasets.utils import SampleKFC
 from losses import contrastive_loss
-from models.base import LightningBaseModel, load_pretrained_model
+from models.base import CollectPreds, LightningBaseModel, load_pretrained_model
 from models.utils import l2_norm
 from pytorch_metric_learning.losses import ArcFaceLoss
 
@@ -213,6 +217,133 @@ class FaCoRNetLightning(LightningBaseModel):
         self.is_kin_labels(is_kin)
         self.kin_labels(kin_relation)
         self.logger.experiment.add_histogram("psi/val", psi, self.global_step)
+
+
+class FaCoRNetTask3(L.LightningModule):
+    """
+    Task 3 is a bit different.
+
+    It uses the backbone embeddings to compute the similarity between the probes and the gallery.
+    """
+
+    def __init__(self, model: nn.Module, list_dir: str):
+        super().__init__()
+        self.model = model
+        self.list_dir = list_dir
+        self.similarity_data = []
+        self.rank_min = []
+        self.rank_max = []
+
+    def setup(self, stage):
+        if stage == "predict":
+            self._read_lists(self.list_dir)
+
+    def _read_lists(self, list_dir):
+        self.probe_fids = self._load_fids(f"{list_dir}/probe_list.csv")[:2]
+        self.gallery_fids = self._load_fids(f"{list_dir}/gallery_list.csv")
+        self.n_probes = len(self.probe_fids)
+        self.n_gallery = len(self.gallery_fids)
+
+    def _load_fids(self, path):
+        fids = pd.read_csv(path).fid.values
+        fids = [int(fid[1:]) for fid in fids]
+        return torch.tensor(fids).cuda()
+
+    def compute_rank_k_accuracy(self, rank_matrix, k=1):
+        """
+        Compute the accuracy at rank k.
+        Each row of rank_matrix represents a probe and contains the indices of gallery images sorted by similarity.
+        """
+        # Map the sorted gallery indices to their family IDs
+        sorted_gallery_fids = self.gallery_fids[rank_matrix]
+
+        # Compare the family IDs of probes with the family IDs of top-k sorted gallery images
+        matches = sorted_gallery_fids[:, :k] == self.probe_fids[:, None]
+
+        # Check if any of the top k entries is a match for each probe
+        correct_matches = matches.any(dim=1)
+
+        # Calculate the accuracy as the mean of correct matches
+        accuracy = correct_matches.float().mean().item()
+        return accuracy
+
+    def compute_map(self, rank_matrix):
+        """
+        Compute the Mean Average Precision (mAP) across all probes.
+        Each row of rank_matrix represents a probe and contains the indices of gallery images sorted by similarity.
+        """
+        # Map the sorted gallery indices to their family IDs
+        sorted_gallery_fids = self.gallery_fids[rank_matrix]
+
+        # Calculate matches
+        relevance = (sorted_gallery_fids == self.probe_fids[:, None]).float()
+
+        # Calculate precision at each rank
+        cumsum = torch.cumsum(relevance, dim=1)
+        precision_at_k = cumsum / torch.arange(1, relevance.shape[1] + 1).cuda()
+
+        # Only consider the ranks where relevance is 1
+        average_precision = (precision_at_k * relevance).sum(dim=1) / relevance.sum(dim=1)
+
+        # Handle division by zero for cases with no relevant documents
+        average_precision[torch.isnan(average_precision)] = 0
+
+        # Compute mean of average precisions
+        map_score = average_precision.mean().item()
+        return map_score
+
+    def forward(self, inputs):
+        return self.model(inputs)[:2]  # No attention map
+
+    def predict_step(self, batch, batch_idx):
+        (probe_index, probe_images), (gallery_ids, gallery_images) = batch
+        probe_embeddings, gallery_embeddings = self((probe_images, gallery_images))
+        similarities = torch.cosine_similarity(gallery_embeddings.unsqueeze(1), probe_embeddings.unsqueeze(0), dim=2)
+        max_similarities, _ = similarities.max(dim=1)
+        mean_similarities = similarities.mean(dim=1)
+        self.similarity_data.append((gallery_ids, max_similarities, mean_similarities))
+
+    def on_predict_batch_end(self, outputs, batch, batch_idx):
+        if batch_idx % self.n_gallery == 0:
+            self._compute_ranks()
+
+    def _compute_ranks(self):
+        gallery_indexes, max_similarities, mean_similarities = zip(*self.similarity_data)
+
+        gallery_indexes = torch.cat(gallery_indexes)
+        max_similarities = torch.cat(max_similarities)
+        mean_similarities = torch.cat(mean_similarities)
+
+        # Stack the gallery_indexes and each similarity
+        max_similarities = torch.stack([gallery_indexes, max_similarities], dim=1)
+        mean_similarities = torch.stack([gallery_indexes, mean_similarities], dim=1)
+        # Sort the similarities
+        max_indices = torch.argsort(max_similarities[:, 1], descending=True)
+        mean_indices = torch.argsort(mean_similarities[:, 1], descending=True)
+
+        rank_max = gallery_indexes[max_indices]
+        rank_min = gallery_indexes[mean_indices]
+
+        # Store the rank of the max and mean similarities gallery indexes
+        self.rank_max.append(rank_max)
+        self.rank_min.append(rank_min)
+
+        self.similarity_data = []
+
+    def on_predict_epoch_end(self):
+        rank_max = torch.cat(self.rank_max).view(self.n_probes, -1)
+        rank_min = torch.cat(self.rank_min).view(self.n_probes, -1)
+        # Compute the accuracy at rank 1 and mAP for both max and mean aggregations
+        acc_1_max = self.compute_rank_k_accuracy(rank_max, k=1)
+        acc_5_max = self.compute_rank_k_accuracy(rank_max, k=5)
+        acc_1_min = self.compute_rank_k_accuracy(rank_min, k=1)
+        acc_5_min = self.compute_rank_k_accuracy(rank_min, k=5)
+        map_max = self.compute_map(rank_max)
+        map_min = self.compute_map(rank_min)
+        # Print logs as key: value in one line
+        print(
+            f"\nrank@1/max: {acc_1_max:.4f}, rank@5/max: {acc_5_max:.4f}, rank@1/min: {acc_1_min:.4f}, rank@5/min: {acc_5_min:.4f}, mAP/max: {map_max:.4f}, mAP/min: {map_min:.4f}"
+        )
 
 
 class FaCoRNetLightningV2(LightningBaseModel):
@@ -486,3 +617,14 @@ class FaCoRNetBasic(LightningBaseModel):
         self.similarities(outputs["sim"])
         self.is_kin_labels(is_kin)
         self.kin_labels(kin_relation)
+
+
+if __name__ == "__main__":
+    from models.attention import FaCoRAttention
+    from torch.profiler import ProfilerActivity, profile, record_function
+
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+        # your model call here
+        model = FaCoRNetTask3(model=FaCoR(FaCoRAttention()), list_dir="../datasets/rfiw2021-track3/txt")
+        model([torch.rand(16, 3, 112, 112), torch.rand(16, 3, 112, 112)])
+    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))

@@ -174,6 +174,27 @@
         - operation: facornet:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt
+    search-retrieval:
+      description: Reproduction of Kinship Representation Learning with Face Componential Relation (2023) Task 3
+      exec: python tasks/facornet.py predict --config task_3.yml
+      sourcecode:
+        - utils.py
+        - losses.py
+        - models/*.py
+        - datasets/*.py
+        - tasks/facornet.py
+      flags-import: all
+      flags-dest: config:configs/task_3.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - operation: facornet:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
 
 - model: kfc
   operations:

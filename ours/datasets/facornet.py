@@ -2,10 +2,33 @@ from pathlib import Path
 
 import lightning as L
 import torch
+from datasets.fiw import FIW, FIWFamily, FIWGallery, FIWProbe, FIWSearchRetrieval
+from datasets.utils import SampleGallery, SampleProbe
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
-from .fiw import FIW, FIWFamily
+
+def sr_collate_fn(batch):
+    """
+    Collate function for Search and Retrieval.
+    """
+
+    # Unpack the batch
+    (probe_index, probe_images), (gallery_indexes, gallery_images) = batch[0]
+
+    # Convert probe_index to a tensor
+    probe_index = torch.tensor([probe_index])
+
+    # Concatenate probe_images and gallery_images
+    # Transform list of tensors into a single tensor per each
+    probe_images_tensor = torch.stack(probe_images)  # Shape: [num_probe_images, 3, 112, 112]
+    gallery_images_tensor = torch.stack(gallery_images)  # Shape: [num_gallery_images, 3, 112, 112]
+
+    # Handle gallery_indexes which is a list of tensors
+    # Since gallery_indexes are used for indexing or referencing, they could be concatenated as well
+    gallery_indexes_tensor = torch.tensor(gallery_indexes)
+
+    return (probe_index, probe_images_tensor), (gallery_indexes_tensor, gallery_images_tensor)
 
 
 class FIWFaCoRNet(FIW):
@@ -163,3 +186,53 @@ class FamilyDataModule(FaCoRNetDataModule):
 
     def train_dataloader(self):
         return DataLoader(self.family_dataset, batch_size=self.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+
+
+class FaCoRNetDMTask3(L.LightningDataModule):
+
+    def __init__(self, root_dir=".", transform=None):
+        super().__init__()
+        self.root_dir = root_dir
+        self.transform = transform or T.Compose([T.ToTensor()])
+
+    def setup(self, stage=None):
+        if stage == "predict" or stage is None:
+            self.probe_dataset = FIWProbe(
+                root_dir=self.root_dir,
+                sample_path="txt/probe.txt",
+                sample_cls=SampleProbe,
+                transform=self.transform,
+            )
+            self.gallery_dataset = FIWGallery(
+                root_dir=self.root_dir,
+                sample_path="txt/gallery.txt",
+                sample_cls=SampleGallery,
+                transform=self.transform,
+            )
+            self.search_retrieval = FIWSearchRetrieval(self.probe_dataset, self.gallery_dataset)
+        print(f"Setup {stage} datasets")
+
+    def predict_dataloader(self):
+        return DataLoader(
+            self.search_retrieval,
+            batch_size=1,
+            shuffle=False,
+            pin_memory=True,
+            collate_fn=sr_collate_fn,
+            num_workers=5,
+        )
+
+
+if __name__ == "__main__":
+    # Test FaCoRNetDMTask3
+    root_dir = "../datasets/rfiw2021-track3"
+    data_module = FaCoRNetDMTask3(root_dir=root_dir)
+    data_module.setup("predict")
+    fiw_sr = data_module.predict_dataloader()
+    print(len(fiw_sr))
+    # Iters through the probe and gallery samples
+    for i, ((probe_index, probe_images), (gallery_indexes, gallery_images)) in enumerate(fiw_sr):
+        # if i % len(fiw_gallery) == 0:
+        print(probe_index, len(probe_images), gallery_indexes)
+        if i > 2:
+            break

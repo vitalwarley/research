@@ -1,10 +1,10 @@
 from pathlib import Path
 
 import cv2
+import numpy as np
 import torch
-from torch.utils.data import Dataset
-
-from .utils import Sample
+from datasets.utils import Sample, SampleGallery, SampleProbe
+from torch.utils.data import Dataset, IterableDataset
 
 
 class FIW(Dataset):
@@ -12,7 +12,7 @@ class FIW(Dataset):
         self,
         root_dir: str = "",
         sample_path: str | Path = "",
-        batch_size: int = 20,
+        batch_size: int = 1,
         biased: bool = False,
         transform=None,
         sample_cls=Sample,
@@ -117,3 +117,95 @@ class FIWFamily(Dataset):  # from rfiw2020/fitw2020/dataset.py
 
     def __len__(self) -> int:
         return len(self.seq)
+
+
+class FIWSearchRetrieval(Dataset):
+    def __init__(self, probe_dataset, gallery_dataset):
+        super().__init__()
+        self.probe_dataset = probe_dataset
+        self.probe_samples = list(iter(probe_dataset))[:2]  # Cache probe samples
+
+        self.gallery_dataset = gallery_dataset
+        self.gallery_samples = list(iter(gallery_dataset))  # Cache gallery samples
+        self.gallery_start_index = 0  # Initialize gallery start index
+
+    def __len__(self):
+        # Return the total number of possible combinations of probe and gallery images
+        return len(self.probe_samples) * len(self.gallery_samples)
+
+    def __getitem__(self, idx):
+        # Calculate probe index
+        probe_index = idx % len(self.probe_samples)
+        probe_id, probe_images = self.probe_samples[probe_index]
+        num_probe_images = len(probe_images)
+
+        # Calculate dynamic gallery indices
+        gallery_ids = []
+        gallery_images = []
+        for i in range(num_probe_images):
+            current_gallery_index = (self.gallery_start_index + i) % len(self.gallery_samples)
+            gallery_id, gallery_image = self.gallery_samples[current_gallery_index]
+            gallery_ids.append(gallery_id)
+            gallery_images.append(gallery_image)
+
+        # Update gallery_start_index for the next probe
+        self.gallery_start_index = (self.gallery_start_index + num_probe_images) % len(self.gallery_samples)
+
+        # TODO: adjust for when len(gallery_samples) < len(probe_samples); maybe repeat in-batch samples?
+
+        return ((probe_id, probe_images), (gallery_ids, gallery_images))
+
+
+class FIWProbe(FIW, IterableDataset):
+
+    def __iter__(self):
+        self.sample_iter = iter(self.sample_list)  # Reset iterator
+        return self
+
+    def __next__(self):
+        sample = next(self.sample_iter)  # Get next sample
+        imgs = self._read_dir(sample.s1_dir)
+        return sample.id, imgs
+
+    def _read_dir(self, dir):
+        images = []
+        for image in Path(self.root_dir, self.images_dir, dir).iterdir():
+            image = image.relative_to(self.root_dir / self.images_dir)
+            image = self.read_image(image)  # Assuming this is defined
+            if self.transform:
+                image = self.transform(image)
+            images.append(image)
+        return images
+
+
+class FIWGallery(FIW, IterableDataset):
+
+    def __iter__(self):
+        self.sample_iter = iter(self.sample_list)  # Reset iterator
+        return self
+
+    def __next__(self):
+        sample = next(self.sample_iter)
+        img = self.read_image(sample.f1)  # This needs to be defined
+        if self.transform:
+            img = self.transform(img)
+        return sample.id, img
+
+
+if __name__ == "__main__":
+    # Test FIWProbe and FIWGallery
+    root_dir = "../datasets/rfiw2021-track3"
+    probe_path = "txt/probe.txt"
+    gallery_path = "txt/gallery.txt"
+    fiw_probe = FIWProbe(root_dir=root_dir, sample_path=probe_path, sample_cls=SampleProbe)
+    fiw_gallery = FIWGallery(root_dir=root_dir, sample_path=gallery_path, sample_cls=SampleGallery)
+    fiw_sr = FIWSearchRetrieval(fiw_probe, fiw_gallery)
+    print(len(fiw_sr))
+    # Create a gallery dataloader and test them
+    sr_loader = torch.utils.data.DataLoader(fiw_sr, batch_size=5, shuffle=False)
+    # Iters through the probe and gallery samples
+    for i, ((probe_index, probe_images), (gallery_indexes, gallery_images)) in enumerate(sr_loader):
+        # if i % len(fiw_gallery) == 0:
+        print(probe_index, len(probe_images), gallery_indexes)
+        if i > 2:
+            break

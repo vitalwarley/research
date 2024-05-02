@@ -60,6 +60,18 @@ class SampleKFC:
         self.race = race
 
 
+class SampleProbe:
+    def __init__(self, id: str, s1_dir: str):
+        self.id = int(id)
+        self.s1_dir = s1_dir
+
+
+class SampleGallery:
+    def __init__(self, id: str, f1: str):
+        self.id = int(id)
+        self.f1 = f1
+
+
 def one_hot_encode_kinship(relation):
     index = Sample.NAME2LABEL[relation] - 1
     one_hot = torch.zeros(len(Sample.NAME2LABEL))

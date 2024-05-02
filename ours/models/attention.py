@@ -25,28 +25,28 @@ class SpatialCrossAttention(nn.Module):
     def forward(self, x1, x2):
         """
         inputs :
-            x : input feature maps( B X C X W X H)
+            x : input feature maps( b x c x w x h)
         returns :
             out : self attention value + input feature
-            attention: B X N X N (N is Width*Height)
+            attention: b x n x n (n is width*height)
         """
-        m_batchsize, C, width, height = x1.size()
+        m_batchsize, c, width, height = x1.size()
         x = torch.cat([x1, x2], 1)
-        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)  # B X CX(N)
-        proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)  # B X C x (*W*H)
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)  # b x cx(n)
+        proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)  # b x c x (*w*h)
         energy = torch.bmm(proj_query, proj_key)  # transpose check
-        attention = self.softmax(energy)  # BX (N) X (N)
+        attention = self.softmax(energy)  # bx (n) x (n)
         proj_value1 = self.value_conv1(x1)
         proj_value2 = self.value_conv2(x2)
 
-        proj_value1 = proj_value1.view(m_batchsize, -1, width * height)  # B X C X N
-        proj_value2 = proj_value2.view(m_batchsize, -1, width * height)  # B X C X N
+        proj_value1 = proj_value1.view(m_batchsize, -1, width * height)  # b x c x n
+        proj_value2 = proj_value2.view(m_batchsize, -1, width * height)  # b x c x n
 
         out1 = torch.bmm(proj_value1, attention.permute(0, 2, 1))
         out2 = torch.bmm(proj_value2, attention.permute(0, 2, 1))
         out1 = out1.view(m_batchsize, -1, width, height) + x1.view(m_batchsize, -1, width, height)
         out2 = out2.view(m_batchsize, -1, width, height) + x2.view(m_batchsize, -1, width, height)
-        # out = self.gamma*out + x.view(m_batchsize,2*C,width,height)
+        # out = self.gamma*out + x.view(m_batchsize,2*c,width,height)
         return out1, out2, attention
 
 

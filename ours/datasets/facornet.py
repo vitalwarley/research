@@ -3,32 +3,9 @@ from pathlib import Path
 import lightning as L
 import torch
 from datasets.fiw import FIW, FIWFamily, FIWGallery, FIWProbe, FIWSearchRetrieval
-from datasets.utils import SampleGallery, SampleProbe
+from datasets.utils import SampleGallery, SampleProbe, sr_collate_fn
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
-
-
-def sr_collate_fn(batch):
-    """
-    Collate function for Search and Retrieval.
-    """
-
-    # Unpack the batch
-    (probe_index, probe_images), (gallery_indexes, gallery_images) = batch[0]
-
-    # Convert probe_index to a tensor
-    probe_index = torch.tensor([probe_index])
-
-    # Concatenate probe_images and gallery_images
-    # Transform list of tensors into a single tensor per each
-    probe_images_tensor = torch.stack(probe_images)  # Shape: [num_probe_images, 3, 112, 112]
-    gallery_images_tensor = torch.stack(gallery_images)  # Shape: [num_gallery_images, 3, 112, 112]
-
-    # Handle gallery_indexes which is a list of tensors
-    # Since gallery_indexes are used for indexing or referencing, they could be concatenated as well
-    gallery_indexes_tensor = torch.tensor(gallery_indexes)
-
-    return (probe_index, probe_images_tensor), (gallery_indexes_tensor, gallery_images_tensor)
 
 
 class FIWFaCoRNet(FIW):
@@ -219,12 +196,13 @@ class FaCoRNetDMTask3(L.LightningDataModule):
             shuffle=False,
             pin_memory=True,
             collate_fn=sr_collate_fn,
-            num_workers=5,
+            # Why num_workers reset the gallery_start_index?
+            # num_workers=0,
         )
 
 
 if __name__ == "__main__":
-    # Test FaCoRNetDMTask3
+    # Test
     root_dir = "../datasets/rfiw2021-track3"
     data_module = FaCoRNetDMTask3(root_dir=root_dir)
     data_module.setup("predict")

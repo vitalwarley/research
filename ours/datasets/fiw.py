@@ -1,10 +1,10 @@
 from pathlib import Path
 
 import cv2
-import numpy as np
 import torch
-from datasets.utils import Sample, SampleGallery, SampleProbe
+from datasets.utils import Sample, SampleGallery, SampleProbe, sr_collate_fn
 from torch.utils.data import Dataset, IterableDataset
+from torchvision import transforms as T
 
 
 class FIW(Dataset):
@@ -135,7 +135,7 @@ class FIWSearchRetrieval(Dataset):
 
     def __getitem__(self, idx):
         # Calculate probe index
-        probe_index = idx % len(self.probe_samples)
+        probe_index = idx // len(self.gallery_samples)
         probe_id, probe_images = self.probe_samples[probe_index]
         num_probe_images = len(probe_images)
 
@@ -193,16 +193,21 @@ class FIWGallery(FIW, IterableDataset):
 
 
 if __name__ == "__main__":
+
     # Test FIWProbe and FIWGallery
     root_dir = "../datasets/rfiw2021-track3"
     probe_path = "txt/probe.txt"
     gallery_path = "txt/gallery.txt"
-    fiw_probe = FIWProbe(root_dir=root_dir, sample_path=probe_path, sample_cls=SampleProbe)
-    fiw_gallery = FIWGallery(root_dir=root_dir, sample_path=gallery_path, sample_cls=SampleGallery)
+    fiw_probe = FIWProbe(
+        root_dir=root_dir, sample_path=probe_path, sample_cls=SampleProbe, transform=T.Compose([T.ToTensor()])
+    )
+    fiw_gallery = FIWGallery(
+        root_dir=root_dir, sample_path=gallery_path, sample_cls=SampleGallery, transform=T.Compose([T.ToTensor()])
+    )
     fiw_sr = FIWSearchRetrieval(fiw_probe, fiw_gallery)
     print(len(fiw_sr))
     # Create a gallery dataloader and test them
-    sr_loader = torch.utils.data.DataLoader(fiw_sr, batch_size=5, shuffle=False)
+    sr_loader = torch.utils.data.DataLoader(fiw_sr, batch_size=1, shuffle=False, collate_fn=sr_collate_fn)
     # Iters through the probe and gallery samples
     for i, ((probe_index, probe_images), (gallery_indexes, gallery_images)) in enumerate(sr_loader):
         # if i % len(fiw_gallery) == 0:

@@ -136,7 +136,7 @@
       sourcecode:
         - utils.py
         - losses.py
-        - models/facornet.py
+        - models/*.py
         - datasets/*.py
         - tasks/facornet.py
       flags-import: all
@@ -159,7 +159,7 @@
       sourcecode:
         - utils.py
         - losses.py
-        - models/facornet.py
+        - models/*.py
         - datasets/*.py
         - tasks/facornet.py
       flags-import: all

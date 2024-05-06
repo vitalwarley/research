@@ -33,7 +33,7 @@ data:
    class_path: datasets.facornet.FaCoRNetDataModule
    init_args:
      dataset: facornet
-     biased: true
+     biased: false
      batch_size: 20
      root_dir: data/facornet
 
@@ -60,6 +60,7 @@ model:
     model:
       class_path: models.facornet.FaCoR
       init_args:
+        model: ir_101
         attention: models.attention.FaCoRAttention
     loss: 
       class_path: losses.FaCoRContrastiveLoss

@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import lightning as L
 import numpy as np
 import pandas as pd
@@ -8,7 +6,7 @@ import torch.nn as nn
 import torchmetrics as tm
 from datasets.utils import SampleKFC
 from losses import contrastive_loss
-from models.base import CollectPreds, LightningBaseModel, load_pretrained_model
+from models.base import LightningBaseModel, load_pretrained_model
 from models.utils import l2_norm
 from pytorch_metric_learning.losses import ArcFaceLoss
 
@@ -63,9 +61,9 @@ class HeadFamily(nn.Module):
 
 
 class FaCoR(torch.nn.Module):
-    def __init__(self, attention: nn.Module):
+    def __init__(self, model: str, attention: nn.Module):
         super(FaCoR, self).__init__()
-        self.backbone = load_pretrained_model("ir_101")
+        self.backbone = load_pretrained_model(model)
         self.attention = attention
 
     def forward(self, imgs):
@@ -342,7 +340,9 @@ class FaCoRNetTask3(L.LightningModule):
         map_min = self.compute_map(rank_min)
         # Print logs as key: value in one line
         print(
-            f"\nrank@1/max: {acc_1_max:.4f}, rank@5/max: {acc_5_max:.4f}, rank@1/min: {acc_1_min:.4f}, rank@5/min: {acc_5_min:.4f}, mAP/max: {map_max:.4f}, mAP/min: {map_min:.4f}"
+            f"\nrank@1/max: {acc_1_max:.4f}, rank@5/max: {acc_5_max:.4f}, "
+            + f"rank@1/min: {acc_1_min:.4f}, rank@5/min: {acc_5_min:.4f}, "
+            + f"mAP/max: {map_max:.4f}, mAP/min: {map_min:.4f}"
         )
 
 
@@ -621,7 +621,7 @@ class FaCoRNetBasic(LightningBaseModel):
 
 if __name__ == "__main__":
     from models.attention import FaCoRAttention
-    from torch.profiler import ProfilerActivity, profile, record_function
+    from torch.profiler import ProfilerActivity, profile
 
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
         # your model call here

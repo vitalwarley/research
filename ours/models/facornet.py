@@ -291,18 +291,20 @@ class FaCoRNetTask3(L.LightningModule):
         return map_score
 
     def forward(self, inputs):
-        return self.model(inputs)[:2]  # No attention map
+        return self.model.backbone(inputs[:, [2, 1, 0]])[0]  # why? the original code has this.
 
     def predict_step(self, batch, batch_idx):
         (probe_index, probe_images), (gallery_ids, gallery_images) = batch
-        probe_embeddings, gallery_embeddings = self((probe_images, gallery_images))
+        probe_embeddings = self(probe_images)
+        gallery_embeddings = self(gallery_images)
         similarities = torch.cosine_similarity(gallery_embeddings.unsqueeze(1), probe_embeddings.unsqueeze(0), dim=2)
         max_similarities, _ = similarities.max(dim=1)
         mean_similarities = similarities.mean(dim=1)
         self.similarity_data.append((gallery_ids, max_similarities, mean_similarities))
+        return gallery_ids
 
     def on_predict_batch_end(self, outputs, batch, batch_idx):
-        if batch_idx % self.n_gallery == 0:
+        if outputs[-1] == self.n_gallery - 1:  # Last batch
             self._compute_ranks()
 
     def _compute_ranks(self):
@@ -621,10 +623,17 @@ class FaCoRNetBasic(LightningBaseModel):
 
 if __name__ == "__main__":
     from models.attention import FaCoRAttention
-    from torch.profiler import ProfilerActivity, profile
 
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-        # your model call here
-        model = FaCoRNetTask3(model=FaCoR(FaCoRAttention()), list_dir="../datasets/rfiw2021-track3/txt")
-        model([torch.rand(16, 3, 112, 112), torch.rand(16, 3, 112, 112)])
-    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
+    from datasets.facornet import FaCoRNetDMTask3
+
+    model = FaCoRNetTask3(
+        model=FaCoR(model="ir_101", attention=FaCoRAttention()), list_dir="../datasets/rfiw2021-track3/txt"
+    )
+    model.setup("predict")
+    model.eval()
+    dm = FaCoRNetDMTask3(root_dir="../datasets/rfiw2021-track3")
+    dm.setup("predict")
+    sr_dataloader = dm.predict_dataloader()
+
+    batch = next(iter(sr_dataloader))
+    model.predict_step(batch, 0)

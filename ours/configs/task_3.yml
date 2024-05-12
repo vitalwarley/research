@@ -5,6 +5,7 @@ data:
    class_path: datasets.facornet.FaCoRNetDMTask3
    init_args:
      root_dir: data/rfiw2021-track3
+     batch_size: 20
 
 model:
   class_path: models.facornet.FaCoRNetTask3
@@ -14,3 +15,4 @@ model:
       class_path: models.facornet.FaCoR
       init_args:
         attention: models.attention.FaCoRAttention
+        model: ir_101

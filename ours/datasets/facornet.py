@@ -3,7 +3,7 @@ from pathlib import Path
 import lightning as L
 import torch
 from datasets.fiw import FIW, FIWFamily, FIWGallery, FIWProbe, FIWSearchRetrieval
-from datasets.utils import SampleGallery, SampleProbe, sr_collate_fn
+from datasets.utils import SampleGallery, SampleProbe, sr_collate_fn_v2
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
@@ -167,9 +167,10 @@ class FamilyDataModule(FaCoRNetDataModule):
 
 class FaCoRNetDMTask3(L.LightningDataModule):
 
-    def __init__(self, root_dir=".", transform=None):
+    def __init__(self, root_dir=".", batch_size=20, transform=None):
         super().__init__()
         self.root_dir = root_dir
+        self.batch_size = batch_size
         self.transform = transform or T.Compose([T.ToTensor()])
 
     def setup(self, stage=None):
@@ -192,12 +193,12 @@ class FaCoRNetDMTask3(L.LightningDataModule):
     def predict_dataloader(self):
         return DataLoader(
             self.search_retrieval,
-            batch_size=1,
+            batch_size=self.batch_size,
             shuffle=False,
             pin_memory=True,
-            collate_fn=sr_collate_fn,
+            collate_fn=sr_collate_fn_v2,
             # Why num_workers reset the gallery_start_index?
-            # num_workers=0,
+            num_workers=2,
         )
 
 

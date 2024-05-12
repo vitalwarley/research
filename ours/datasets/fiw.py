@@ -2,7 +2,7 @@ from pathlib import Path
 
 import cv2
 import torch
-from datasets.utils import Sample, SampleGallery, SampleProbe, sr_collate_fn
+from datasets.utils import Sample, SampleGallery, SampleProbe, sr_collate_fn_v2
 from torch.utils.data import Dataset, IterableDataset
 from torchvision import transforms as T
 
@@ -134,26 +134,16 @@ class FIWSearchRetrieval(Dataset):
         return len(self.probe_samples) * len(self.gallery_samples)
 
     def __getitem__(self, idx):
-        # Calculate probe index
+        # Calculate probe index and gallery index
         probe_index = idx // len(self.gallery_samples)
+        gallery_index = idx % len(self.gallery_samples)
+
+        # Get the probe and gallery information
         probe_id, probe_images = self.probe_samples[probe_index]
-        num_probe_images = len(probe_images)
+        gallery_id, gallery_image = self.gallery_samples[gallery_index]
 
-        # Calculate dynamic gallery indices
-        gallery_ids = []
-        gallery_images = []
-        for i in range(num_probe_images):
-            current_gallery_index = (self.gallery_start_index + i) % len(self.gallery_samples)
-            gallery_id, gallery_image = self.gallery_samples[current_gallery_index]
-            gallery_ids.append(gallery_id)
-            gallery_images.append(gallery_image)
-
-        # Update gallery_start_index for the next probe
-        self.gallery_start_index = (self.gallery_start_index + num_probe_images) % len(self.gallery_samples)
-
-        # TODO: adjust for when len(gallery_samples) < len(probe_samples); maybe repeat in-batch samples?
-
-        return ((probe_id, probe_images), (gallery_ids, gallery_images))
+        # Return a tuple of probe and gallery data
+        return (probe_id, probe_images), (gallery_id, gallery_image)
 
 
 class FIWProbe(FIW, IterableDataset):
@@ -207,7 +197,7 @@ if __name__ == "__main__":
     fiw_sr = FIWSearchRetrieval(fiw_probe, fiw_gallery)
     print(len(fiw_sr))
     # Create a gallery dataloader and test them
-    sr_loader = torch.utils.data.DataLoader(fiw_sr, batch_size=1, shuffle=False, collate_fn=sr_collate_fn)
+    sr_loader = torch.utils.data.DataLoader(fiw_sr, batch_size=1, shuffle=False, collate_fn=sr_collate_fn_v2)
     # Iters through the probe and gallery samples
     for i, ((probe_index, probe_images), (gallery_indexes, gallery_images)) in enumerate(sr_loader):
         # if i % len(fiw_gallery) == 0:

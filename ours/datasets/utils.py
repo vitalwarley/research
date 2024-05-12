@@ -2,6 +2,7 @@ from pathlib import Path
 
 import cv2
 import torch
+from torch.utils.data import default_collate
 
 
 def sr_collate_fn(batch):
@@ -25,6 +26,28 @@ def sr_collate_fn(batch):
     gallery_indexes_tensor = torch.tensor(gallery_indexes)
 
     return (probe_index, probe_images_tensor), (gallery_indexes_tensor, gallery_images_tensor)
+
+
+def sr_collate_fn_v2(batch):
+    """
+    Collate function for Search and Retrieval V2.
+
+    Keep only first probe tensor.
+    """
+
+    # Unpack the batch
+    probe_info, gallery_info = zip(*[(probe_info, gallery_info) for (probe_info, gallery_info) in batch])
+
+    unique_probe_id = probe_info[0][0]
+    unique_probe_images = probe_info[0][1]
+
+    # You may choose to use default_collate to handle tensor operations if necessary
+    # If you're using tensors and transformations that require them to be tensors, use default_collate
+    gallery_info = list(zip(*gallery_info))
+    probe_images = default_collate(unique_probe_images)
+    gallery_indexes = default_collate(gallery_info[0])
+    gallery_images = default_collate(gallery_info[1])
+    return (unique_probe_id, probe_images), (gallery_indexes, gallery_images)
 
 
 class Sample:

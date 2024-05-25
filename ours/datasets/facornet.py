@@ -99,7 +99,7 @@ class FaCoRNetDataModule(L.LightningDataModule):
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
-            shuffle=True,
+            shuffle=not self.biased,
             num_workers=4,
             pin_memory=True,
             persistent_workers=True,

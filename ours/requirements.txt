@@ -1,6 +1,6 @@
 guildai
-torch==2.0.1  # RIG1 has CUDA 11.7
-torchvision==0.15.2
+torch
+torchvision
 torchmetrics
 scikit-learn
 opencv-python

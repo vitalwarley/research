@@ -21,7 +21,7 @@ class FIW(Dataset):
         self.images_dir = "images"
         self.sample_path = Path(sample_path)
         self.batch_size = batch_size
-        self.transform = transform
+        self.transform = transform or T.Compose([T.ToTensor()])
         self.bias = 0
         self.biased = biased
         self.sample_cls = sample_cls

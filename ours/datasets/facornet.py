@@ -46,7 +46,7 @@ class FIWFaCoRNetFamily(FIWFaCoRNet):
         kin_id = self.sample_cls.NAME2LABEL[sample.kin_relation]
         fid1, fid2 = int(sample.f1fid), int(sample.f2fid)
         # Get index for each fid
-        fid1, fid2 = self.fid2idx[fid1], self.fid2idx[fid2]
+        fid1, fid2 = torch.tensor(self.fid2idx[fid1]), torch.tensor(self.fid2idx[fid2])
         labels = (kin_id, is_kin, (fid1, fid2))
         return labels
 

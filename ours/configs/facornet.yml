@@ -25,7 +25,7 @@ trainer:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: 'auc'  # Replace 'auc' with your chosen metric
-        patience: 10  # Number of epochs to wait for improvement
+        patience: 5  # Number of epochs to wait for improvement
         verbose: False
         mode: 'max'  # Use 'min' if the metric should decrease
 

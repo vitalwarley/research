@@ -621,6 +621,66 @@ class FaCoRNetBasic(LightningBaseModel):
         self.kin_labels(kin_relation)
 
 
+class FaCoRNetBasicV2(LightningBaseModel):
+    """
+    Designed for traditional contrastive loss (ContrasiveLossV2). No attention mechanism.
+
+    Differs from V1 in the use of cross entropy loss for validation.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.bce = nn.BCEWithLogitsLoss()
+
+    def _step(self, inputs):
+        img1, img2, labels = inputs
+        f1, f2 = self((img1, img2))
+        loss = self.criterion(f1, f2)
+        # Cross-entropy loss based on similarities and best threshold
+        sim = torch.cosine_similarity(f1, f2)
+        logits = torch.logit((sim + 1) / 2)
+        bce_loss = self.bce(logits, labels.float())
+        outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2], "bce_loss": bce_loss}
+        return outputs
+
+    def training_step(self, batch, batch_idx):
+        img1, img2, labels = batch
+        _, is_kin = labels
+        outputs = self._step((img1, img2, is_kin))
+        con_loss = outputs["contrastive_loss"]
+        bce_loss = outputs["bce_loss"]
+        if self.loss_factor:
+            total_loss = self.loss_factor * con_loss + (1 - self.loss_factor) * bce_loss
+        else:
+            total_loss = con_loss + bce_loss
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        # on_step=True to see the warmup and cooldown properly :)
+        self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log("loss/train", con_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("loss/train/bce", bce_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("loss/train/total", total_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        return total_loss
+
+    def _eval_step(self, batch, batch_idx, stage):
+        img1, img2, labels = batch
+        kin_relation, is_kin = labels
+        outputs = self._step((img1, img2, is_kin))
+        con_loss = outputs["contrastive_loss"]
+        bce_loss = outputs["bce_loss"]
+        if self.loss_factor:
+            total_loss = self.loss_factor * con_loss + (1 - self.loss_factor) * bce_loss
+        else:
+            total_loss = con_loss + bce_loss
+        self.log(f"loss/{stage}", con_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f"loss/{stage}/bce", bce_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f"loss/{stage}/total", total_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Compute best threshold for training or validation
+        self.similarities(outputs["sim"])
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)
+
+
 if __name__ == "__main__":
     from models.attention import FaCoRAttention
 

@@ -507,6 +507,7 @@ class LightningBaseModel(L.LightningModule):
         self.model = model
         self.criterion = loss
         self.threshold = threshold
+        self.loss_factor = loss_factor
 
         self.similarities = CollectPreds("similarities")
         self.is_kin_labels = CollectPreds("is_kin_labels")

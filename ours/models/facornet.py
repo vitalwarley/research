@@ -170,6 +170,54 @@ class FaCoRV5(FaCoR):
         return f1s, f2s
 
 
+class FaCoRV6(FaCoR):
+    """
+    Designed for FaCoRNetBasic. Added projection head.
+    """
+
+    def __init__(self, **kwargs):
+        super(FaCoRV6, self).__init__(**kwargs)
+        self.fc1 = nn.Linear(512, 256)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(256, 128)
+
+    def forward(self, imgs):
+        img1, img2 = imgs
+        idx = [2, 1, 0]
+        f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
+        f2_0, x2_feat = self.backbone(img2[:, idx])  # ...
+
+        # Both are (B, 512)
+        f1_0 = l2_norm(f1_0)
+        f2_0 = l2_norm(f2_0)
+
+        f1s, f2s = self.attention(f1_0, x1_feat, f2_0, x2_feat)
+
+        f1s = self.fc2(self.relu(self.fc1(f1s)))
+        f2s = self.fc2(self.relu(self.fc1(f2s)))
+
+        return f1s, f2s
+
+
+class FaCoRV7(FaCoR):
+    """
+    Designed for FaCoRNetBasic and ArcFace.
+    """
+
+    def forward(self, imgs):
+        img1, img2 = imgs
+        # idx = [2, 1, 0]
+        idx = [0, 1, 2]
+        f1_0 = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
+        f2_0 = self.backbone(img2[:, idx])  # ...
+
+        # Both are (B, 512)
+        # f1_0 = l2_norm(f1_0)
+        # f2_0 = l2_norm(f2_0)
+
+        return f1_0, f2_0
+
+
 # Define a custom L2 normalization layer
 class L2Norm(nn.Module):
     def __init__(self, axis=1):
@@ -746,6 +794,50 @@ class FaCoRNetBasicV3(LightningBaseModel):
         self.log(f"loss/{stage}", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         # Compute best threshold for training or validation
         self.similarities(sim)
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)
+
+
+class FaCoRNetBasicV4(LightningBaseModel):
+    """
+    Designed for traditional contrastive loss (ContrasiveLossV2). No attention mechanism. Added projection head.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.fc1 = nn.Linear(512, 256)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(256, 128)
+
+    def _step(self, inputs):
+        f1, f2 = self(inputs)
+        f1_proj = self.fc2(self.relu(self.fc1(f1)))
+        f2_proj = self.fc2(self.relu(self.fc1(f2)))
+        # norm_f1 = torch.nn.functional.normalize(f1_proj, p=2, dim=1)
+        # norm_f2 = torch.nn.functional.normalize(f2_proj, p=2, dim=1)
+        loss = self.criterion(f1_proj, f2_proj)
+        sim = torch.cosine_similarity(f1, f2)
+        outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2]}
+        return outputs
+
+    def training_step(self, batch, batch_idx):
+        img1, img2, _ = batch
+        outputs = self._step([img1, img2])
+        loss = outputs["contrastive_loss"]
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        # on_step=True to see the warmup and cooldown properly :)
+        self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        return loss
+
+    def _eval_step(self, batch, batch_idx, stage):
+        img1, img2, labels = batch
+        kin_relation, is_kin = labels
+        outputs = self._step([img1, img2])
+        self.log(f"loss/{stage}", outputs["contrastive_loss"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Compute best threshold for training or validation
+        self.similarities(outputs["sim"])
         self.is_kin_labels(is_kin)
         self.kin_labels(kin_relation)
 

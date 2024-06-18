@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torchmetrics as tm
 from datasets.utils import Sample
+from models.insightface.recognition.arcface_torch.backbones import get_model
 from torch.nn import (
     BatchNorm1d,
     BatchNorm2d,
@@ -25,22 +26,27 @@ from torchmetrics.utilities import dim_zero_cat
 
 plt.switch_backend("agg")
 HERE = Path(__file__).parent
-adaface_models = {
-    "ir_18": HERE / "../weights/adaface_ir18_webface4m.ckpt",
-    "ir_50": HERE / "../weights/adaface_ir50_webface4m.ckpt",
-    "ir_101": HERE / "../weights/adaface_ir101_webface12m.ckpt",  # "adaface_ir101_webface12m.ckpt",adaface_ir101_ms1mv3
-    "ir_101_4m": HERE
+models = {
+    "adaface_ir_18": HERE / "../weights/adaface_ir18_webface4m.ckpt",
+    "adaface_ir_50": HERE / "../weights/adaface_ir50_webface4m.ckpt",
+    "adaface_ir_101": HERE
+    / "../weights/adaface_ir101_webface12m.ckpt",  # "adaface_ir101_webface12m.ckpt",adaface_ir101_ms1mv3
+    "adaface_ir_101_4m": HERE
     / "../weights/adaface_ir101_webface4m.ckpt",  # "adaface_ir101_webface12m.ckpt",adaface_ir101_ms1mv3
+    "arcface_ir_101": HERE / "../weights/ms1mv3_arcface_r100_fp16.pth",
 }
 
 
-def load_pretrained_model(architecture="ir_101"):
+def load_pretrained_model(architecture="adaface_ir_101"):
     # load model and pretrained statedict
-    assert architecture in adaface_models.keys()
+    assert architecture in models.keys()
     model = build_model(architecture)
-    statedict = torch.load(adaface_models[architecture])["state_dict"]
-    model_statedict = {key[6:]: val for key, val in statedict.items() if key.startswith("model.")}
-    model.load_state_dict(model_statedict)
+    if "adaface" in architecture:
+        statedict = torch.load(models[architecture])["state_dict"]
+        model_statedict = {key[6:]: val for key, val in statedict.items() if key.startswith("model.")}
+        model.load_state_dict(model_statedict)
+    else:
+        model.load_state_dict(torch.load(models[architecture]))
     # model.eval()
     return model
 
@@ -444,20 +450,22 @@ def IR_SE_200(input_size):
 
 
 def build_model(model_name="ir_50"):
-    if model_name == "ir_101_4m":
+    if model_name == "adaface_ir_101_4m":
         return IR_101(input_size=(112, 112))
-    elif model_name == "ir_101":
+    elif model_name == "adaface_ir_101":
         return IR_101(input_size=(112, 112))
-    elif model_name == "ir_101_2":
+    elif model_name == "adaface_ir_101_2":
         return IR_101_2(input_size=(112, 112))
-    elif model_name == "ir_50":
+    elif model_name == "adaface_ir_50":
         return IR_50(input_size=(112, 112))
-    elif model_name == "ir_se_50":
+    elif model_name == "adaface_ir_se_50":
         return IR_SE_50(input_size=(112, 112))
-    elif model_name == "ir_34":
+    elif model_name == "adaface_ir_34":
         return IR_34(input_size=(112, 112))
-    elif model_name == "ir_18":
+    elif model_name == "adaface_ir_18":
         return IR_18(input_size=(112, 112))
+    elif model_name == "arcface_ir_101":
+        return get_model("r100", fp16=True)
     else:
         raise ValueError("not a correct model name", model_name)
 

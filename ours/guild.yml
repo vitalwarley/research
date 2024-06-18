@@ -117,12 +117,16 @@
         - utils.py
         - losses.py
         - models/*.py
+        - models/insightface
         - datasets/*.py
         - tasks/facornet.py
       flags-import: all
       flags-dest: config:configs/facornet.yml
       output-scalars: '(\key)=(\value)'
       requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
         - file: weights
           target-type: link
         - file: ../datasets/
@@ -160,12 +164,15 @@
         - utils.py
         - losses.py
         - models/*.py
+        - models/insightface
         - datasets/*.py
         - tasks/facornet.py
       flags-import: all
       flags-dest: config:configs/facornet.yml
       output-scalars: '(\key):\s+(\value)'
       requires:
+        - file: models/insightface
+          target-type: link
         - file: weights
           target-type: link
         - file: ../datasets/

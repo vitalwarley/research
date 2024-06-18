@@ -74,15 +74,26 @@ class Sample:
         self.kin_relation = kin_relation
         self.is_kin = int(is_kin)
         self.is_same_generation = self.kin_relation in ["bb", "ss", "sibs"]
-        self.set_fids(f1, f2)
+        f1_parts = f1.split("/")
+        f2_parts = f2.split("/")
+        self.set_fids(f1_parts, f2_parts)
+        self.set_mids(f1_parts, f2_parts)
 
     def set_fids(self, f1, f2):
         try:
-            self.f1fid = int(f1.split("/")[2][1:])
-            self.f2fid = int(f2.split("/")[2][1:])
+            self.f1fid = int(f1[2][1:])
+            self.f2fid = int(f2[2][1:])
         except ValueError:
             self.f1fid = 0
             self.f2fid = 0
+
+    def set_mids(self, f1, f2):
+        try:
+            self.f1mid = int(f1[3][3:])
+            self.f2mid = int(f2[3][3:])
+        except ValueError:
+            self.f1mid = 0
+            self.f2mid = 0
 
 
 class SampleKFC:

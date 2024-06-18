@@ -1,3 +1,4 @@
+from itertools import combinations, islice
 from pathlib import Path
 
 import cv2
@@ -5,6 +6,7 @@ import torch
 from datasets.utils import Sample, SampleGallery, SampleProbe, sr_collate_fn_v2
 from torch.utils.data import Dataset, IterableDataset
 from torchvision import transforms as T
+from tqdm import tqdm
 
 
 class FIW(Dataset):
@@ -78,7 +80,8 @@ class FIW(Dataset):
         sample = self.sample_list[item + self.bias]
         (img1, img2) = self._process_images(sample)
         labels = self._process_labels(sample)
-        return img1, img2, labels
+        sample = (img1, img2, labels)
+        return sample
 
 
 class FIWFamily(Dataset):  # from rfiw2020/fitw2020/dataset.py
@@ -117,6 +120,104 @@ class FIWFamily(Dataset):  # from rfiw2020/fitw2020/dataset.py
 
     def __len__(self) -> int:
         return len(self.seq)
+
+
+class FIWFamilyV2(FIW):
+    """
+    Originally FIWFaCoRNetFamily.
+    """
+
+    # FaCoRNet dataset
+    TRAIN_PAIRS = "txt/train_sort_A2_m.txt"
+    VAL_PAIRS_MODEL_SEL = "txt/val_choose_A.txt"
+    VAL_PAIRS_THRES_SEL = "txt/val_A.txt"
+    TEST_PAIRS = "txt/test_A.txt"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Enconde all samples f1fid and f2fid to set of unique values
+        self.fid_set = set()
+        for sample in self.sample_list:
+            self.fid_set.add(sample.f1fid)
+            self.fid_set.add(sample.f2fid)
+        # Map each fid to an index
+        self.fid_set = sorted(list(self.fid_set))
+        self.fid2idx = {fid: idx for idx, fid in enumerate(self.fid_set)}
+
+    def _process_labels(self, sample):
+        is_kin = torch.tensor(sample.is_kin)
+        kin_id = self.sample_cls.NAME2LABEL[sample.kin_relation]
+        fid1, fid2 = int(sample.f1fid), int(sample.f2fid)
+        # Get index for each fid
+        fid1, fid2 = torch.tensor(self.fid2idx[fid1]), torch.tensor(self.fid2idx[fid2])
+        labels = (kin_id, is_kin, (fid1, fid2))
+        return labels
+
+
+class FIWPairs(FIW):
+
+    # FaCoRNet dataset
+    TRAIN_PAIRS = "txt/train_sort_A2_m.txt"
+    VAL_PAIRS_MODEL_SEL = "txt/val_choose_A.txt"
+    VAL_PAIRS_THRES_SEL = "txt/val_A.txt"
+    TEST_PAIRS = "txt/test_A.txt"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.num_combs = 10000
+        self.sample_list = self.create_kinship_pairs_list()
+
+    def create_kinship_pairs_list(self):
+        print(f"Creating kinship pairs list from {self.sample_path}")
+        # Group samples by kinship type
+        grouped_by_kinship = {}
+        for sample in tqdm(self.sample_list):
+            kinship_type = sample.kin_relation
+            if kinship_type not in grouped_by_kinship:
+                grouped_by_kinship[kinship_type] = []
+            grouped_by_kinship[kinship_type].append(sample)
+
+        # For each kinship type, create pairs of samples
+        progress_bar = tqdm(total=len(grouped_by_kinship) * self.num_combs)
+        all_samples_by_type = []
+        for kinship_type, samples in grouped_by_kinship.items():
+            kinship_samples = []
+            # Using combinations to create unique pairs within the same kinship type
+            for pair1, pair2 in islice(combinations(samples, 2), self.num_combs):
+                # Creating the desired format ((pair1_img1, pair1_img2), (pair2_img1, pair2_img2), kinship_type)
+                new_sample = (pair1, pair2, kinship_type)
+                kinship_samples.append(new_sample)
+                progress_bar.update(1)
+            all_samples_by_type.append(kinship_samples)
+
+        progress_bar.close()
+
+        new_samples_list = []
+        progress_bar = tqdm(total=len(all_samples_by_type) * self.num_combs)
+
+        while True:
+            added_any = False
+            for kinship_samples in all_samples_by_type:
+                if kinship_samples:
+                    new_samples_list.append(kinship_samples.pop(0))
+                    added_any = True
+                    progress_bar.update(1)
+            if not added_any:
+                break
+
+        return new_samples_list
+
+    def __getitem__(self, item):
+        # id, f1, f2, kin_relation, is_kin
+        sample = self.sample_list[item]
+        pair1, pair2, kinship_type = sample
+        (p1_im1, p1_im2) = self._process_images(pair1)
+        (p2_im1, p2_im2) = self._process_images(pair2)
+        p1_is_kin = self._process_labels(pair1)[1]
+        p2_is_kin = self._process_labels(pair2)[1]
+        label = self.sample_cls.NAME2LABEL[kinship_type]
+        sample = ((p1_im1, p1_im2), (p2_im1, p2_im2), (p1_is_kin, p2_is_kin, label))
+        return sample
 
 
 class FIWSearchRetrieval(Dataset):

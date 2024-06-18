@@ -681,6 +681,75 @@ class FaCoRNetBasicV2(LightningBaseModel):
         self.kin_labels(kin_relation)
 
 
+class FaCoRNetBasicV3(LightningBaseModel):
+    """
+    Designed for traditional contrastive loss (ContrasiveLossV2). No attention mechanism.
+
+    Implements contrastive loss at kinship type-level discrimination.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.proj_head = nn.Linear(512, 128)
+
+        class Attention(nn.Module):
+            def __init__(self, embed_dim, num_heads):
+                super(Attention, self).__init__()
+                self.multihead_attn = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads)
+                self.layer_norm = nn.LayerNorm(embed_dim)
+                self.fc = nn.Linear(embed_dim, embed_dim)
+
+            def forward(self, x):
+                x = x.unsqueeze(0)  # Add sequence dimension: (seq_len=1, batch_size, embed_dim)
+                attn_output, _ = self.multihead_attn(x, x, x)
+                x = self.layer_norm(attn_output + x)
+                x = self.fc(x)
+                return x.squeeze(0)  # Remove sequence dimension: (batch_size, embed_dim)
+
+        self.attention = Attention(embed_dim=256, num_heads=4)
+
+    def _fusion(self, inputs):
+        f1, f2 = inputs
+        features = torch.cat([f1, f2], dim=1)
+        return self.attention(features)
+
+    def _step(self, inputs):
+        pair1, pair2, _ = inputs
+        p1_f1, p1_f2 = self(pair1)
+        p1_z1, p1_z2 = self.proj_head(p1_f1), self.proj_head(p1_f2)
+        p2_f1, p2_f2 = self(pair2)
+        p2_z1, p2_z2 = self.proj_head(p2_f1), self.proj_head(p2_f2)
+        p1 = self._fusion([p1_z1, p1_z2])
+        p2 = self._fusion([p2_z1, p2_z2])
+        loss = self.criterion(p1, p2)
+        # Cross-entropy loss based on similarities and best threshold
+        sim = torch.cosine_similarity(p1, p2)
+        outputs = {"contrastive_loss": loss, "sim": sim, "features": [p1, p2]}
+        return outputs
+
+    def training_step(self, batch, batch_idx):
+        outputs = self._step(batch)
+        con_loss = outputs["contrastive_loss"]
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        # on_step=True to see the warmup and cooldown properly :)
+        self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log("loss/train", con_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        return con_loss
+
+    def _eval_step(self, batch, batch_idx, stage):
+        img1, img2, labels = batch
+        kin_relation, is_kin = labels
+        f1, f2 = self((img1, img2))
+        loss = self.criterion(f1, f2)
+        sim = torch.cosine_similarity(f1, f2)
+        self.log(f"loss/{stage}", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Compute best threshold for training or validation
+        self.similarities(sim)
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)
+
+
 if __name__ == "__main__":
     from models.attention import FaCoRAttention
 

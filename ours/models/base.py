@@ -508,6 +508,7 @@ class LightningBaseModel(L.LightningModule):
         # TODO: how to add the below params only to the subclass?
         num_families=0,
         loss_factor=0,
+        weights=None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=("model"))

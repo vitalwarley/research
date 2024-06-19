@@ -842,6 +842,107 @@ class FaCoRNetBasicV4(LightningBaseModel):
         self.kin_labels(kin_relation)
 
 
+class FaCoRNetBasicV5(FaCoRNetBasic):
+    """
+    Designed for traditional contrastive loss (ContrasiveLossV2). No attention mechanism.
+
+    Differs from V1 in the use of cross entropy loss only.
+
+    Implements "Supervised Contrastive Learning and Feature Fusion for Improved Kinship Verification".
+
+    Stage two is contrastive learning with a Siamese network.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.fc1 = nn.Linear(1024, 512)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(512, 1)
+
+        class Attention(nn.Module):
+            def __init__(self, embed_dim, num_heads):
+                super(Attention, self).__init__()
+                self.multihead_attn = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads)
+                self.layer_norm = nn.LayerNorm(embed_dim)
+                self.fc = nn.Linear(embed_dim, embed_dim)
+
+            def forward(self, f1, f2):
+                # Prepare inputs for cross-attention
+                f1 = f1.unsqueeze(0)  # (1, batch_size, embed_dim)
+                f2 = f2.unsqueeze(0)  # (1, batch_size, embed_dim)
+
+                # Cross-attention: f1 attending to f2 and vice versa
+                attn_output1, _ = self.multihead_attn(f1, f2, f2)  # f1 attending to f2
+                attn_output2, _ = self.multihead_attn(f2, f1, f1)  # f2 attending to f1
+
+                # Add & Norm
+                f1 = self.layer_norm(attn_output1 + f1).squeeze(0)
+                f2 = self.layer_norm(attn_output2 + f2).squeeze(0)
+
+                # Fully connected layer
+                f1 = self.fc(f1)
+                f2 = self.fc(f2)
+
+                return f1, f2
+
+        self.attention = Attention(embed_dim=512, num_heads=4)
+
+        if self.hparams.weights:
+            self.load_weights(self.hparams.weights)
+
+    def load_weights(self, checkpoint_path):
+        checkpoint = torch.load(checkpoint_path)
+        self.load_state_dict(checkpoint["state_dict"], strict=False)
+
+    def _fusion_v0(self, inputs):
+        f1, f2 = inputs
+        diff_sq = f1**2 - f2**2
+        sq_diff = (f1 - f2) ** 2
+        features = torch.cat([diff_sq, sq_diff], dim=1)
+        return features
+
+    def _fusion(self, inputs):
+        f1, f2 = inputs
+        diff_sq = f1**2 - f2**2
+        sq_diff = (f1 - f2) ** 2
+        f1, f2 = self.attention(diff_sq, sq_diff)
+        features = torch.cat([f1, f2], dim=1)
+        return features
+
+    def _step(self, inputs):
+        img1, img2, labels = inputs
+        _, is_kin = labels
+        is_kin = is_kin.unsqueeze(1).float()
+        f1, f2 = self((img1, img2))
+        features = self._fusion([f1, f2])
+        logits = self.fc2(self.relu(self.fc1(features)))
+        loss = self.criterion(logits, is_kin)
+        # Cross-entropy loss based on similarities and best threshold
+        sim = torch.cosine_similarity(f1, f2)
+        outputs = {"loss": loss, "sim": sim, "features": [f1, f2]}
+        return outputs
+
+    def training_step(self, batch, batch_idx):
+        outputs = self._step(batch)
+        loss = outputs["loss"]
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        # on_step=True to see the warmup and cooldown properly :)
+        self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        return loss
+
+    def _eval_step(self, batch, batch_idx, stage):
+        _, _, labels = batch
+        kin_relation, is_kin = labels
+        outputs = self._step(batch)
+        loss = outputs["loss"]
+        self.log(f"loss/{stage}", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Compute best threshold for training or validation
+        self.similarities(outputs["sim"])
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)
+
+
 if __name__ == "__main__":
     from models.attention import FaCoRAttention
 

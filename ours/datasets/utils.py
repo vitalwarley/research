@@ -50,6 +50,28 @@ def sr_collate_fn_v2(batch):
     return (unique_probe_id, probe_images), (gallery_indexes, gallery_images)
 
 
+def collate_fn_fiw_family_v3(batch):
+    imgs1_batch = [item[0] for item in batch]
+    imgs2_batch = [item[1] for item in batch]
+    is_kin = [item[2] for item in batch]
+
+    # Flatten the list of lists into a single list of tensors
+    imgs1_flat = [img for imgs in imgs1_batch for img in imgs]
+    imgs2_flat = [img for imgs in imgs2_batch for img in imgs]
+    is_kin_flat = [label for labels in is_kin for label in labels]
+
+    # Stack tensors along the batch dimension
+    imgs1_tensor = torch.stack(imgs1_flat)
+    imgs2_tensor = torch.stack(imgs2_flat)
+    is_kin_tensor = torch.tensor(is_kin_flat)
+
+    return imgs1_tensor, imgs2_tensor, is_kin_tensor
+
+
+# Example usage:
+# dataloader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn)
+
+
 class Sample:
     # TODO: move to utils.py
     NAME2LABEL = {

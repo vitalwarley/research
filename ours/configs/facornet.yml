@@ -7,8 +7,7 @@ trainer:
   accelerator: "gpu"
   deterministic: yes
   fast_dev_run: no
-  max_epochs: 43
-  limit_train_batches: 50
+  max_epochs: 100
   default_root_dir: exp/
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
@@ -30,15 +29,13 @@ trainer:
         mode: 'max'  # Use 'min' if the metric should decrease
 
 data:
-   class_path: datasets.facornet.FaCoRNetDataModule
+   class_path: datasets.sclff.SCLFFDataModule
    init_args:
-     dataset: facornet
-     biased: false
      batch_size: 20
      root_dir: data/facornet
 
 model:
-  class_path: models.facornet.FaCoRNetLightning
+  class_path: models.facornet.FaCoRNetBasic
   init_args:
     num_families: 0
     loss_factor: 0
@@ -59,9 +56,9 @@ model:
     anneal_strategy: cos
     weights: null
     model:
-      class_path: models.facornet.FaCoR
+      class_path: models.facornet.FaCoRV5
       init_args:
         model: adaface_ir_101
-        attention: models.attention.FaCoRAttention
+        attention: models.attention.FaCoRAttentionDummy
     loss: 
-      class_path: losses.FaCoRContrastiveLoss
+      class_path: losses.ContrastiveLoss

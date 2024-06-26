@@ -134,7 +134,6 @@ insightface/
 weights/
 outputs/
 plots/
-datasets/
 **/models/*.pth
 lightning_logs/
 

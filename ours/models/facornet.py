@@ -648,8 +648,7 @@ class FaCoRNetBasic(LightningBaseModel):
         return outputs
 
     def training_step(self, batch, batch_idx):
-        img1, img2, _ = batch
-        outputs = self._step([img1, img2])
+        outputs = self._step(batch)
         loss = outputs["contrastive_loss"]
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
         # on_step=True to see the warmup and cooldown properly :)
@@ -821,8 +820,7 @@ class FaCoRNetBasicV4(LightningBaseModel):
         return outputs
 
     def training_step(self, batch, batch_idx):
-        img1, img2, _ = batch
-        outputs = self._step([img1, img2])
+        outputs = self._step(batch)
         loss = outputs["contrastive_loss"]
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
         # on_step=True to see the warmup and cooldown properly :)
@@ -855,9 +853,6 @@ class FaCoRNetBasicV5(FaCoRNetBasic):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.fc1 = nn.Linear(1024, 512)
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(512, 1)
 
         class Attention(nn.Module):
             def __init__(self, embed_dim, num_heads):
@@ -888,7 +883,14 @@ class FaCoRNetBasicV5(FaCoRNetBasic):
         self.attention = Attention(embed_dim=512, num_heads=4)
 
         if self.hparams.weights:
+            print(f"Loading weights from {self.hparams.weights}")
             self.load_weights(self.hparams.weights)
+
+        self.fc1 = nn.Linear(1024, 512)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(512, 1)
+
+        self.acc_classification = tm.Accuracy(num_classes=2, task="binary")
 
     def load_weights(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path)
@@ -911,15 +913,18 @@ class FaCoRNetBasicV5(FaCoRNetBasic):
 
     def _step(self, inputs):
         img1, img2, labels = inputs
-        _, is_kin = labels
-        is_kin = is_kin.unsqueeze(1).float()
+        if isinstance(labels, list | tuple):
+            _, is_kin = labels
+        else:
+            is_kin = labels
+        is_kin = is_kin.reshape(-1, 1).float()
         f1, f2 = self((img1, img2))
-        features = self._fusion([f1, f2])
+        features = self._fusion_v0([f1, f2])
         logits = self.fc2(self.relu(self.fc1(features)))
+        acc = self.acc_classification(torch.sigmoid(logits), is_kin)
         loss = self.criterion(logits, is_kin)
-        # Cross-entropy loss based on similarities and best threshold
         sim = torch.cosine_similarity(f1, f2)
-        outputs = {"loss": loss, "sim": sim, "features": [f1, f2]}
+        outputs = {"loss": loss, "sim": sim, "features": [f1, f2], "acc": acc}
         return outputs
 
     def training_step(self, batch, batch_idx):
@@ -929,6 +934,9 @@ class FaCoRNetBasicV5(FaCoRNetBasic):
         # on_step=True to see the warmup and cooldown properly :)
         self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
         self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log(
+            "accuracy/classification/train", outputs["acc"], on_step=False, on_epoch=True, prog_bar=True, logger=True
+        )
         return loss
 
     def _eval_step(self, batch, batch_idx, stage):
@@ -937,6 +945,9 @@ class FaCoRNetBasicV5(FaCoRNetBasic):
         outputs = self._step(batch)
         loss = outputs["loss"]
         self.log(f"loss/{stage}", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log(
+            f"accuracy/classification/{stage}", outputs["acc"], on_step=False, on_epoch=True, prog_bar=True, logger=True
+        )
         # Compute best threshold for training or validation
         self.similarities(outputs["sim"])
         self.is_kin_labels(is_kin)

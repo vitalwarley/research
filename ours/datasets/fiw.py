@@ -1,3 +1,4 @@
+from collections import defaultdict
 from itertools import combinations, islice
 from pathlib import Path
 
@@ -51,7 +52,8 @@ class FIW(Dataset):
 
     def read_image(self, path):
         # TODO: add to utils.py
-        img = cv2.imread(f"{self.root_dir / self.images_dir}/{path}")
+        image_path = f"{self.root_dir / self.images_dir}/{path}"
+        img = cv2.imread(image_path)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = cv2.resize(img, (112, 112))
         return img
@@ -61,10 +63,15 @@ class FIW(Dataset):
             self.bias = bias
 
     def _process_images(self, sample):
-        img1, img2 = self.read_image(sample.f1), self.read_image(sample.f2)
-        if self.transform is not None:
-            img1, img2 = self.transform(img1), self.transform(img2)
+        img1 = self._process_one_image(sample.f1)
+        img2 = self._process_one_image(sample.f2)
         return img1, img2
+
+    def _process_one_image(self, image_path):
+        image = self.read_image(image_path)
+        if self.transform is not None:
+            image = self.transform(image)
+        return image
 
     def _process_labels(self, sample):
         is_kin = torch.tensor(sample.is_kin)
@@ -152,6 +159,107 @@ class FIWFamilyV2(FIW):
         fid1, fid2 = torch.tensor(self.fid2idx[fid1]), torch.tensor(self.fid2idx[fid2])
         labels = (kin_id, is_kin, (fid1, fid2))
         return labels
+
+
+class FIWFamilyV3(FIW):
+    """
+    To be used with the KinshipBatchSampler.
+    """
+
+    # FaCoRNet dataset
+    TRAIN_PAIRS = "txt/train_sort_A2_m.txt"
+    VAL_PAIRS_MODEL_SEL = "txt/val_choose_A.txt"
+    VAL_PAIRS_THRES_SEL = "txt/val_A.txt"
+    TEST_PAIRS = "txt/test_A.txt"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Enconde all samples f1fid and f2fid to set of unique values
+        self.fids = []
+        self.filepaths = []
+        for sample in self.sample_list:
+            self.fids.append(sample.f1fid)
+            self.fids.append(sample.f2fid)
+            self.filepaths.append(sample.f1)
+            self.filepaths.append(sample.f2)
+        self.filepaths = set(self.filepaths)
+        # Map each fid to an index
+        self.fids = sorted(list(set(self.fids)))
+        print(f"Found {len(self.fids)} unique fids")
+        self.fid2idx = {fid: idx for idx, fid in enumerate(self.fids)}
+
+        whitelist_dir = "MID"
+        self.families = [
+            [
+                cur_person
+                for cur_person in cur_family.iterdir()
+                if cur_person.is_dir() and cur_person.name.startswith(whitelist_dir)
+            ]
+            for cur_family in self.root_dir.iterdir()
+            if cur_family.is_dir()
+        ]
+        self.fam2rel = defaultdict(list)
+        self.persons = []
+        self.persons2idx = {}
+        self.idx2persons = {}
+        self.person2family = {}
+        self.cache = {}
+        self.relationships = self._generate_relationships()
+
+    def _generate_relationships(self):
+        relationships = []
+        unique_relations = set()
+        persons = []
+        for sample_idx, sample in enumerate(self.sample_list):
+            # Only consider training set, therefore only positive samples
+            relation = (sample.f1fid,) + tuple(sorted([sample.f1mid, sample.f2mid]))
+            persons.append(sample.f1)
+            persons.append(sample.f2)
+            if relation not in unique_relations:
+                unique_relations.add(relation)
+                person1_images = list(Path(self.root_dir, self.images_dir, sample.f1).parent.glob("*.jpg"))
+                person2_images = list(Path(self.root_dir, self.images_dir, sample.f2).parent.glob("*.jpg"))
+                # Filter path relative to images_dir
+                person1_images = [str(img.relative_to(self.root_dir / self.images_dir)) for img in person1_images]
+                person2_images = [str(img.relative_to(self.root_dir / self.images_dir)) for img in person2_images]
+                # Filter relative to self.filepaths; apparently some images are missing in the train.csv
+                person1_images = [person for person in person1_images if person in self.filepaths]
+                person2_images = [person for person in person2_images if person in self.filepaths]
+                if person1_images and person2_images:
+                    labels = (sample.f1mid, sample.f2mid, sample.f1fid)
+                    relationships.append((person1_images, person2_images, labels))
+                    self.fam2rel[sample.f1fid].append(len(relationships) - 1)
+
+        self.person2family = {person: int(person.split("/")[2][1:]) for person in persons}
+        self.persons = sorted(list(set(persons)))
+        self.persons2idx = {person: idx for idx, person in enumerate(self.persons)}
+        self.idx2persons = {idx: person for person, idx in self.persons2idx.items()}
+
+        print(f"Generated {len(relationships)} relationships")
+        print(f"Found {len(self.persons)} unique persons")
+
+        return relationships
+
+    def _process_one_image(self, image_path):
+        if image_path in self.cache:
+            return self.cache[image_path]
+        image = super()._process_one_image(image_path)
+        self.cache[image_path] = image
+        return image
+
+    def __getitem__(self, idx: list[tuple[int, int]]):
+        img1_idx, img2_idx = list(zip(*idx))
+        imgs1, imgs2 = [self.persons[idx] for idx in img1_idx], [self.persons[idx] for idx in img2_idx]
+        is_kin = [
+            int(self.person2family[person1] == self.person2family[person2]) for person1, person2 in zip(imgs1, imgs2)
+        ]
+        imgs1 = [self._process_one_image(img) for img in imgs1]
+        imgs2 = [self._process_one_image(img) for img in imgs2]
+        sample = (imgs1, imgs2, is_kin)  # collate!
+        return sample
+
+    def __len__(self):
+        return len(self.relationships)
 
 
 class FIWPairs(FIW):

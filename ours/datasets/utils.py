@@ -68,6 +68,37 @@ def collate_fn_fiw_family_v3(batch):
     return imgs1_tensor, imgs2_tensor, is_kin_tensor
 
 
+def collate_fn_fiw_family_v4(batch):
+    imgs1_batch = [item[0] for item in batch]
+    imgs2_batch = [item[1] for item in batch]
+    is_kin = [item[2][-1] for item in batch]
+    imgs1_age = [item[2][0] for item in batch]
+    imgs2_age = [item[2][1] for item in batch]
+    imgs1_gender = [item[2][2] for item in batch]
+    imgs2_gender = [item[2][3] for item in batch]
+
+    # Flatten the list of lists into a single list of tensors
+    imgs1_flat = [img for imgs in imgs1_batch for img in imgs]
+    imgs2_flat = [img for imgs in imgs2_batch for img in imgs]
+    is_kin_flat = [label for labels in is_kin for label in labels]
+    imgs1_age_flat = [label for labels in imgs1_age for label in labels]
+    imgs2_age_flat = [label for labels in imgs2_age for label in labels]
+    imgs1_gender_flat = [label for labels in imgs1_gender for label in labels]
+    imgs2_gender_flat = [label for labels in imgs2_gender for label in labels]
+
+    # Stack tensors along the batch dimension
+    imgs1_tensor = torch.stack(imgs1_flat)
+    imgs2_tensor = torch.stack(imgs2_flat)
+    is_kin_tensor = torch.tensor(is_kin_flat)
+    imgs1_age_tensor = torch.tensor(imgs1_age_flat)
+    imgs2_age_tensor = torch.tensor(imgs2_age_flat)
+    imgs1_gender_tensor = torch.tensor(imgs1_gender_flat)
+    imgs2_gender_tensor = torch.tensor(imgs2_gender_flat)
+    labels = (imgs1_age_tensor, imgs2_age_tensor, imgs1_gender_tensor, imgs2_gender_tensor, is_kin_tensor)
+
+    return imgs1_tensor, imgs2_tensor, labels
+
+
 # Example usage:
 # dataloader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn)
 

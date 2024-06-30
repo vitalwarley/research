@@ -8,6 +8,7 @@ import torch.nn as nn
 import torchmetrics as tm
 from datasets.utils import Sample
 from models.insightface.recognition.arcface_torch.backbones import get_model
+from models.utils import l2_norm
 from torch.nn import (
     BatchNorm1d,
     BatchNorm2d,
@@ -792,3 +793,22 @@ class LightningBaseModel(L.LightningModule):
         )
         plt.close(fig)
         plt.close("all")
+
+
+class SimpleModel(torch.nn.Module):
+
+    def __init__(self, model: str):
+        super().__init__()
+        self.backbone = load_pretrained_model(model)
+
+    def forward(self, imgs):
+        img1, img2 = imgs
+        idx = [2, 1, 0]
+        f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
+        f2_0, x2_feat = self.backbone(img2[:, idx])  # ...
+
+        # Both are (B, 512)
+        f1_0 = l2_norm(f1_0)
+        f2_0 = l2_norm(f2_0)
+
+        return f1_0, f2_0

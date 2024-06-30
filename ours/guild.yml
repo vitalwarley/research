@@ -115,7 +115,7 @@
       exec: python tasks/facornet.py fit --config facornet.yml
       sourcecode:
         - utils.py
-        - losses.py
+        - losses/*.py
         - models/*.py
         - models/insightface
         - datasets/*.py
@@ -267,5 +267,100 @@
           target-type: link
           rename: data
         - operation: kfc:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+
+- model: sclag
+  operations:
+    train:
+      description: Supervised Contrastive Learning with Age and Gender information
+      exec: python tasks/sclag.py fit --config sclag.yml
+      sourcecode:
+        - utils.py
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/sclag.py
+      flags-import: all
+      flags-dest: config:configs/sclag.yml
+      output-scalars: '(\key)=(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - file: configs/sclag.yml
+          target-type: link
+    val:
+      description: Supervised Contrastive Learning with Age and Gender information
+      exec: python tasks/sclag.py validate --config sclag.yml
+      sourcecode:
+        - utils.py
+        - losses.py
+        - models/*.py
+        - datasets/*.py
+        - tasks/sclag.py
+      flags-import: all
+      flags-dest: config:configs/sclag.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - file: configs/sclag.yml
+          target-type: link
+        - operation: sclag:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    test:
+      description: Supervised Contrastive Learning with Age and Gender information
+      exec: python tasks/sclag.py test --config sclag.yml
+      sourcecode:
+        - utils.py
+        - losses.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/sclag.py
+      flags-import: all
+      flags-dest: config:configs/sclag.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - operation: sclag:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    search-retrieval:
+      description: Supervised Contrastive Learning with Age and Gender information
+      exec: python tasks/sclag.py predict --config task_3.yml
+      sourcecode:
+        - utils.py
+        - losses.py
+        - models/*.py
+        - datasets/*.py
+        - tasks/sclag.py
+      flags-import: all
+      flags-dest: config:configs/task_3.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - operation: sclag:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt

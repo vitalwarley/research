@@ -33,6 +33,14 @@ data:
    init_args:
      batch_size: 20
      root_dir: data/facornet
+     augmentation_params:
+       color_jitter:
+         brightness: 0.5
+         contrast: 0.5
+         saturation: 0.5
+         hue: 0.1
+       random_grayscale_prob: 0.2
+       random_horizontal_flip_prob: 0.5
 
 model:
   class_path: models.facornet.FaCoRNetBasic
@@ -62,3 +70,5 @@ model:
         attention: models.attention.FaCoRAttentionDummy
     loss: 
       class_path: losses.ContrastiveLoss
+      init_args:
+        beta: 0.08

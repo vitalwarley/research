@@ -262,6 +262,69 @@ class FIWFamilyV3(FIW):
         return len(self.relationships)
 
 
+class FIWFamilyV4AG(FIWFamilyV3):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.person2ag = defaultdict(dict)
+        self.age_gender_data = self._load_age_gender_data()
+
+    def _categorize_age(self, age):
+        if age == 0:
+            return 0
+        elif age < 18:
+            return 1  # "child"
+        elif age < 50:
+            return 2  # "adult"
+        else:
+            return 3  # "senior"
+
+    def _encode_gender(self, gender):
+        if gender == "female":
+            return 0
+        elif gender == "male":
+            return 1
+        else:
+            return 2
+
+    def _load_age_gender_data(self):
+        age_gender_csv = self.root_dir / ".." / "train_ag_predictions.csv"
+        lines = age_gender_csv.read_text().strip().split("\n")
+        for line in lines[1:]:
+            line = line.split(",")
+            person, age, gender = line[2:5]
+            age = self._categorize_age(int(float(age)))
+            gender = self._encode_gender(gender)
+            # age, gender, gender_score
+            self.person2ag[person]["age"] = age
+            self.person2ag[person]["gender"] = gender
+
+    def _get_samples(self, imgs1, imgs2):
+        is_kin = [
+            int(self.person2family[person1] == self.person2family[person2]) for person1, person2 in zip(imgs1, imgs2)
+        ]
+        img1_ages = []
+        img2_ages = []
+        img1_genders = []
+        img2_genders = []
+        for person1, person2 in zip(imgs1, imgs2):
+            person1 = Path(person1).name
+            person2 = Path(person2).name
+            img1_ages.append(self.person2ag[person1]["age"])
+            img2_ages.append(self.person2ag[person2]["age"])
+            img1_genders.append(self.person2ag[person1]["gender"])
+            img2_genders.append(self.person2ag[person2]["gender"])
+        imgs1 = [self._process_one_image(img) for img in imgs1]
+        imgs2 = [self._process_one_image(img) for img in imgs2]
+        labels = (img1_ages, img2_ages, img1_genders, img2_genders, is_kin)
+        return imgs1, imgs2, labels
+
+    def __getitem__(self, idx: list[tuple[int, int]]):
+        img1_idx, img2_idx = list(zip(*idx))
+        imgs1, imgs2 = [self.persons[idx] for idx in img1_idx], [self.persons[idx] for idx in img2_idx]
+        return self._get_samples(imgs1, imgs2)
+
+
 class FIWPairs(FIW):
 
     # FaCoRNet dataset

@@ -3,8 +3,8 @@ from collections import defaultdict
 from pathlib import Path
 
 import lightning as L
-from datasets.fiw import FIWFamilyV3
-from datasets.utils import collate_fn_fiw_family_v3
+from datasets.fiw import FIWFamilyV4AG
+from datasets.utils import collate_fn_fiw_family_v4
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
@@ -80,39 +80,56 @@ class KinshipBatchSampler:
 
 class SCLFFDataModule(L.LightningDataModule):
 
-    def __init__(self, batch_size=20, root_dir=".", transform=None):
+    def __init__(self, batch_size=20, root_dir=".", augmentation_params={}):
         super().__init__()
         self.batch_size = batch_size
         self.root_dir = root_dir
-        self.transform = transform or T.Compose([T.ToTensor()])
+        self.augmentation_params = augmentation_params
+        self.train_transforms = T.Compose(
+            [
+                T.ToPILImage(),
+                T.ColorJitter(
+                    brightness=self.augmentation_params["color_jitter"]["brightness"],
+                    contrast=self.augmentation_params["color_jitter"]["contrast"],
+                    saturation=self.augmentation_params["color_jitter"]["saturation"],
+                    hue=self.augmentation_params["color_jitter"]["hue"],
+                ),
+                T.RandomGrayscale(p=self.augmentation_params["random_grayscale_prob"]),
+                T.RandomHorizontalFlip(p=self.augmentation_params["random_horizontal_flip_prob"]),
+                T.ToTensor(),
+            ]
+        )
+        self.val_transforms = T.Compose([T.ToTensor()])
+        self.collate_fn = collate_fn_fiw_family_v4
+        self.dataset = FIWFamilyV4AG
 
     def setup(self, stage=None):
         if stage == "fit" or stage is None:
-            self.train_dataset = FIWFamilyV3(
+            self.train_dataset = self.dataset(
                 root_dir=self.root_dir,
-                sample_path=Path(FIWFamilyV3.TRAIN_PAIRS),
+                sample_path=Path(self.dataset.TRAIN_PAIRS),
                 batch_size=self.batch_size,
-                transform=self.transform,
+                transform=self.train_transforms,
             )
             self.val_dataset = FIWFaCoRNet(
                 root_dir=self.root_dir,
                 sample_path=Path(FIWFaCoRNet.VAL_PAIRS_MODEL_SEL),
                 batch_size=self.batch_size,
-                transform=self.transform,
+                transform=self.val_transforms,
             )
         if stage == "validate" or stage is None:
             self.val_dataset = FIWFaCoRNet(
                 root_dir=self.root_dir,
                 sample_path=Path(FIWFaCoRNet.VAL_PAIRS_THRES_SEL),
                 batch_size=self.batch_size,
-                transform=self.transform,
+                transform=self.val_transforms,
             )
         if stage == "test" or stage is None:
             self.test_dataset = FIWFaCoRNet(
                 root_dir=self.root_dir,
                 sample_path=Path(FIWFaCoRNet.TEST_PAIRS),
                 batch_size=self.batch_size,
-                transform=self.transform,
+                transform=self.val_transforms,
             )
         print(f"Setup {stage} datasets")
 
@@ -124,7 +141,7 @@ class SCLFFDataModule(L.LightningDataModule):
             pin_memory=True,
             persistent_workers=True,
             sampler=sampler,
-            collate_fn=collate_fn_fiw_family_v3,
+            collate_fn=self.collate_fn,
         )
 
     def val_dataloader(self):

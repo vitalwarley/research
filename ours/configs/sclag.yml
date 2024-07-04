@@ -43,7 +43,7 @@ data:
        random_horizontal_flip_prob: 0.5
 
 model:
-  class_path: models.facornet.FaCoRNetBasicV6
+  class_path: models.sclag.SCLAG
   init_args:
     num_families: 0
     loss_factor: 0
@@ -64,12 +64,13 @@ model:
     anneal_strategy: cos
     weights: null
     model:
-      class_path: models.facornet.FaCoRV5
+      class_path: models.base.SimpleModel
       init_args:
         model: adaface_ir_101
-        attention: models.attention.FaCoRAttentionDummy
     loss: 
-      class_path: losses.scl.HardContrastiveLoss
+      class_path: losses.sclag.ContrastiveLossWithAttributes
       init_args:
-        beta: 0.08
-        alpha: 0.8
+        tau: 0.08
+        lambda_a: 1.0
+        lambda_g: 1.0
+        margin: 0.5

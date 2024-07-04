@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torchmetrics as tm
 from datasets.utils import SampleKFC
-from losses import contrastive_loss
+from losses.scl import contrastive_loss
 from models.base import LightningBaseModel, load_pretrained_model
 from models.utils import l2_norm
 from pytorch_metric_learning.losses import ArcFaceLoss
@@ -963,7 +963,7 @@ class FaCoRNetBasicV6(LightningBaseModel):
     def _step(self, batch):
         img1, img2, labels = batch
         if isinstance(labels, list | tuple):
-            _, is_kin = labels
+            is_kin = labels[-1]
         else:
             is_kin = labels
         f1, f2 = self([img1, img2])

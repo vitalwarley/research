@@ -2,6 +2,45 @@ import torch
 import torch.nn.functional as F
 
 
+class MCLoss(torch.nn.Module):
+
+    def __init__(self, alpha=0.2, beta=3.1, lambd=1.5, epsilon=1.0):
+        super().__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.lambd = lambd
+        self.epsilon = epsilon
+
+    def forward(self, x, y):
+        # Compute M
+        M = torch.matmul(x, y.t())
+
+        # Filter positive samples
+        M_pos = M.diag()
+        M_neg = M[~torch.eye(M.size(0), dtype=torch.bool)].view(M.size(0), -1)
+
+        valid_pos_mask = M_pos - self.epsilon < M_neg.max(dim=1)[0]
+        valid_neg_mask = M_neg + self.epsilon > M_pos.min()
+
+        # Compute positive loss
+        pos_loss = (
+            (1 / x.size(0))
+            * (1 / self.alpha)
+            * torch.log(1 + torch.sum(torch.exp(-self.alpha * (M_pos[valid_pos_mask] - self.lambd))))
+        )
+
+        # Compute negative loss
+        neg_loss = (
+            (1 / x.size(0))
+            * (1 / self.beta)
+            * torch.log(1 + torch.sum(torch.exp(self.beta * (M_neg[valid_neg_mask] - self.lambd))))
+        )
+
+        # Combine losses
+        total_loss = pos_loss + neg_loss
+        return total_loss
+
+
 def contrastive_loss(x1, x2, beta=0.08):
     x1x2 = torch.cat([x1, x2], dim=0)
     x2x1 = torch.cat([x2, x1], dim=0)

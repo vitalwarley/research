@@ -69,7 +69,10 @@ model:
         model: adaface_ir_101
         attention: models.attention.FaCoRAttentionDummy
     loss: 
-      class_path: losses.scl.HardContrastiveLoss
+      class_path: losses.scl.MCLoss
       init_args:
-        beta: 0.08
-        alpha: 0.8
+        alpha: 0.2
+        beta: 3.1
+        lambd: 1.5
+        epsilon: 1.0
+

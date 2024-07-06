@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+from losses.scl import contrastive_loss_with_labels
 
 
 class ContrastiveLossWithAttributes(torch.nn.Module):
@@ -68,36 +69,7 @@ class ContrastiveLossWithAttributes(torch.nn.Module):
         Returns:
             torch.Tensor: The contrastive loss term.
         """
-        batch_size = embeddings.size(0)
-        cosine_sim = F.cosine_similarity(embeddings.unsqueeze(1), embeddings.unsqueeze(0), dim=2)
-
-        # Create masks to exclude self-similarities and positive pairs
-        mask = torch.eye(batch_size, device=embeddings.device).bool()
-        for i, j in positive_pairs:
-            mask[i, j] = True
-            mask[j, i] = True
-
-        cosine_sim_masked = cosine_sim.masked_fill(mask, -float("inf")) / self.tau
-        exp_cosine_sim = torch.exp(cosine_sim / self.tau)
-
-        contrastive_loss = 0
-        num_pairs = len(positive_pairs)
-
-        for i, j in positive_pairs:
-            pos_sim_ij = cosine_sim[i, j] / self.tau
-            pos_sim_ji = cosine_sim[j, i] / self.tau
-
-            neg_sims_i = cosine_sim_masked[i]
-            neg_sims_j = cosine_sim_masked[j]
-
-            loss_ij = -torch.log(torch.exp(pos_sim_ij) / (torch.exp(pos_sim_ij) + torch.sum(torch.exp(neg_sims_i))))
-            loss_ji = -torch.log(torch.exp(pos_sim_ji) / (torch.exp(pos_sim_ji) + torch.sum(torch.exp(neg_sims_j))))
-
-            contrastive_loss += loss_ij + loss_ji
-
-        contrastive_loss /= 2 * num_pairs  # Average the loss over both directions
-
-        return contrastive_loss
+        return contrastive_loss_with_labels(embeddings, positive_pairs, self.tau)
 
     def forward(self, embeddings, positive_pairs, gender_labels, age_labels):
         """
@@ -116,6 +88,48 @@ class ContrastiveLossWithAttributes(torch.nn.Module):
         contrastive_loss_value = self.contrastive_loss(embeddings, positive_pairs)
         gender_loss_value = self.gender_loss(embeddings, gender_labels)
         age_loss_value = self.age_loss(embeddings, age_labels)
+        total_loss = contrastive_loss_value + self.lambda_g * gender_loss_value + self.lambda_a * age_loss_value
+        return total_loss, contrastive_loss_value, gender_loss_value, age_loss_value
+
+
+class CLAdversarial(torch.nn.Module):
+    def __init__(self, tau=0.08, lambda_g=1.0, lambda_a=1.0):
+        """
+        Initialize the loss class with parameters.
+
+        Args:
+            tau (float): The temperature parameter for contrastive loss.
+            lambda_g (float): Weight for the gender loss term.
+            lambda_a (float): Weight for the age loss term.
+        """
+        super().__init__()
+        self.tau = tau
+        self.lambda_g = lambda_g
+        self.lambda_a = lambda_a
+
+    def gender_loss(self, gender_logits, gender_labels):
+        return F.cross_entropy(gender_logits, gender_labels)
+
+    def age_loss(self, age_logits, age_labels):
+        return F.cross_entropy(age_logits, age_labels)
+
+    def contrastive_loss(self, embeddings, positive_pairs):
+        """
+        Compute the contrastive loss term.
+
+        Args:
+            embeddings (torch.Tensor): The embeddings of the batch, shape (batch_size, embedding_dim)
+            positive_pairs (list of tuples): List of tuples indicating positive pairs indices.
+
+        Returns:
+            torch.Tensor: The contrastive loss term.
+        """
+        return contrastive_loss_with_labels(embeddings, positive_pairs, self.tau)
+
+    def forward(self, embeddings, gender_logits, age_logits, positive_pairs, gender_labels, age_labels):
+        contrastive_loss_value = self.contrastive_loss(embeddings, positive_pairs)
+        gender_loss_value = self.gender_loss(gender_logits, gender_labels)
+        age_loss_value = self.age_loss(age_logits, age_labels)
         total_loss = contrastive_loss_value + self.lambda_g * gender_loss_value + self.lambda_a * age_loss_value
         return total_loss, contrastive_loss_value, gender_loss_value, age_loss_value
 

@@ -51,6 +51,49 @@ def contrastive_loss(x1, x2, beta=0.08):
     return -torch.mean(torch.log(numerators / denominators), dim=0)
 
 
+def contrastive_loss_with_labels(embeddings, positive_pairs, beta=0.08):
+    """
+    Compute the contrastive loss term.
+
+    Args:
+        embeddings (torch.Tensor): The embeddings of the batch, shape (batch_size, embedding_dim)
+        positive_pairs (list of tuples): List of tuples indicating positive pairs indices.
+
+    Returns:
+        torch.Tensor: The contrastive loss term.
+    """
+    batch_size = embeddings.size(0)
+    cosine_sim = F.cosine_similarity(embeddings.unsqueeze(1), embeddings.unsqueeze(0), dim=2)
+
+    # Create masks to exclude self-similarities and positive pairs
+    mask = torch.eye(batch_size, device=embeddings.device).bool()
+    for i, j in positive_pairs:
+        mask[i, j] = True
+        mask[j, i] = True
+
+    exp_cosine_sim = torch.exp(cosine_sim / beta)
+    exp_cosine_sim_masked = exp_cosine_sim.masked_fill(mask, 0)
+
+    contrastive_loss = 0
+    num_pairs = len(positive_pairs)
+
+    for i, j in positive_pairs:
+        pos_sim_ij = exp_cosine_sim[i, j]
+        pos_sim_ji = exp_cosine_sim[j, i]
+
+        neg_sims_i = exp_cosine_sim_masked[i]  # Exclude self and positive pairs
+        neg_sims_j = exp_cosine_sim_masked[j]  # Exclude self and positive pairs
+
+        loss_ij = -torch.log(pos_sim_ij / (pos_sim_ij + torch.sum(neg_sims_i)))
+        loss_ji = -torch.log(pos_sim_ji / (pos_sim_ji + torch.sum(neg_sims_j)))
+
+        contrastive_loss += loss_ij + loss_ji
+
+    contrastive_loss /= 2 * num_pairs  # Average the loss over both directions
+
+    return contrastive_loss
+
+
 class ContrastiveLossWithLabels(torch.nn.Module):
 
     def __init__(self, beta=0.08):
@@ -68,36 +111,7 @@ class ContrastiveLossWithLabels(torch.nn.Module):
         Returns:
             torch.Tensor: The contrastive loss term.
         """
-        batch_size = embeddings.size(0)
-        cosine_sim = F.cosine_similarity(embeddings.unsqueeze(1), embeddings.unsqueeze(0), dim=2)
-
-        # Create masks to exclude self-similarities and positive pairs
-        mask = torch.eye(batch_size, device=embeddings.device).bool()
-        for i, j in positive_pairs:
-            mask[i, j] = True
-            mask[j, i] = True
-
-        exp_cosine_sim = torch.exp(cosine_sim / self.beta)
-        exp_cosine_sim_masked = exp_cosine_sim.masked_fill(mask, 0)
-
-        contrastive_loss = 0
-        num_pairs = len(positive_pairs)
-
-        for i, j in positive_pairs:
-            pos_sim_ij = exp_cosine_sim[i, j]
-            pos_sim_ji = exp_cosine_sim[j, i]
-
-            neg_sims_i = exp_cosine_sim_masked[i]  # Exclude self and positive pairs
-            neg_sims_j = exp_cosine_sim_masked[j]  # Exclude self and positive pairs
-
-            loss_ij = -torch.log(pos_sim_ij / (pos_sim_ij + torch.sum(neg_sims_i)))
-            loss_ji = -torch.log(pos_sim_ji / (pos_sim_ji + torch.sum(neg_sims_j)))
-
-            contrastive_loss += loss_ij + loss_ji
-
-        contrastive_loss /= 2 * num_pairs  # Average the loss over both directions
-
-        return contrastive_loss
+        return contrastive_loss_with_labels(embeddings, positive_pairs, self.beta)
 
 
 class HardContrastiveLoss(torch.nn.Module):

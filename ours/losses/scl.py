@@ -121,7 +121,7 @@ class HardContrastiveLoss(torch.nn.Module):
         self.beta = beta
         self.alpha = alpha
 
-    def forward(self, embeddings, positive_pairs):
+    def forward(self, embeddings, positive_pairs, stage):
         """
         Compute the contrastive loss term.
 
@@ -155,18 +155,25 @@ class HardContrastiveLoss(torch.nn.Module):
         exp_i = exp_cosine_sim_masked[indices_i]
         exp_j = exp_cosine_sim_masked[indices_j]
 
-        # Select hard negatives based on the alpha quantile
-        threshold_i = torch.quantile(exp_i, self.alpha, dim=1, keepdim=True)
-        threshold_j = torch.quantile(exp_j, self.alpha, dim=1, keepdim=True)
+        if stage in ["train", "sanity_check"]:
+            # Select hard negatives based on the alpha quantile
+            threshold_i = torch.quantile(exp_i, self.alpha, dim=1, keepdim=True)
+            threshold_j = torch.quantile(exp_j, self.alpha, dim=1, keepdim=True)
 
-        hard_neg_sims_i = torch.where(exp_i >= threshold_i, exp_i, torch.tensor(0.0, device=embeddings.device))
-        hard_neg_sims_j = torch.where(exp_j >= threshold_j, exp_j, torch.tensor(0.0, device=embeddings.device))
+            hard_neg_sims_i = torch.where(exp_i >= threshold_i, exp_i, torch.tensor(0.0, device=embeddings.device))
+            hard_neg_sims_j = torch.where(exp_j >= threshold_j, exp_j, torch.tensor(0.0, device=embeddings.device))
 
-        sum_hard_neg_sims_i = hard_neg_sims_i.sum(dim=1)
-        sum_hard_neg_sims_j = hard_neg_sims_j.sum(dim=1)
+            sum_hard_neg_sims_i = hard_neg_sims_i.sum(dim=1)
+            sum_hard_neg_sims_j = hard_neg_sims_j.sum(dim=1)
 
-        loss_ij = -torch.log(pos_sim_ij / (pos_sim_ij + sum_hard_neg_sims_i))
-        loss_ji = -torch.log(pos_sim_ji / (pos_sim_ji + sum_hard_neg_sims_j))
+            loss_ij = -torch.log(pos_sim_ij / (pos_sim_ij + sum_hard_neg_sims_i))
+            loss_ji = -torch.log(pos_sim_ji / (pos_sim_ji + sum_hard_neg_sims_j))
+        else:
+            sum_neg_sims_i = exp_i.sum(dim=1)
+            sum_neg_sims_j = exp_j.sum(dim=1)
+
+            loss_ij = -torch.log(pos_sim_ij / (pos_sim_ij + sum_neg_sims_i))
+            loss_ji = -torch.log(pos_sim_ji / (pos_sim_ji + sum_neg_sims_j))
 
         contrastive_loss = (loss_ij + loss_ji).sum()
         contrastive_loss /= 2 * num_pairs  # Average the loss over both directions

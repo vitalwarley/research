@@ -364,3 +364,98 @@
         - operation: sclag:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt
+
+- model: scl
+  operations:
+    train:
+      description: Supervised Contrastive Learning experiments
+      exec: python tasks/scl.py fit --config scl.yml
+      sourcecode:
+        - utils.py
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/scl.yml
+      output-scalars: '(\key)=(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - file: configs/scl.yml
+          target-type: link
+    val:
+      description: Supervised Contrastive Learning experiments
+      exec: python tasks/scl.py validate --config scl.yml
+      sourcecode:
+        - utils.py
+        - losses.py
+        - models/*.py
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/scl.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - file: configs/scl.yml
+          target-type: link
+        - operation: scl:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    test:
+      description: Supervised Contrastive Learning experiments
+      exec: python tasks/scl.py test --config scl.yml
+      sourcecode:
+        - utils.py
+        - losses.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/scl.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - operation: scl:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    search-retrieval:
+      description: Supervised Contrastive Learning experiments
+      exec: python tasks/scl.py predict --config task_3.yml
+      sourcecode:
+        - utils.py
+        - losses.py
+        - models/*.py
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/task_3.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - operation: scl:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt

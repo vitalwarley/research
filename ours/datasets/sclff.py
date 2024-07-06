@@ -80,25 +80,29 @@ class KinshipBatchSampler:
 
 class SCLFFDataModule(L.LightningDataModule):
 
-    def __init__(self, batch_size=20, root_dir=".", augmentation_params={}):
+    def __init__(self, batch_size=20, root_dir=".", augmentation_params={}, augment=True, **kwargs):
         super().__init__()
         self.batch_size = batch_size
         self.root_dir = root_dir
         self.augmentation_params = augmentation_params
-        self.train_transforms = T.Compose(
-            [
-                T.ToPILImage(),
-                T.ColorJitter(
-                    brightness=self.augmentation_params["color_jitter"]["brightness"],
-                    contrast=self.augmentation_params["color_jitter"]["contrast"],
-                    saturation=self.augmentation_params["color_jitter"]["saturation"],
-                    hue=self.augmentation_params["color_jitter"]["hue"],
-                ),
-                T.RandomGrayscale(p=self.augmentation_params["random_grayscale_prob"]),
-                T.RandomHorizontalFlip(p=self.augmentation_params["random_horizontal_flip_prob"]),
-                T.ToTensor(),
-            ]
-        )
+        self.augment = augment
+        if self.augment:
+            self.train_transforms = T.Compose(
+                [
+                    T.ToPILImage(),
+                    T.ColorJitter(
+                        brightness=self.augmentation_params["color_jitter"]["brightness"],
+                        contrast=self.augmentation_params["color_jitter"]["contrast"],
+                        saturation=self.augmentation_params["color_jitter"]["saturation"],
+                        hue=self.augmentation_params["color_jitter"]["hue"],
+                    ),
+                    T.RandomGrayscale(p=self.augmentation_params["random_grayscale_prob"]),
+                    T.RandomHorizontalFlip(p=self.augmentation_params["random_horizontal_flip_prob"]),
+                    T.ToTensor(),
+                ]
+            )
+        else:
+            self.train_transforms = T.Compose([T.ToTensor()])
         self.val_transforms = T.Compose([T.ToTensor()])
         self.collate_fn = collate_fn_fiw_family_v4
         self.dataset = FIWFamilyV4AG

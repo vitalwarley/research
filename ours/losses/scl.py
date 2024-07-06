@@ -172,3 +172,78 @@ class HardContrastiveLoss(torch.nn.Module):
         contrastive_loss /= 2 * num_pairs  # Average the loss over both directions
 
         return contrastive_loss
+
+
+class HardContrastiveLossV2(torch.nn.Module):
+
+    def __init__(self, beta=0.2, alpha_neg=0.8, alpha_pos=0.2):
+        super().__init__()
+        self.beta = beta
+        self.alpha_neg = alpha_neg
+        self.alpha_pos = alpha_pos
+
+    def forward(self, embeddings, positive_pairs):
+        """
+        Compute the contrastive loss term.
+
+        Args:
+            embeddings (torch.Tensor): The embeddings of the batch, shape (batch_size, embedding_dim)
+            positive_pairs (list of tuples): List of tuples indicating positive pairs indices.
+
+        Returns:
+            torch.Tensor: The contrastive loss term.
+        """
+        batch_size = embeddings.size(0)
+        num_pairs = len(positive_pairs)
+
+        # Create masks to exclude self-similarities and positive pairs
+        mask = torch.eye(batch_size, device=embeddings.device).bool()
+
+        indices_i = positive_pairs[:, 0]
+        indices_j = positive_pairs[:, 1]
+
+        # Set the mask for positive pairs
+        mask[indices_i, indices_j] = True
+        mask[indices_j, indices_i] = True
+
+        cosine_sim = F.cosine_similarity(embeddings.unsqueeze(1), embeddings.unsqueeze(0), dim=2)
+        exp_cosine_sim = torch.exp(cosine_sim / self.beta)
+        exp_cosine_sim_masked = exp_cosine_sim.masked_fill(mask, 0)
+
+        pos_sim_ij = exp_cosine_sim[indices_i, indices_j]
+        pos_sim_ji = exp_cosine_sim[indices_j, indices_i]
+
+        exp_i = exp_cosine_sim_masked[indices_i]
+        exp_j = exp_cosine_sim_masked[indices_j]
+
+        # Select hard negatives based on the alpha quantile
+        threshold_i_neg = torch.quantile(exp_i, self.alpha_neg, dim=1, keepdim=True)
+        threshold_j_neg = torch.quantile(exp_j, self.alpha_neg, dim=1, keepdim=True)
+
+        hard_neg_sims_i = torch.where(exp_i >= threshold_i_neg, exp_i, torch.tensor(0.0, device=embeddings.device))
+        hard_neg_sims_j = torch.where(exp_j >= threshold_j_neg, exp_j, torch.tensor(0.0, device=embeddings.device))
+
+        sum_hard_neg_sims_i = hard_neg_sims_i.sum(dim=1)
+        sum_hard_neg_sims_j = hard_neg_sims_j.sum(dim=1)
+
+        # Select easy positives based on the alpha_positive quantile
+        threshold_i_pos = torch.quantile(pos_sim_ij, self.alpha_pos, dim=0, keepdim=True)
+        threshold_j_pos = torch.quantile(pos_sim_ji, self.alpha_pos, dim=0, keepdim=True)
+
+        hard_pos_sim_ij = pos_sim_ij[pos_sim_ij <= threshold_i_pos]
+        hard_pos_sim_ji = pos_sim_ji[pos_sim_ji <= threshold_j_pos]
+
+        # Compute loss
+        contrastive_loss = 0
+
+        # TODO: is it right?
+        for pos_sim_ij, pos_sim_ji in zip(hard_pos_sim_ij, hard_pos_sim_ji):
+
+            loss_ij = -torch.log(pos_sim_ij / (pos_sim_ij + sum_hard_neg_sims_i))
+            loss_ji = -torch.log(pos_sim_ji / (pos_sim_ji + sum_hard_neg_sims_j))
+
+            contrastive_loss += (loss_ij + loss_ji).sum()
+
+        contrastive_loss /= 2 * num_pairs  # Average the loss over both directions
+
+        return contrastive_loss

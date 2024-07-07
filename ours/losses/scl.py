@@ -266,7 +266,11 @@ class HardContrastiveLossV3(torch.nn.Module):
         self.tau = initial_tau
 
     def update_temperature(self, epoch, max_epochs):
-        self.tau = self.initial_tau * (self.final_tau / self.initial_tau) ** (epoch / max_epochs)
+        epoch = torch.tensor(epoch, dtype=torch.uint8)
+        max_epochs = torch.tensor(max_epochs, dtype=torch.uint8)
+        self.tau = self.initial_tau + (torch.log(epoch + 1) / torch.log(max_epochs + 1)) * (
+            self.final_tau - self.initial_tau
+        )
 
     def forward(self, embeddings, positive_pairs, stage):
         """

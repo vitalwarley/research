@@ -343,10 +343,11 @@ class HardContrastiveLossV4(torch.nn.Module):
     HCL with negative pairs selection based on the alpha quantile and Feature Transformation.
     """
 
-    def __init__(self, beta=0.2, alpha=0.8):
+    def __init__(self, beta=0.2, alpha=0.8, gamma=2.0):
         super().__init__()
         self.beta = beta
         self.alpha = alpha
+        self.gamma = gamma
 
     def forward(self, embeddings, positive_pairs, stage):
         """
@@ -360,8 +361,7 @@ class HardContrastiveLossV4(torch.nn.Module):
             torch.Tensor: The contrastive loss term.
         """
         # Generate hard embeddings and pairs
-        # hard_embeddings, hard_pairs = create_hard_pairs_batch(embeddings, positive_pairs)
-        hard_pos_embeddings = create_hard_pairs_batch(embeddings, positive_pairs)
+        hard_pos_embeddings = extrapolate_positive_pairs(embeddings, positive_pairs, self.gamma)
 
         # Split hard pairs back into positive and negative
         # num_pos_pairs = len(positive_pairs) * 2
@@ -456,7 +456,7 @@ def generate_pairs(embeddings, positive_pairs):
 def extrapolate_positive_pairs(embeddings, positive_pairs, alpha=2.0):
     hard_pos_embeddings = torch.zeros_like(embeddings)
     # Sample 1 lambda
-    lambda_ = torch.distributions.Beta(alpha, alpha).sample().item()
+    lambda_ = torch.distributions.Beta(alpha, alpha).sample().item() + 1
     for i, j in positive_pairs:
         new_embedding_i = lambda_ * embeddings[i] + (1 - lambda_) * embeddings[j]
         new_embedding_j = lambda_ * embeddings[j] + (1 - lambda_) * embeddings[i]

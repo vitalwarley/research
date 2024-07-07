@@ -141,7 +141,7 @@ class SCLFFDataModule(L.LightningDataModule):
         sampler = KinshipBatchSampler(self.train_dataset, self.batch_size)
         return DataLoader(
             self.train_dataset,
-            num_workers=4,
+            num_workers=2,
             pin_memory=True,
             persistent_workers=True,
             sampler=sampler,
@@ -153,7 +153,7 @@ class SCLFFDataModule(L.LightningDataModule):
             self.val_dataset,
             batch_size=self.batch_size,
             shuffle=False,
-            num_workers=4,
+            num_workers=2,
             pin_memory=True,
             persistent_workers=True,
         )
@@ -163,7 +163,7 @@ class SCLFFDataModule(L.LightningDataModule):
             self.test_dataset,
             batch_size=self.batch_size,
             shuffle=False,
-            num_workers=4,
+            num_workers=2,
             pin_memory=True,
             persistent_workers=True,
         )

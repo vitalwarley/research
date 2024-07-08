@@ -114,6 +114,38 @@ class ContrastiveLossWithLabels(torch.nn.Module):
         return contrastive_loss_with_labels(embeddings, positive_pairs, self.beta)
 
 
+class CLFTPos(torch.nn.Module):
+    """
+    Contrastive loss with Feature Transformation for positive pairs.
+    """
+
+    def __init__(self, beta=0.08, gamma=2.0):
+        super().__init__()
+        self.beta = beta
+        self.gamma = gamma
+
+    def forward(self, embeddings, positive_pairs, stage):
+        """
+        Compute the contrastive loss term.
+
+        Args:
+            embeddings (torch.Tensor): The embeddings of the batch, shape (batch_size, embedding_dim)
+            positive_pairs (list of tuples): List of tuples indicating positive pairs indices.
+
+        Returns:
+            torch.Tensor: The contrastive loss term.
+        """
+        loss_original = contrastive_loss_with_labels(embeddings, positive_pairs, self.beta)
+        if stage in ["train", "sanity_check"]:
+            hard_pos_embeddings = extrapolate_positive_pairs(embeddings, positive_pairs, self.gamma)
+            loss_hard = contrastive_loss_with_labels(hard_pos_embeddings, positive_pairs, self.beta)
+            loss = (loss_original + loss_hard) / 2
+        else:
+            loss = loss_original
+        return loss
+
+
+
 class HardContrastiveLoss(torch.nn.Module):
     """
     HCL with negative pairs selection based on the alpha quantile.
@@ -456,7 +488,7 @@ def generate_pairs(embeddings, positive_pairs):
 def extrapolate_positive_pairs(embeddings, positive_pairs, alpha=2.0):
     hard_pos_embeddings = torch.zeros_like(embeddings)
     # Sample 1 lambda
-    lambda_ = torch.distributions.Beta(alpha, alpha).sample().item() + 1
+    lambda_ = torch.distributions.Beta(alpha, alpha).sample().item()
     for i, j in positive_pairs:
         new_embedding_i = lambda_ * embeddings[i] + (1 - lambda_) * embeddings[j]
         new_embedding_j = lambda_ * embeddings[j] + (1 - lambda_) * embeddings[i]

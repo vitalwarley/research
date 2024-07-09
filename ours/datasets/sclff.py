@@ -1,3 +1,4 @@
+import os
 import random
 from collections import defaultdict
 from pathlib import Path
@@ -9,6 +10,8 @@ from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
 from datasets.facornet import FIWFaCoRNet
+
+N_WORKERS = os.cpu_count() or 16
 
 
 class KinshipBatchSampler:
@@ -80,7 +83,7 @@ class KinshipBatchSampler:
 
 class SCLFFDataModule(L.LightningDataModule):
 
-    def __init__(self, batch_size=20, root_dir=".", augmentation_params={}, augment=True, **kwargs):
+    def __init__(self, batch_size=20, root_dir=".", augmentation_params={}, augment=False, **kwargs):
         super().__init__()
         self.batch_size = batch_size
         self.root_dir = root_dir
@@ -108,6 +111,8 @@ class SCLFFDataModule(L.LightningDataModule):
         self.dataset = FIWFamilyV4AG
 
     def setup(self, stage=None):
+        # For Hard Contrastive Loss, we need batches to have at least 1 positive pair
+        self.shuffle = True
         if stage == "fit" or stage is None:
             self.train_dataset = self.dataset(
                 root_dir=self.root_dir,
@@ -121,6 +126,7 @@ class SCLFFDataModule(L.LightningDataModule):
                 batch_size=self.batch_size,
                 transform=self.val_transforms,
             )
+            self.shuffle = False
         if stage == "validate" or stage is None:
             self.val_dataset = FIWFaCoRNet(
                 root_dir=self.root_dir,
@@ -141,7 +147,7 @@ class SCLFFDataModule(L.LightningDataModule):
         sampler = KinshipBatchSampler(self.train_dataset, self.batch_size)
         return DataLoader(
             self.train_dataset,
-            num_workers=2,
+            num_workers=N_WORKERS,
             pin_memory=True,
             persistent_workers=True,
             sampler=sampler,
@@ -152,8 +158,8 @@ class SCLFFDataModule(L.LightningDataModule):
         return DataLoader(
             self.val_dataset,
             batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=2,
+            shuffle=self.shuffle,
+            num_workers=N_WORKERS,
             pin_memory=True,
             persistent_workers=True,
         )
@@ -162,8 +168,8 @@ class SCLFFDataModule(L.LightningDataModule):
         return DataLoader(
             self.test_dataset,
             batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=2,
+            shuffle=self.shuffle,
+            num_workers=N_WORKERS,
             pin_memory=True,
             persistent_workers=True,
         )
@@ -176,9 +182,9 @@ if __name__ == "__main__":
         batch_size=batch_size,
         root_dir="../datasets/facornet",
     )
-    dm.setup("fit")
-    data_loader = dm.train_dataloader()
+    dm.setup("validate")
+    data_loader = dm.val_dataloader()
 
     # Iterate over DataLoader
     for i, batch in enumerate(data_loader):
-        print(f"Batch {i + 1}", batch[0].shape, batch[1].shape)
+        print(f"Batch {i + 1}: ", batch[-1])

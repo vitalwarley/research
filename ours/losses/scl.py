@@ -145,7 +145,6 @@ class CLFTPos(torch.nn.Module):
         return loss
 
 
-
 class HardContrastiveLoss(torch.nn.Module):
     """
     HCL with negative pairs selection based on the alpha quantile.

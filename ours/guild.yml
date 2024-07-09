@@ -396,14 +396,18 @@
       exec: python tasks/scl.py validate --config scl.yml
       sourcecode:
         - utils.py
-        - losses.py
+        - losses/*.py
         - models/*.py
+        - models/insightface
         - datasets/*.py
         - tasks/scl.py
       flags-import: all
       flags-dest: config:configs/scl.yml
       output-scalars: '(\key):\s+(\value)'
       requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
         - file: weights
           target-type: link
         - file: ../datasets/
@@ -419,7 +423,7 @@
       exec: python tasks/scl.py test --config scl.yml
       sourcecode:
         - utils.py
-        - losses.py
+        - losses/*.py
         - models/*.py
         - models/insightface
         - datasets/*.py
@@ -430,6 +434,7 @@
       requires:
         - file: models/insightface
           target-type: link
+          rename: models/insightface
         - file: weights
           target-type: link
         - file: ../datasets/

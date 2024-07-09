@@ -136,7 +136,7 @@ class Sample:
         try:
             self.f1fid = int(f1[2][1:])
             self.f2fid = int(f2[2][1:])
-        except ValueError:
+        except Exception:
             self.f1fid = 0
             self.f2fid = 0
 
@@ -144,7 +144,7 @@ class Sample:
         try:
             self.f1mid = int(f1[3][3:])
             self.f2mid = int(f2[3][3:])
-        except ValueError:
+        except Exception:
             self.f1mid = 0
             self.f2mid = 0
 

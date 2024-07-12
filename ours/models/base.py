@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torchmetrics as tm
 from datasets.utils import Sample
-from models.insightface.recognition.arcface_torch.backbones import get_model
+#from models.insightface.recognition.arcface_torch.backbones import get_model
 from models.utils import l2_norm
 from torch.nn import (
     BatchNorm1d,
@@ -465,8 +465,8 @@ def build_model(model_name="ir_50"):
         return IR_34(input_size=(112, 112))
     elif model_name == "adaface_ir_18":
         return IR_18(input_size=(112, 112))
-    elif model_name == "arcface_ir_101":
-        return get_model("r100", fp16=True)
+    #elif model_name == "arcface_ir_101":
+        #return get_model("r100", fp16=True)
     else:
         raise ValueError("not a correct model name", model_name)
 

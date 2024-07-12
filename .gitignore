@@ -131,6 +131,7 @@ dmypy.json
 # folders
 docs/
 insightface/
+mivolo/
 weights/
 outputs/
 plots/

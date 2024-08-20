@@ -374,11 +374,13 @@ class HardContrastiveLossV4(torch.nn.Module):
     HCL with negative pairs selection based on the alpha quantile and Feature Transformation.
     """
 
-    def __init__(self, beta=0.2, alpha=0.8, gamma=2.0):
+    def __init__(self, beta=0.2, alpha=0.8, gamma=2.0, dim_mixing=False, normalize=False):
         super().__init__()
         self.beta = beta
         self.alpha = alpha
         self.gamma = gamma
+        self.dim_mixing = dim_mixing
+        self.normalize = normalize
 
     def forward(self, embeddings, positive_pairs, stage):
         """
@@ -392,7 +394,9 @@ class HardContrastiveLossV4(torch.nn.Module):
             torch.Tensor: The contrastive loss term.
         """
         # Generate hard embeddings and pairs
-        hard_pos_embeddings = extrapolate_positive_pairs(embeddings, positive_pairs, self.gamma)
+        hard_pos_embeddings = extrapolate_positive_pairs(
+            embeddings, positive_pairs, self.gamma, self.dim_mixing, self.normalize
+        )
 
         # Split hard pairs back into positive and negative
         # num_pos_pairs = len(positive_pairs) * 2
@@ -484,16 +488,23 @@ def generate_pairs(embeddings, positive_pairs):
     return list(positive_pairs_set), negative_pairs
 
 
-def extrapolate_positive_pairs(embeddings, positive_pairs, alpha=2.0):
+def extrapolate_positive_pairs(embeddings, positive_pairs, alpha=2.0, dim_mixing=False, normalize=False):
     hard_pos_embeddings = torch.zeros_like(embeddings)
     # Sample 1 lambda
-    lambda_ = torch.distributions.Beta(alpha, alpha).sample().item()
+    if dim_mixing:
+        # Sample a vector of lambdas
+        lambda_ = torch.distributions.Beta(alpha, alpha).sample((embeddings.size(1),)).to(embeddings.device)
+    else:
+        lambda_ = torch.distributions.Beta(alpha, alpha).sample().item()
     for i, j in positive_pairs:
         new_embedding_i = lambda_ * embeddings[i] + (1 - lambda_) * embeddings[j]
         new_embedding_j = lambda_ * embeddings[j] + (1 - lambda_) * embeddings[i]
         # new_embedding_i1 = alpha * embeddings[i] - (alpha - 1) * embeddings[j]
         # new_embedding_j1 = alpha * embeddings[j] - (alpha - 1) * embeddings[i]
         # new_embedding_j2 = (1 - alpha) * embeddings[j] + alpha * embeddings[i]
+        if normalize:
+            new_embedding_i = F.normalize(new_embedding_i, p=2, dim=0)
+            new_embedding_j = F.normalize(new_embedding_j, p=2, dim=0)
         hard_pos_embeddings[i] = new_embedding_i
         hard_pos_embeddings[j] = new_embedding_j
         # hard_positive_pairs.append((new_embedding_i2, new_embedding_j2))

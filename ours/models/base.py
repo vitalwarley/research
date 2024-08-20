@@ -799,13 +799,19 @@ class SimpleModel(torch.nn.Module):
 
     def __init__(self, model: str):
         super().__init__()
+        self.model = model
         self.backbone = load_pretrained_model(model)
 
     def forward(self, imgs):
         img1, img2 = imgs
         idx = [2, 1, 0]
-        f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
-        f2_0, x2_feat = self.backbone(img2[:, idx])  # ...
+
+        if "adaface" in self.model:
+            f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
+            f2_0, x2_feat = self.backbone(img2[:, idx])  # ...
+        else:
+            f1_0 = self.backbone(img1)
+            f2_0 = self.backbone(img2)
 
         # Both are (B, 512)
         f1_0 = l2_norm(f1_0)

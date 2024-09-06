@@ -1,43 +1,52 @@
-import cv2
-import numpy as np
 import torch
 import torch.nn as nn
-from torchvision import transforms
 from components import ResidualBlock, ConvolutionBlock
-
-transform = transforms.Compose([
-    transforms.ToPILImage(),
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-])
-
-def load_and_preprocess_image(image_path):
-    image = cv2.imread(image_path)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    image = transform(image)
-    return image
-
-# Example: Load a dataset
-image_paths = ["path_to_image1.jpg", "path_to_image2.jpg"]
-images = torch.stack([load_and_preprocess_image(path) for path in image_paths])
-
 class KinshipModel(nn.Module):
-    def __init__(self, n_classes=4):
+    def __init__(self, input_size, n_classes=1):
         super(KinshipModel, self).__init__()
-        #self.feature_extractor = finetuned in FIW adaface
-        self.convblock1 = ConvolutionBlock(3, 3, 1, 1)
-        self.resblock1 = ResidualBlock(3)
-        self.convblock2 = ConvolutionBlock(3, 3, 1, 1)
-        self.resblock2 = ResidualBlock(3)
-        self.fc = nn.Linear(3, n_classes)
+        self.convblock1 = ConvolutionBlock(input_size, kernel_size=3)
+        self.resblock1 = ResidualBlock(512)
+        self.convblock2 = ConvolutionBlock(2, kernel_size=3)
+        self.resblock2 = ResidualBlock(256)
+        self.fc = nn.Linear(128, n_classes)
         # Train with nn.CrossEntropyLoss() which comes with softmax included
 
     def forward(self, x):
-        features = self.feature_extractor(x)
-        features = self.convblock1(features)
+        featuresA, featuresB = x        
+        featuresA = self.convblock1(featuresA)
+        featuresB = self.convblock1(featuresB)
+
+        features = torch.cat([featuresA, featuresB], dim=1) # check dimension
+        features = self.convblock2(features).squeeze(1)
         features = self.resblock1(features)
-        features = self.convblock2(features)
         features = self.resblock2(features)
-        output = self.classifier(features)
+        
+        output = self.fc(features)
         return output
+
+if __name__ == "__main__":
+    from base import load_pretrained_model
+    from torch.utils.data import DataLoader
+    from dataset import ageFIW
+    import yaml
+    import torch
+
+    adaface, adaface_transform = load_pretrained_model()
+    adaface.eval()
+
+    config = yaml.safe_load(open("/mnt/heavy/DeepLearning/Research/research/FKV with Age Transformation/configs/rbkin.yml"))
+
+    train_dataset = ageFIW(config['data_path'], "train_sort.csv", transform=adaface_transform, training=False)
+    train_loader = DataLoader(train_dataset, batch_size=8, num_workers=4, pin_memory=False)
+
+    images1, images2, labels = next(iter(train_loader))
+
+    features1 = [adaface(img)[0] for img in images1]
+    features2 = [adaface(img)[0] for img in images2]
+    inputs1 = torch.stack(features1) # (batch_size, 5, 512)
+    inputs2 = torch.stack(features2) # (batch_size, 5, 512)
+
+    model = KinshipModel(input_size=5)
+    outputs = model([inputs1, inputs2])
+
+    breakpoint()

@@ -60,6 +60,11 @@ def train(config, train_loader, test_loader, name):
         mlflow.pytorch.log_model(model, "models")
         torch.save(model.state_dict(), f"models/{run_name}.pth")
 
+        model.eval()
+        with torch.no_grad():
+            acc = val_model(model, test_loader)
+        return acc
+
 def val_model(model, val_loader):
     y_true = []
     y_pred = []
@@ -69,11 +74,12 @@ def val_model(model, val_loader):
         y_true.extend(labels)
     y_pred = torch.stack(y_pred)
     y_true = torch.stack(y_true)
-    acc = accuracy(y_pred, y_true, task="multiclass", num_classes=model.num_classes)
+    acc = accuracy(y_pred, y_true, task="binary",)
     return acc
 
 def cross_validate(config):
     for folder in ['father-dau', 'father-son', 'mother-dau', 'mother-son']:
+        accuracies = []
         for fold in range(1, 6):
             train_dataset = ageKinFace(config['data_path'], folder, fold, transform=adaface_transform, train=True, kinface_version='I')
             train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], num_workers=4, pin_memory=False)
@@ -81,7 +87,9 @@ def cross_validate(config):
             test_dataset = ageKinFace(config['data_path'], folder, fold, transform=adaface_transform, kinface_version='I')
             test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], num_workers=4, pin_memory=False)
 
-            train(config, train_loader, test_loader, f"I-{folder}_fold_{fold}")
+            fold_acc = train(config, train_loader, test_loader, f"I-{folder}_fold_{fold}")
+            accuracies.append(fold_acc)
+        print(f"{folder} accuracies: {accuracies}\nMean: {sum(accuracies)/len(accuracies)}")
 
 if __name__ == "__main__":
     mlflow.set_tracking_uri("sqlite:///mlruns.db")

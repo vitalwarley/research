@@ -45,3 +45,39 @@ class ageFIW(Dataset):
 
     def __len__(self):
         return len(self.image_paths)
+
+class ageKinFace(Dataset):
+    def __init__(self, data_root, data_folder, fold, transform=None, train=False, kinface_version='I'):
+        self.data_path = os.path.join(data_root, f'KinFaceW-{kinface_version}', 'images', data_folder)
+        self.fold = fold
+        self.transform = transform
+        self.csv_path = os.path.join(data_root, f'KinFaceW-{kinface_version}', f'KinFaceW-{kinface_version}_{data_folder}_age.csv')
+        self.image_paths = self._load_image_paths()
+
+    def _load_image_paths(self):
+        df = pd.read_csv(self.csv_path) # image1, image2, fold, label
+        if self.train:
+            df = df[df['fold'] != self.fold]
+        else:
+            df = df[df['fold'] == self.fold]
+        return df
+    
+    def _open_images(self, img):
+        images = []
+        for age in ['20', '30', '40', '50', '60']:
+            image = Image.open(os.path.join(self.data_path, img + age + '.jpg'))
+            if self.transform:
+                image = self.transform(image)
+            images.append(image)
+        images = torch.stack(images)
+        return images
+    
+    def __getitem__(self, index):
+            image_1 = self._open_images(self.image_paths.iloc[index]['image1'])
+            image_2 = self._open_images(self.image_paths.iloc[index]['image2'])
+            label = self.image_paths.iloc[index]['label']
+            
+            return image_1, image_2, label
+
+    def __len__(self):
+        return len(self.image_paths)

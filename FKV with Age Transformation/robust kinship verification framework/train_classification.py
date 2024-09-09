@@ -1,7 +1,7 @@
 import mlflow
 import yaml
 from tqdm import tqdm
-from dataset import ageFIW
+from dataset import ageKinFace
 from model import KinshipModel
 from base import load_pretrained_model
 
@@ -13,11 +13,11 @@ from torch.optim import Adam
 
 adaface, adaface_transform = load_pretrained_model()
 
-def train(config, train_loader, test_loader):
-    run_name = input('Enter run name:')
+def train(config, train_loader, test_loader, name):
+    run_name = name
     with mlflow.start_run(run_name=run_name):
         mlflow.set_tag("model", "RBKin")
-        mlflow.set_tag("dataset", "ageFIW")
+        mlflow.set_tag("dataset", "ageKinFace")
         mlflow.log_params(config) 
 
         model = KinshipModel()
@@ -72,15 +72,20 @@ def val_model(model, val_loader):
     acc = accuracy(y_pred, y_true, task="multiclass", num_classes=model.num_classes)
     return acc
 
+def cross_validate(config):
+    for folder in ['father-dau', 'father-son', 'mother-dau', 'mother-son']:
+        for fold in range(1, 6):
+            train_dataset = ageKinFace(config['data_path'], folder, fold, transform=adaface_transform, train=True, kinface_version='I')
+            train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], num_workers=4, pin_memory=False)
+
+            test_dataset = ageKinFace(config['data_path'], folder, fold, transform=adaface_transform, kinface_version='I')
+            test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], num_workers=4, pin_memory=False)
+
+            train(config, train_loader, test_loader, f"I-{folder}_fold_{fold}")
+
 if __name__ == "__main__":
     mlflow.set_tracking_uri("sqlite:///mlruns.db")
     mlflow.set_experiment("RBKin")
     config = yaml.safe_load(open("../configs/rkbin.yml"))
 
-    train_dataset = ageFIW(config['data_path'], "Train/train_sort_triplet.csv", transform=adaface_transform, training=True)
-    train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], num_workers=4, pin_memory=False)
-
-    test_dataset = ageFIW(config['data_path'], "Validation/val.csv", transform=adaface_transform)
-    test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], num_workers=4, pin_memory=False)
-
-    train(config, train_loader, test_loader)
+    cross_validate(config)

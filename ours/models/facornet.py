@@ -435,6 +435,52 @@ class FaCoRNetLightningV2(LightningBaseModel):
         self.kin_labels(kin_relation)
 
 
+class FaCoRNetLightningV3(LightningBaseModel):
+    """
+    Designed for FaCoRNetCL, which the FaCoRNet contrastive loss with labels.
+    """
+
+    def _step(self, batch):
+        img1, img2, labels = batch
+        if isinstance(labels, list | tuple):
+            is_kin = labels[-1]
+        else:
+            is_kin = labels
+        f1, f2, att = self([img1, img2])
+        features = torch.cat([f1, f2], dim=0)
+        n_samples = f1.size(0)
+        positive_pairs = torch.tensor([(i, i + n_samples) for i in range(n_samples) if is_kin[i]])
+        loss = self.criterion(features, att, positive_pairs)
+        sim = torch.cosine_similarity(f1, f2)
+        psi = self.criterion.m(att)[:n_samples]  # beta = torch.cat([beta_0, beta_1]).reshape(-1)
+        outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2, att], "psi": psi}
+        return outputs
+
+    def training_step(self, batch, batch_idx):
+        outputs = self._step(batch)
+        loss = outputs["contrastive_loss"]
+        psi = outputs["psi"]
+        cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+        # on_step=True to see the warmup and cooldown properly :)
+        self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.logger.experiment.add_histogram("psi/train", psi, self.global_step)
+
+        return loss
+
+    def _eval_step(self, batch, batch_idx, stage):
+        _, _, labels = batch
+        kin_relation, is_kin = labels
+        outputs = self._step(batch)
+        psi = outputs["psi"]
+        self.log(f"loss/{stage}", outputs["contrastive_loss"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Compute best threshold for training or validation
+        self.similarities(outputs["sim"])
+        self.is_kin_labels(is_kin)
+        self.kin_labels(kin_relation)
+        self.logger.experiment.add_histogram("psi/val", psi, self.global_step)
+
+
 class FaCoRNetMTFamily(FaCoRNetLightning):
 
     def __init__(self, **kwargs):

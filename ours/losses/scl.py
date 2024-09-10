@@ -114,6 +114,37 @@ class ContrastiveLossWithLabels(torch.nn.Module):
         return contrastive_loss_with_labels(embeddings, positive_pairs, self.beta)
 
 
+class FaCoRNetCL(torch.nn.Module):
+    """
+    Uses contrastive loss with labels and FaCoRNet beta.
+
+    It enables the use of the FaCoRNet contrastive loss, which modifies the beta
+    to be a derived parameter from the attention map.
+    """
+
+    def __init__(self, s=500):
+        super().__init__()
+        self.s = s
+
+    def m(self, beta):
+        beta = (beta**2).sum([1, 2]) / self.s
+        return torch.cat([beta, beta]).reshape(-1)
+
+    def forward(self, embeddings, attention_map, positive_pairs):
+        """
+        Compute the contrastive loss term.
+
+        Args:
+            embeddings (torch.Tensor): The embeddings of the batch, shape (batch_size, embedding_dim)
+            positive_pairs (list of tuples): List of tuples indicating positive pairs indices.
+
+        Returns:
+            torch.Tensor: The contrastive loss term.
+        """
+        beta = self.m(attention_map)
+        return contrastive_loss_with_labels(embeddings, positive_pairs, beta)
+
+
 class CLFTPos(torch.nn.Module):
     """
     Contrastive loss with Feature Transformation for positive pairs.

@@ -38,7 +38,7 @@ data:
      shuffle_validation: false
 
 model:
-  class_path: models.facornet.FaCoRNetBasicV6
+  class_path: models.facornet.FaCoRNetLightningV3
   init_args:
     num_families: 0
     loss_factor: 0
@@ -59,12 +59,11 @@ model:
     anneal_strategy: cos
     weights: null
     model:
-      class_path: models.facornet.FaCoRV5
+      class_path: models.facornet.FaCoR
       init_args:
         model: adaface_ir_101
-        attention: models.attention.FaCoRAttentionDummy
+        attention: models.attention.FaCoRAttention
     loss: 
-      class_path: losses.scl.ContrastiveLossWithLabels
+      class_path: losses.scl.FaCoRNetCL
       init_args:
-        beta: 0.08
-
+        s: 500

@@ -30,7 +30,9 @@ class FIWFaCoRNet(FIW):
 class FaCoRNetDataModule(L.LightningDataModule):
     DATASETS = {"facornet": FIWFaCoRNet, "facornet-family": FIWFamilyV2, "fiw-pairs": FIWPairs}
 
-    def __init__(self, dataset: str, biased: bool, batch_size=20, root_dir=".", transform=None):
+    def __init__(
+        self, dataset: str, biased: bool, batch_size=20, root_dir=".", shuffle_validation=False, transform=None
+    ):
         super().__init__()
         self.dataset = self.DATASETS[
             dataset
@@ -39,6 +41,7 @@ class FaCoRNetDataModule(L.LightningDataModule):
         self.root_dir = root_dir
         self.transform = transform or T.Compose([T.ToTensor()])
         self.biased = biased
+        self.shuffle_validation = shuffle_validation
 
     def setup(self, stage=None):
         if stage == "fit" or stage is None:
@@ -85,7 +88,7 @@ class FaCoRNetDataModule(L.LightningDataModule):
         return DataLoader(
             self.val_dataset,
             batch_size=self.batch_size,
-            shuffle=False,
+            shuffle=self.shuffle_validation,
             num_workers=4,
             pin_memory=True,
             persistent_workers=True,
@@ -95,7 +98,7 @@ class FaCoRNetDataModule(L.LightningDataModule):
         return DataLoader(
             self.test_dataset,
             batch_size=self.batch_size,
-            shuffle=False,
+            shuffle=self.shuffle_validation,
             num_workers=4,
             pin_memory=True,
             persistent_workers=True,

@@ -139,14 +139,18 @@
       exec: python tasks/facornet.py validate --config facornet.yml
       sourcecode:
         - utils.py
-        - losses.py
+        - losses/*.py
         - models/*.py
+        - models/insightface
         - datasets/*.py
         - tasks/facornet.py
       flags-import: all
       flags-dest: config:configs/facornet.yml
       output-scalars: '(\key):\s+(\value)'
       requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
         - file: weights
           target-type: link
         - file: ../datasets/
@@ -162,7 +166,7 @@
       exec: python tasks/facornet.py test --config facornet.yml
       sourcecode:
         - utils.py
-        - losses.py
+        - losses/*.py
         - models/*.py
         - models/insightface
         - datasets/*.py
@@ -173,6 +177,7 @@
       requires:
         - file: models/insightface
           target-type: link
+          rename: models/insightface
         - file: weights
           target-type: link
         - file: ../datasets/

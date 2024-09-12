@@ -19,8 +19,14 @@ def train(config, train_loader, test_loader, name):
         mlflow.set_tag("model", "RBKin")
         mlflow.set_tag("dataset", "ageKinFace")
         mlflow.log_params(config) 
-
-        model = KinshipModel()
+        print('Starting run: ', run_name)
+        
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        adaface.to(device)
+        adaface.eval()
+        
+        model = KinshipModel(5)
+        model.to(device)
 
         criterion = nn.CrossEntropyLoss()
         optimizer = Adam(model.parameters(), lr=float(config['learning_rate']), weight_decay=float(config['weight_decay']))
@@ -31,11 +37,11 @@ def train(config, train_loader, test_loader, name):
             loss_epoch = 0.0
             model.train()
 
-            for data in train_loader:
+            for step, data in enumerate(tqdm(train_loader, desc="Training", leave=False)):
                 images1, images2, labels = data
                 
-                features1 = [adaface(img)[0] for img in images1]
-                features2 = [adaface(img)[0] for img in images2]
+                features1 = [adaface(img.to(device))[0] for img in images1]
+                features2 = [adaface(img.to(device))[0] for img in images2]
                 inputs1 = torch.stack(features1)
                 inputs2 = torch.stack(features2)
 
@@ -78,6 +84,7 @@ def val_model(model, val_loader):
     return acc
 
 def cross_validate(config):
+    folder_means = []
     for folder in ['father-dau', 'father-son', 'mother-dau', 'mother-son']:
         accuracies = []
         for fold in range(1, 6):
@@ -90,10 +97,15 @@ def cross_validate(config):
             fold_acc = train(config, train_loader, test_loader, f"I-{folder}_fold_{fold}")
             accuracies.append(fold_acc)
         print(f"{folder} accuracies: {accuracies}\nMean: {sum(accuracies)/len(accuracies)}")
+        folder_means.append(sum(accuracies)/len(accuracies))
+    return folder_means
 
 if __name__ == "__main__":
     mlflow.set_tracking_uri("sqlite:///mlruns.db")
-    mlflow.set_experiment("RBKin")
-    config = yaml.safe_load(open("../configs/rkbin.yml"))
+    mlflow.set_experiment("RBKin Verification")
+    config =  yaml.safe_load(open("/mnt/heavy/DeepLearning/Research/research/FKV with Age Transformation/configs/rbkin.yml"))
 
-    cross_validate(config)
+    means = cross_validate(config)
+
+    for i, folder in enumerate(['father-dau', 'father-son', 'mother-dau', 'mother-son']):
+        print(f"{folder} mean accuracy: {means[i]}")

@@ -50,6 +50,7 @@ class ageKinFace(Dataset):
     def __init__(self, data_root, data_folder, fold, transform=None, train=False, kinface_version='I'):
         self.data_path = os.path.join(data_root, f'KinFaceW-{kinface_version}', 'images', data_folder)
         self.fold = fold
+        self.train = train
         self.transform = transform
         self.csv_path = os.path.join(data_root, f'KinFaceW-{kinface_version}', f'KinFaceW-{kinface_version}_{data_folder}_age.csv')
         self.image_paths = self._load_image_paths()

@@ -81,11 +81,14 @@ def val_model(model, val_loader):
         features2 = [adaface(img.to(device))[0] for img in images2]
         inputs1 = torch.stack(features1)
         inputs2 = torch.stack(features2)
+        
         preds = model([inputs1, inputs2])
         preds = F.softmax(preds, dim=1)
-        y_true = torch.argmax(preds, dim=1)
-        y_pred.extend(y_true)
+        y_pred = torch.argmax(preds, dim=1).cpu().numpy()
+        
+        y_pred.extend(y_pred)
         y_true.extend(labels)
+
     y_pred = torch.stack(y_pred)
     y_true = torch.stack(y_true)
     acc = accuracy(y_pred, y_true, task="binary",)

@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch
 from torch.utils.data import DataLoader
 from torchmetrics.functional import accuracy
+import torch.nn.functional as F
 from torch.optim import Adam
 
 adaface, adaface_transform = load_pretrained_model()
@@ -81,7 +82,9 @@ def val_model(model, val_loader):
         inputs1 = torch.stack(features1)
         inputs2 = torch.stack(features2)
         preds = model([inputs1, inputs2])
-        y_pred.extend(preds)
+        preds = F.softmax(preds, dim=1)
+        y_true = torch.argmax(preds, dim=1)
+        y_pred.extend(y_true)
         y_true.extend(labels)
     y_pred = torch.stack(y_pred)
     y_true = torch.stack(y_true)

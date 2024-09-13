@@ -46,7 +46,7 @@ def train(config, train_loader, test_loader, name):
                 inputs2 = torch.stack(features2)
 
                 outputs = model([inputs1, inputs2])
-                loss = criterion(outputs, labels)
+                loss = criterion(outputs, labels.to(device))
                 
                 optimizer.zero_grad()
                 loss.backward()
@@ -74,8 +74,13 @@ def train(config, train_loader, test_loader, name):
 def val_model(model, val_loader):
     y_true = []
     y_pred = []
-    for img1, img2, labels in val_loader:
-        preds = model([img1.cuda(), img2.cuda()])
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    for images1, images2, labels in val_loader:
+        features1 = [adaface(img.to(device))[0] for img in images1]
+        features2 = [adaface(img.to(device))[0] for img in images2]
+        inputs1 = torch.stack(features1)
+        inputs2 = torch.stack(features2)
+        preds = model([inputs1, inputs2])
         y_pred.extend(preds)
         y_true.extend(labels)
     y_pred = torch.stack(y_pred)
@@ -89,10 +94,10 @@ def cross_validate(config):
         accuracies = []
         for fold in range(1, 6):
             train_dataset = ageKinFace(config['data_path'], folder, fold, transform=adaface_transform, train=True, kinface_version='I')
-            train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], num_workers=4, pin_memory=False)
+            train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], num_workers=4, pin_memory=True)
 
             test_dataset = ageKinFace(config['data_path'], folder, fold, transform=adaface_transform, kinface_version='I')
-            test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], num_workers=4, pin_memory=False)
+            test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], num_workers=4, pin_memory=True)
 
             fold_acc = train(config, train_loader, test_loader, f"I-{folder}_fold_{fold}")
             accuracies.append(fold_acc)

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from components import ResidualBlock, ConvolutionBlock
 class KinshipModel(nn.Module):
-    def __init__(self, input_size, n_classes=1):
+    def __init__(self, input_size, n_classes=2):
         super(KinshipModel, self).__init__()
         self.convblock1 = ConvolutionBlock(input_size, kernel_size=3)
         self.resblock1 = ResidualBlock(512)

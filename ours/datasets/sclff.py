@@ -82,8 +82,18 @@ class KinshipBatchSampler:
 
 
 class SCLFFDataModule(L.LightningDataModule):
+    DATASETS = {"facornet": FIWFaCoRNet, "ff-v4-ag": FIWFamilyV4AG}
 
-    def __init__(self, batch_size=20, root_dir=".", augmentation_params={}, augment=False, **kwargs):
+    def __init__(
+        self,
+        batch_size=20,
+        root_dir=".",
+        augmentation_params={},
+        augment=False,
+        sampler=True,
+        dataset="ff-v4-ag",
+        **kwargs,
+    ):
         super().__init__()
         self.batch_size = batch_size
         self.root_dir = root_dir
@@ -108,7 +118,8 @@ class SCLFFDataModule(L.LightningDataModule):
             self.train_transforms = T.Compose([T.ToTensor()])
         self.val_transforms = T.Compose([T.ToTensor()])
         self.collate_fn = collate_fn_fiw_family_v4
-        self.dataset = FIWFamilyV4AG
+        self.dataset = self.DATASETS[dataset]
+        self.sampler = sampler
 
     def setup(self, stage=None):
         # For Hard Contrastive Loss, we need batches to have at least 1 positive pair
@@ -144,9 +155,15 @@ class SCLFFDataModule(L.LightningDataModule):
         print(f"Setup {stage} datasets")
 
     def train_dataloader(self):
-        sampler = KinshipBatchSampler(self.train_dataset, self.batch_size)
+        if self.sampler:
+            sampler = KinshipBatchSampler(self.train_dataset, self.batch_size)
+            self.batch_size = 1  # Sampler returns batches
+        else:
+            sampler = None
+            self.collate_fn = None
         return DataLoader(
             self.train_dataset,
+            batch_size=self.batch_size,
             num_workers=N_WORKERS,
             pin_memory=True,
             persistent_workers=True,

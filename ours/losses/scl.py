@@ -51,7 +51,7 @@ def contrastive_loss(x1, x2, beta=0.08):
     return -torch.mean(torch.log(numerators / denominators), dim=0)
 
 
-def contrastive_loss_with_labels(embeddings, positive_pairs, beta=0.08):
+def contrastive_loss_with_labels(embeddings, positive_pairs, tau=0.08):
     """
     Compute the contrastive loss term.
 
@@ -71,7 +71,7 @@ def contrastive_loss_with_labels(embeddings, positive_pairs, beta=0.08):
         mask[i, j] = True
         mask[j, i] = True
 
-    exp_cosine_sim = torch.exp(cosine_sim / beta)
+    exp_cosine_sim = torch.exp(cosine_sim / tau)
     exp_cosine_sim_masked = exp_cosine_sim.masked_fill(mask, 0)
 
     contrastive_loss = 0
@@ -96,11 +96,11 @@ def contrastive_loss_with_labels(embeddings, positive_pairs, beta=0.08):
 
 class ContrastiveLossWithLabels(torch.nn.Module):
 
-    def __init__(self, beta=0.08):
+    def __init__(self, tau=0.08):
         super().__init__()
-        self.beta = beta
+        self.tau = tau
 
-    def forward(self, embeddings, positive_pairs):
+    def forward(self, embeddings, positive_pairs, *args):
         """
         Compute the contrastive loss term.
 
@@ -111,7 +111,7 @@ class ContrastiveLossWithLabels(torch.nn.Module):
         Returns:
             torch.Tensor: The contrastive loss term.
         """
-        return contrastive_loss_with_labels(embeddings, positive_pairs, self.beta)
+        return contrastive_loss_with_labels(embeddings, positive_pairs, self.tau)
 
 
 class FaCoRNetCL(torch.nn.Module):

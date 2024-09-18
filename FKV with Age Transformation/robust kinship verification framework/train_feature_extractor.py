@@ -18,8 +18,9 @@ def train(config, train_loader, test_loader):
         mlflow.set_tag("dataset", "FIW")
         mlflow.log_params(config) 
 
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = adaface
-
+        model.to(device)
         triplet_loss = nn.TripletMarginLoss()
         optimizer = Adam(model.parameters(), lr=float(config['learning_rate']), weight_decay=float(config['weight_decay']))
         epochs = config['epochs']
@@ -34,9 +35,9 @@ def train(config, train_loader, test_loader):
 
                 optimizer.zero_grad()
 
-                anchor_feature, _ = model(anchor_img)
-                positive_feature, _ = model(positive_img)
-                negative_feature, _ = model(negative_img)
+                anchor_feature, _ = model(anchor_img.to(device))
+                positive_feature, _ = model(positive_img.to(device))
+                negative_feature, _ = model(negative_img.to(device))
 
                 loss = triplet_loss(anchor_feature, positive_feature, negative_feature)
                 loss.backward()

@@ -84,9 +84,9 @@ def val_model(model, val_loader):
         
         preds = model([inputs1, inputs2])
         preds = F.softmax(preds, dim=1)
-        y_pred = torch.argmax(preds, dim=1).cpu().numpy()
+        preds = torch.argmax(preds, dim=1)
         
-        y_pred.extend(y_pred)
+        y_pred.extend(preds)
         y_true.extend(labels)
 
     y_pred = torch.stack(y_pred)

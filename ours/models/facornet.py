@@ -10,6 +10,8 @@ from models.base import LightningBaseModel, load_pretrained_model
 from models.utils import l2_norm
 from pytorch_metric_learning.losses import ArcFaceLoss
 
+from ours.models.attention import ChannelCrossAttention, ChannelInteraction, SpatialCrossAttention
+
 
 def to_input(pil_rgb_image):
     np_img = np.array(pil_rgb_image)
@@ -58,6 +60,55 @@ class HeadFamily(nn.Module):
 
     def forward(self, em):
         return self.projection_head(em)
+
+
+class FaCoRV0(torch.nn.Module):
+    def __init__(self):
+        super(FaCoRV0, self).__init__()
+        self.backbone = load_pretrained_model("adaface_ir_101")
+        self.channel = 64
+        self.spatial_ca = SpatialCrossAttention(self.channel * 8, CA=True)
+        self.channel_ca = ChannelCrossAttention(self.channel * 8)
+        self.CCA = ChannelInteraction(1024)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        # self.task_kin = HeadKin(512, 12, 8)
+
+    def forward(self, imgs, aug=False):
+        img1, img2 = imgs
+        idx = [2, 1, 0]
+        f1_0, x1_feat = self.backbone(img1[:, idx])
+        f2_0, x2_feat = self.backbone(img2[:, idx])
+
+        _, _, att_map0 = self.spatial_ca(x1_feat, x2_feat)
+
+        f1_0 = l2_norm(f1_0)
+        f2_0 = l2_norm(f2_0)
+
+        x1_feat = l2_norm(x1_feat)
+        x2_feat = l2_norm(x2_feat)
+
+        f1_1, f2_1, _ = self.channel_ca(f1_0, f2_0)
+        f1_2, f2_2, _ = self.spatial_ca(x1_feat, x2_feat)
+
+        f1_2 = torch.flatten(self.avg_pool(f1_2), 1)
+        f2_2 = torch.flatten(self.avg_pool(f2_2), 1)
+
+        wC = self.CCA(torch.cat([f1_1, f1_2], 1).unsqueeze(2).unsqueeze(3))
+        wC = wC.view(-1, 2, 512)[:, :, :, None, None]
+        f1s = f1_1.unsqueeze(2).unsqueeze(3) * wC[:, 0] + f1_2.unsqueeze(2).unsqueeze(3) * wC[:, 1]
+
+        wC2 = self.CCA(torch.cat([f2_1, f2_2], 1).unsqueeze(2).unsqueeze(3))
+        wC2 = wC2.view(-1, 2, 512)[:, :, :, None, None]
+        f2s = f2_1.unsqueeze(2).unsqueeze(3) * wC2[:, 0] + f2_2.unsqueeze(2).unsqueeze(3) * wC2[:, 1]
+
+        f1s = torch.flatten(f1s, 1)
+        f2s = torch.flatten(f2s, 1)
+
+        # fc = torch.cat([f1s, f2s], dim=1)
+        # kin = self.task_kin(fc)
+
+        # return kin, f1s, f2s, att_map0
+        return f1s, f2s, att_map0
 
 
 class FaCoR(torch.nn.Module):

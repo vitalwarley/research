@@ -7,7 +7,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.15.0
+#       jupytext_version: 1.16.1
 #   kernelspec:
 #     display_name: Python 3 (ipykernel)
 #     language: python
@@ -69,6 +69,7 @@ def extract_embeddings(val_loader, model):
 
 # %%
 def plot_embeddings(embeddings, labels, plot_path):
+
     # Set up perplexity values
     n_embeddings = len(embeddings)
     perplexities = range(10, n_embeddings, 10)
@@ -147,7 +148,6 @@ def parser():
 
 
 # %%
-# TODO: I think I should maintain the script as notebook only
 if IS_NOTEBOOK:
     if __name__ == "__main__":
         args = parser()

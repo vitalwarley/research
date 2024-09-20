@@ -2,13 +2,18 @@ import glob
 import os
 import random
 
+import cv2
 import numpy as np
 import pandas as pd
-from keras.preprocessing.image import load_img
+import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
+from tqdm import tqdm
 
-from rfiw2021.Track1.utils import np2tensor
+
+def np2tensor(arrays, device="gpu", dtype=torch.float):
+    tensor = torch.from_numpy(arrays).type(dtype)
+    return tensor.cuda() if device == "gpu" else tensor
 
 
 class FIW(Dataset):
@@ -29,18 +34,24 @@ class FIW(Dataset):
 
     def load_sample(self):
         sample_list = []
-        for family_id in self.families:
-            family_path = os.path.join(self.root_dir, f"F0{family_id}")  # FIXME: F0{family_id} is a hack
+
+        if not self.families:
+            self.families = os.listdir(self.root_dir)
+
+        for family_id in tqdm(self.families):
+            if "F" not in family_id:  # hack
+                family_path = os.path.join(self.root_dir, f"F0{family_id}")  # FIXME: F0{family_id} is a hack
+            else:
+                family_path = os.path.join(self.root_dir, family_id)  # FIXME: F0{family_id} is a hack
             # shuffle, then select member_limit members
             member_ids = os.listdir(family_path)
-            print(f"Family {family_id} has {len(member_ids)} members")
             # np.random.shuffle(member_ids)
             # member_ids = member_ids[: self.member_limit]
             # get one image per member
             for member_id in member_ids:
                 member_path = os.path.join(family_path, member_id)
                 member_images = glob.glob(f"{member_path}/*.jpg")
-                print(f"Member {member_id} has {len(member_images)} images")
+                # print(f"Member {member_id} has {len(member_images)} images")
                 # randomly select one image per member
                 if len(member_images) > self.samples_per_member:
                     member_images = random.sample(member_images, self.samples_per_member)
@@ -55,7 +66,11 @@ class FIW(Dataset):
         return len(self.sample_list)
 
     def read_image(self, path):
-        img = load_img(path, target_size=(112, 112))
+        # TODO: add to utils.py
+        # image_path = f"{self.root_dir / self.images_dir}/{path}"
+        img = cv2.imread(path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, (112, 112))
         return img
 
     def preprocess(self, img):
@@ -127,7 +142,11 @@ class FIWPair(Dataset):
         return len(self.sample_list)
 
     def read_image(self, path):
-        img = load_img(path, target_size=(112, 112))
+        # TODO: add to utils.py
+        # image_path = f"{self.root_dir / self.images_dir}/{path}"
+        img = cv2.imread(path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, (112, 112))
         return img
 
     def preprocess(self, img):

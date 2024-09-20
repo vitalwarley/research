@@ -4,8 +4,8 @@ from collections import defaultdict
 from pathlib import Path
 
 import lightning as L
-from datasets.fiw import FIWFamilyV4AG
-from datasets.utils import collate_fn_fiw_family_v4
+from datasets.fiw import FIWFamilyV3, FIWFamilyV4AG
+from datasets.utils import collate_fn_fiw_family_v3, collate_fn_fiw_family_v4
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
@@ -82,7 +82,8 @@ class KinshipBatchSampler:
 
 
 class SCLFFDataModule(L.LightningDataModule):
-    DATASETS = {"facornet": FIWFaCoRNet, "ff-v4-ag": FIWFamilyV4AG}
+    DATASETS = {"facornet": FIWFaCoRNet, "ff-v4-ag": FIWFamilyV4AG, "ff-v3": FIWFamilyV3}
+    COLLATE_FN = {"facornet": None, "ff-v4-ag": collate_fn_fiw_family_v4, "ff-v3": collate_fn_fiw_family_v3}
 
     def __init__(
         self,
@@ -92,7 +93,7 @@ class SCLFFDataModule(L.LightningDataModule):
         augment=False,
         sampler=True,
         dataset="ff-v4-ag",
-        **kwargs,
+        bias=False,
     ):
         super().__init__()
         self.batch_size = batch_size
@@ -117,19 +118,25 @@ class SCLFFDataModule(L.LightningDataModule):
         else:
             self.train_transforms = T.Compose([T.ToTensor()])
         self.val_transforms = T.Compose([T.ToTensor()])
-        self.collate_fn = collate_fn_fiw_family_v4
         self.dataset = self.DATASETS[dataset]
+        self.collate_fn = self.COLLATE_FN[dataset]
         self.sampler = sampler
+        self.bias = bias
 
     def setup(self, stage=None):
         # For Hard Contrastive Loss, we need batches to have at least 1 positive pair
+        # Maybe for CLWL too?
         self.shuffle = True
+        # Using seed there is no problem shuffling validation set
+        # Nonetheless, txt data for validation v2 and test set are ordered with is_kin=1 first. We need to shuffle it.
+        # Validaton v1 doesn't need it
         if stage == "fit" or stage is None:
             self.train_dataset = self.dataset(
                 root_dir=self.root_dir,
                 sample_path=Path(self.dataset.TRAIN_PAIRS),
                 batch_size=self.batch_size,
                 transform=self.train_transforms,
+                biased=self.bias,
             )
             self.val_dataset = FIWFaCoRNet(
                 root_dir=self.root_dir,
@@ -157,18 +164,21 @@ class SCLFFDataModule(L.LightningDataModule):
     def train_dataloader(self):
         if self.sampler:
             sampler = KinshipBatchSampler(self.train_dataset, self.batch_size)
-            self.batch_size = 1  # Sampler returns batches
+            batch_size = 1  # Sampler returns batches
+            shuffle = False  # Cannot shuffle with sampler
         else:
             sampler = None
-            self.collate_fn = None
+            shuffle = not self.bias
+            batch_size = self.batch_size
         return DataLoader(
             self.train_dataset,
-            batch_size=self.batch_size,
+            batch_size=batch_size,
             num_workers=N_WORKERS,
             pin_memory=True,
             persistent_workers=True,
             sampler=sampler,
             collate_fn=self.collate_fn,
+            shuffle=shuffle,
         )
 
     def val_dataloader(self):

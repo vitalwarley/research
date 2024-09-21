@@ -29,6 +29,7 @@ plt.switch_backend("agg")
 HERE = Path(__file__).parent
 models = {
     "adaface_ir_101": "/mnt/heavy/DeepLearning/Research/research/ours/weights/adaface_ir101_webface12m.ckpt",
+    "finetuned_fiw_adaface": "/mnt/heavy/DeepLearning/Research/research/ours/weights/train_30_epochs.pth",
 }
 
 class ToBGRTensor:
@@ -48,8 +49,11 @@ def load_pretrained_model(architecture="adaface_ir_101"):
     assert architecture in models.keys()
     model = build_model(architecture)
 
-    statedict = torch.load(models[architecture])["state_dict"]
-    model_statedict = {key[6:]: val for key, val in statedict.items() if key.startswith("model.")}
+    if ".pth" in models[architecture]:
+        model_statedict = torch.load(models[architecture], map_location=torch.device('cpu'))
+    else:
+        statedict = torch.load(models[architecture])["state_dict"]
+        model_statedict = {key[6:]: val for key, val in statedict.items() if key.startswith("model.")}
     model.load_state_dict(model_statedict)
 
     adaface_transform = ToBGRTensor()
@@ -443,7 +447,7 @@ def IR_SE_200(input_size):
 def build_model(model_name="ir_50"):
     if model_name == "adaface_ir_101_4m":
         return IR_101(input_size=(112, 112))
-    elif model_name == "adaface_ir_101":
+    elif model_name == "adaface_ir_101" or ("finetuned" in model_name):
         return IR_101(input_size=(112, 112))
     elif model_name == "adaface_ir_101_2":
         return IR_101_2(input_size=(112, 112))

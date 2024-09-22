@@ -153,11 +153,14 @@ if IS_NOTEBOOK:
         args = parser()
         run(**vars(args))
 else:
-    root_dir = Path(HERE, "../rfiw2021/Track1/Validation/val-faces")
+    # root_dir = Path(HERE, "../rfiw2021/Track1/Validation/val-faces")
+    root_dir = Path(HERE, "../datasets/facornet/images/Validation_A/val-faces")
     batch_size = 40
     save_path = Path(HERE, "../rfiw2021/Track1/model_track1.pth")
     plot_path = ""
-    model, val_loader = setup(root_dir, batch_size, samples_per_member=1, save_path=save_path)
+    model, val_loader = setup(root_dir, batch_size, samples_per_member=5, save_path=save_path)
     run(model, val_loader, plot_path)
+
+# %%
 
 # %%

@@ -1,7 +1,7 @@
 seed_everything: 100
 ckpt_path: null
 trainer:
-  limit_train_batches: 50
+  limit_train_batches: 1.0
   accumulate_grad_batches: 1
   num_sanity_val_steps: 1
   log_every_n_steps: 10
@@ -34,10 +34,10 @@ data:
    init_args:
      batch_size: 20
      root_dir: data/facornet
-     sampler: no
-     augment: False
-     bias: yes
-     dataset: facornet
+     sampler: yes
+     augment: no
+     bias: no
+     dataset: ff-v3
      augmentation_params:
        color_jitter:
          brightness: 0.5
@@ -48,7 +48,7 @@ data:
        random_horizontal_flip_prob: 0.5
 
 model:
-  class_path: models.scl.SCL
+  class_path: models.scl.SCLRFIW2021
   init_args:
     num_families: 0
     loss_factor: 0
@@ -69,14 +69,20 @@ model:
     anneal_strategy: cos
     weights: null
     model:
-      class_path: models.base.SimpleModel
+      class_path: models.rfiw2021.RFIW2021Net
       init_args:
-        model: adaface_ir_101
+        weights: null
+        is_insightface: no
+        finetuned: no
+        classification: no
     loss: 
       class_path: losses.scl.HardContrastiveLossV6
       init_args:
-        tau: 0.2
-        alpha: 0.8
+        tau: 0.08
+        alpha: 0.0
         gamma_ex: 0.0
         gamma_in: 0.0
+        inter_pos: no
+        extra_neg: no
         dim_mixing: no
+        normalize: no

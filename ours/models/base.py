@@ -5,10 +5,12 @@ import lightning as L
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchmetrics as tm
 from datasets.utils import Sample
 from models.insightface.recognition.arcface_torch.backbones import get_model
 from models.utils import l2_norm
+from sklearn.manifold import TSNE
 from torch.nn import (
     BatchNorm1d,
     BatchNorm2d,
@@ -621,7 +623,8 @@ class LightningBaseModel(L.LightningModule):
             (self.current_epoch + 1) * self.trainer.datamodule.batch_size * int(self.trainer.limit_train_batches)
         )
         # Update the dataset's bias or sampling strategy
-        self.trainer.datamodule.train_dataset.set_bias(use_sample)
+        if hasattr(self.trainer.datamodule.train_dataset, "set_bias"):
+            self.trainer.datamodule.train_dataset.set_bias(use_sample)
 
     def on_validation_epoch_end(self):
         self._on_epoch_end("val")
@@ -641,7 +644,7 @@ class LightningBaseModel(L.LightningModule):
         self.kin_labels.reset()
 
     def _on_epoch_end(self, stage):
-        self.__compute_metrics(stage=stage)
+        self._compute_metrics(stage=stage)
         # Reset predictions
         self._reset_collections()
 
@@ -670,90 +673,66 @@ class LightningBaseModel(L.LightningModule):
 
         return best_threshold, maxindex
 
-    def __compute_metrics(self, stage="train"):
-
-        # Compute collections
+    def _compute_metrics(self, stage="train"):
         similarities, is_kin_labels, kin_labels = self._compute_collections()
 
-        # Compute best threshold
+        # Compute basic metrics
+        basic_metrics = self._compute_basic_metrics(similarities, is_kin_labels, stage)
+        fpr, tpr, maxindex, threshold, accuracy, auc, precision, recall, f1 = basic_metrics.values()
+
+        self._compute_kinship_metrics(similarities, is_kin_labels, kin_labels, threshold)
+
+        threshold = torch.logit(torch.tensor(threshold))
+        self._plot_roc_curve_and_histogram(auc, fpr, tpr, maxindex, similarities, is_kin_labels, threshold)
+
+        # Log basic metrics
+        metrics = zip(
+            ["threshold", "accuracy", "auc", "precision", "recall", "f1"],
+            [threshold, accuracy, auc, precision, recall, f1],
+        )
+        for metric_name, metric_value in metrics:
+            self.log(f"{metric_name}", metric_value, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+    def _compute_basic_metrics(self, similarities, is_kin_labels, stage):
         fpr, tpr, thresholds = tm.functional.roc(similarities, is_kin_labels, task="binary")
         best_threshold, maxindex = self._compute_best_threshold(tpr, fpr, thresholds, stage)
 
-        # Compute metrics
-        auc = tm.functional.auroc(similarities, is_kin_labels, task="binary")
-        acc = tm.functional.accuracy(similarities, is_kin_labels, threshold=best_threshold, task="binary")
-        precision = tm.functional.precision(similarities, is_kin_labels, threshold=best_threshold, task="binary")
-        recall = tm.functional.recall(similarities, is_kin_labels, threshold=best_threshold, task="binary")
+        return {
+            "fpr": fpr,
+            "tpr": tpr,
+            "maxindex": maxindex,
+            "threshold": best_threshold,
+            "accuracy": tm.functional.accuracy(similarities, is_kin_labels, threshold=best_threshold, task="binary"),
+            "auc": tm.functional.auroc(similarities, is_kin_labels, task="binary"),
+            "precision": tm.functional.precision(similarities, is_kin_labels, threshold=best_threshold, task="binary"),
+            "recall": tm.functional.recall(similarities, is_kin_labels, threshold=best_threshold, task="binary"),
+            "f1": tm.functional.f1_score(similarities, is_kin_labels, threshold=best_threshold, task="binary"),
+        }
 
-        # Compute and log accuracy for each kinship relation
-        #   -> best_threshold is a probability
-        self.__compute_metrics_kin(similarities, is_kin_labels, kin_labels, best_threshold)
-        self.__log_similarities(similarities, is_kin_labels)
-
-        # Plot ROC curve and histogram of similarities (logits)
-        best_threshold_logit = torch.logit(torch.tensor(best_threshold))
-        self.__plot_roc_curve(auc, fpr, tpr, maxindex, similarities, is_kin_labels, best_threshold_logit)
-
-        # Log metrics
-        self.log("threshold", best_threshold_logit, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        self.log("accuracy", acc, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        self.log("auc", auc, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        self.log("precision", precision, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        self.log("recall", recall, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-
-        self.y_pred = similarities > best_threshold_logit
-
-    def __log_similarities(self, similarities, is_kin_labels):
-        # Log similarities histogram by is_kin_labels
-        positive = similarities[is_kin_labels == 1]
-        negative = similarities[is_kin_labels == 0]
-        if positive.numel() > 0:
-            self.logger.experiment.add_histogram(
-                "similarities/positive",
-                positive,
-                global_step=self.current_epoch,
-            )
-        if negative.numel() > 0:
-            self.logger.experiment.add_histogram(
-                "similarities/negative",
-                negative,
-                global_step=self.current_epoch,
-            )
-
-    def __compute_metrics_kin(self, similarities, is_kin_labels, kin_labels, best_threshold):
-        for kin, kin_id in self.sample_cls.NAME2LABEL.items():  # TODO: pass Sample class as argument
-            # TODO: fix non-kin accuracy compute
+    def _compute_kinship_metrics(self, similarities, is_kin_labels, kin_labels, threshold):
+        for kin, kin_id in self.sample_cls.NAME2LABEL.items():
             mask = kin_labels == kin_id
             if torch.any(mask):
                 acc = tm.functional.accuracy(
-                    similarities[mask], is_kin_labels[mask].int(), threshold=best_threshold, task="binary"
+                    similarities[mask], is_kin_labels[mask].int(), threshold=threshold, task="binary"
                 )
-                self.log(
-                    f"accuracy/{kin}",
-                    acc,
-                    on_step=False,
-                    on_epoch=True,
-                    prog_bar=False,
-                    logger=True,
-                )
-                # Add similarities
-                # Negative pairs are "non-kin" pairs, which are equal to the overall similarities/negative
-                positives = similarities[mask][is_kin_labels[mask] == 1]
-                negatives = similarities[mask][is_kin_labels[mask] == 0]
-                if positives.numel() > 0:
-                    self.logger.experiment.add_histogram(
-                        f"similarities/positives/{kin}",
-                        positives,
-                        global_step=self.current_epoch,
-                    )
-                if negatives.numel() > 0:
-                    self.logger.experiment.add_histogram(
-                        f"similarities/negatives/{kin}",
-                        negatives,
-                        global_step=self.current_epoch,
-                    )
+                self.log(f"accuracy/{kin}", acc, on_step=False, on_epoch=True, prog_bar=False, logger=True)
 
-    def __plot_roc_curve(self, auc, fpr, tpr, maxindex, similarities, is_kin_labels, best_threshold):
+                self._log_kinship_similarities(similarities[mask], is_kin_labels[mask], kin)
+
+    def _log_kinship_similarities(self, similarities, is_kin_labels, kin):
+        positives = similarities[is_kin_labels == 1]
+        negatives = similarities[is_kin_labels == 0]
+        if positives.numel() > 0:
+            self.logger.experiment.add_histogram(
+                f"similarities/positives/{kin}", positives, global_step=self.current_epoch
+            )
+        if negatives.numel() > 0:
+            self.logger.experiment.add_histogram(
+                f"similarities/negatives/{kin}", negatives, global_step=self.current_epoch
+            )
+
+    def _plot_roc_curve_and_histogram(self, auc, fpr, tpr, maxindex, similarities, is_kin_labels, best_threshold):
         # Convert to numpy
         fpr = fpr.cpu().numpy()
         tpr = tpr.cpu().numpy()
@@ -795,26 +774,47 @@ class LightningBaseModel(L.LightningModule):
         plt.close("all")
 
 
+class ProjectionHead(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(ProjectionHead, self).__init__()
+        self.layer1 = nn.Linear(input_dim, hidden_dim)
+        self.bn1 = torch.nn.BatchNorm1d(hidden_dim)
+        self.relu = torch.nn.ReLU()
+        self.layer2 = torch.nn.Linear(hidden_dim, output_dim)
+
+        initialize_weights(self.modules())
+
+    def forward(self, x):
+        x = self.layer1(x)
+        return x
+
+
 class SimpleModel(torch.nn.Module):
 
-    def __init__(self, model: str):
+    def __init__(self, model: str, projection: None | tuple):
         super().__init__()
         self.model = model
         self.backbone = load_pretrained_model(model)
+        self.projection = projection
+        if self.projection:
+            self.projection_head = ProjectionHead(*projection)
 
     def forward(self, imgs):
         img1, img2 = imgs
         idx = [2, 1, 0]
 
         if "adaface" in self.model:
-            f1_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
-            f2_0, x2_feat = self.backbone(img2[:, idx])  # ...
+            z_0, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
+            z_1, x2_feat = self.backbone(img2[:, idx])  # ...
         else:
-            f1_0 = self.backbone(img1)
-            f2_0 = self.backbone(img2)
+            z_0 = self.backbone(img1)
+            z_1 = self.backbone(img2)
 
-        # Both are (B, 512)
-        f1_0 = l2_norm(f1_0)
-        f2_0 = l2_norm(f2_0)
+        if self.projection:
+            z_0 = self.projection_head(z_0)
+            z_1 = self.projection_head(z_1)
 
-        return f1_0, f2_0
+        z_0 = l2_norm(z_0)
+        z_1 = l2_norm(z_1)
+
+        return z_0, z_1

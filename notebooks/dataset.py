@@ -40,7 +40,7 @@ class FIW(Dataset):
 
         for family_id in tqdm(self.families):
             if "F" not in family_id:  # hack
-                family_path = os.path.join(self.root_dir, f"F0{family_id}")  # FIXME: F0{family_id} is a hack
+                family_path = os.path.join(self.root_dir, f"F{int(family_id):04}")  # FIXME: F0{family_id} is a hack
             else:
                 family_path = os.path.join(self.root_dir, family_id)  # FIXME: F0{family_id} is a hack
             # shuffle, then select member_limit members
@@ -82,7 +82,7 @@ class FIW(Dataset):
         if self.transform is not None:
             img = self.transform(img)
         img = np2tensor(self.preprocess(np.array(img, dtype=float)))
-        return img, family_id
+        return item, img, family_id
 
 
 class FIWPair(Dataset):

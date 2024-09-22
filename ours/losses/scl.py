@@ -621,7 +621,17 @@ class HardContrastiveLossV5(torch.nn.Module):
 
 
 class HardContrastiveLossV6(torch.nn.Module):
-    def __init__(self, tau=0.2, alpha=0.8, gamma_ex=2.0, gamma_in=1.6, dim_mixing=False, normalize=False):
+    def __init__(
+        self,
+        tau=0.2,
+        alpha=0.8,
+        gamma_ex=2.0,
+        gamma_in=1.6,
+        dim_mixing=False,
+        normalize=False,
+        inter_pos=False,
+        extra_neg=False,
+    ):
         super().__init__()
         self.tau = tau
         self.alpha = alpha
@@ -629,6 +639,8 @@ class HardContrastiveLossV6(torch.nn.Module):
         self.gamma_in = gamma_in
         self.dim_mixing = dim_mixing
         self.normalize = normalize
+        self.inter_pos = inter_pos
+        self.extra_neg = extra_neg
 
     def forward(self, embeddings, positive_pairs, stage):
         original_sim = F.cosine_similarity(embeddings.unsqueeze(1), embeddings.unsqueeze(0), dim=2)
@@ -636,7 +648,8 @@ class HardContrastiveLossV6(torch.nn.Module):
         # To disable the feature transformation, set gamma_ex and gamma_in to 0
         if self.gamma_ex or self.gamma_in:
             if self.gamma_ex:
-                hard_pos_embeddings = self.extrapolate_positive_pairs(embeddings, positive_pairs)
+                transformation = "ex" if not self.inter_pos else "in"
+                hard_pos_embeddings = self.transform_pairs(embeddings, positive_pairs, self.gamma_ex, transformation)
                 hard_pos_sim = F.cosine_similarity(
                     hard_pos_embeddings.unsqueeze(1), hard_pos_embeddings.unsqueeze(0), dim=2
                 )
@@ -648,8 +661,9 @@ class HardContrastiveLossV6(torch.nn.Module):
                 ]
             if self.gamma_in:
                 batch_size = embeddings.size(0)
+                transformation = "in" if not self.extra_neg else "ex"
                 negative_pairs = self.generate_negative_pairs(batch_size, positive_pairs)
-                hard_neg_embeddings = self.interpolate_negative_pairs(embeddings, negative_pairs)
+                hard_neg_embeddings = self.transform_pairs(embeddings, negative_pairs, self.gamma_in, transformation)
                 hard_neg_sim = F.cosine_similarity(
                     hard_neg_embeddings.unsqueeze(1), hard_neg_embeddings.unsqueeze(0), dim=2
                 )
@@ -710,13 +724,13 @@ class HardContrastiveLossV6(torch.nn.Module):
         negative_pairs = list(all_pairs - positive_pairs_set)
         return torch.tensor(negative_pairs)
 
-    def extrapolate_positive_pairs(self, embeddings, positive_pairs):
-        hard_pos_embeddings = embeddings.clone()
-        lambda_ = (
-            self.generate_lambda(self.gamma_ex, embeddings.size(1) if self.dim_mixing else 1, embeddings.device) + 1
-        )
+    def transform_pairs(self, embeddings, pairs, gamma, transformation):
+        processed_embeddings = embeddings.clone()
+        lambda_ = self.generate_lambda(gamma, embeddings.size(1) if self.dim_mixing else 1, embeddings.device)
+        if transformation == "ex":
+            lambda_ += 1  # Only for positive pairs
 
-        i, j = positive_pairs.T
+        i, j = pairs.T
         new_embedding_i = lambda_ * embeddings[i] + (1 - lambda_) * embeddings[j]
         new_embedding_j = lambda_ * embeddings[j] + (1 - lambda_) * embeddings[i]
 
@@ -724,21 +738,9 @@ class HardContrastiveLossV6(torch.nn.Module):
             new_embedding_i = F.normalize(new_embedding_i, p=2, dim=1)
             new_embedding_j = F.normalize(new_embedding_j, p=2, dim=1)
 
-        hard_pos_embeddings[i] = new_embedding_i
-        hard_pos_embeddings[j] = new_embedding_j
-        return hard_pos_embeddings
-
-    def interpolate_negative_pairs(self, embeddings, negative_pairs):
-        hard_negative_embeddings = embeddings.clone()
-        lambda_ = self.generate_lambda(self.gamma_in, embeddings.size(1) if self.dim_mixing else 1, embeddings.device)
-
-        i, j = negative_pairs.T
-        new_embedding_i = lambda_ * embeddings[i] + (1 - lambda_) * embeddings[j]
-        new_embedding_j = lambda_ * embeddings[j] + (1 - lambda_) * embeddings[i]
-
-        hard_negative_embeddings[i] = new_embedding_i
-        hard_negative_embeddings[j] = new_embedding_j
-        return hard_negative_embeddings
+        processed_embeddings[i] = new_embedding_i
+        processed_embeddings[j] = new_embedding_j
+        return processed_embeddings
 
     def generate_lambda(self, value, size, device):
         return torch.distributions.Beta(value, value).sample((size,)).to(device)

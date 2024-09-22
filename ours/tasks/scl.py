@@ -1,7 +1,18 @@
+import logging
+
 import torch
 from lightning.pytorch.cli import LightningCLI
 
 torch.set_float32_matmul_precision("medium")
+
+
+class IgnorePLFilter(logging.Filter):
+    def filter(self, record):
+        return "available:" not in record.getMessage()
+
+
+logger = logging.getLogger("pytorch_lightning.utilities.rank_zero")
+logger.addFilter(IgnorePLFilter())
 
 
 class MyLightningCLI(LightningCLI):

@@ -1,46 +1,3 @@
-- model: sota
-  operations:
-    sota2020:
-      description: Sample training script
-      main: train_fc
-      sourcecode:
-        - dataset.py
-        - model.py
-        - mytypes.py
-        - train_fc.py
-        - transforms.py
-        - utils.py
-      flags-import: all
-      flags-dest: args
-      output-scalars: '(\key):\s+(\value)'
-      requires:
-        - file: ../fitw2020/
-          target-type: link
-        - file: insightface
-        - file: models/
-          target-type: link
-
-    sota2021:
-      description: Sample training script
-      main: train_kv
-      sourcecode:
-        - dataset.py
-        - model.py
-        - mytypes.py
-        - train_kv.py
-        - utils.py
-      flags-import: all
-      flags-dest: args
-      output-scalars: '(\key):\s+(\value)'
-      requires:
-        - file: models
-          target-type: link
-        - file: runs
-          target-type: link
-        - file: ../rfiw2021/
-          target-type: link
-        - file: insightface
-
 - model: mtcf
   operations:
     train:
@@ -448,19 +405,68 @@
         - operation: scl:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt
-    search-retrieval:
+    tri-subject-train:
       description: Supervised Contrastive Learning experiments
-      exec: python tasks/scl.py predict --config task_3.yml
+      exec: python tasks/scl.py fit --config scl_t2.yml
       sourcecode:
-        - utils.py
-        - losses.py
+        - losses/*.py
         - models/*.py
+        - models/insightface
         - datasets/*.py
         - tasks/scl.py
       flags-import: all
-      flags-dest: config:configs/task_3.yml
+      flags-dest: config:configs/scl_t2.yml
       output-scalars: '(\key):\s+(\value)'
       requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+    tri-subject-test:
+      description: Supervised Contrastive Learning experiments
+      exec: python tasks/scl.py test --config scl_t2.yml
+      sourcecode:
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/scl_t2.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - operation: scl:tri-subject-train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    search-retrieval:
+      description: Supervised Contrastive Learning experiments
+      exec: python tasks/scl.py predict --config scl_t3.yml
+      sourcecode:
+        - utils.py
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/scl_t3.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
         - file: weights
           target-type: link
         - file: ../datasets/

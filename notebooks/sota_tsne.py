@@ -339,7 +339,8 @@ def torch2numpy(img):
 
 def plot_embeddings(embeddings, labels, items_id, dataset, plot_path):
     """Plot embeddings using t-SNE, UMAP, and PaCMAP."""
-    perplexities = [10, 30, 50, 90]
+    # perplexities = [10, 30, 50, 90]
+    perplexities = [30]
     # family_ids = [250, 283, 409, 735, 873] # SCL2021
     family_ids = [22, 53, 44, 63, 40]  # FaCoRNet
     colors = ["red", "blue", "green", "purple", "orange"]
@@ -347,11 +348,13 @@ def plot_embeddings(embeddings, labels, items_id, dataset, plot_path):
 
     # n_subplots = len(perplexities) + 2  # +2 for UMAP and PaCMAP
     n_subplots = len(perplexities)
-    n_col = 2
+    n_col = 1
     n_row = int(np.ceil(n_subplots / n_col))
 
-    fig, axes = plt.subplots(n_row, n_col, figsize=(15, 5 * n_row))
-    axes = axes.flatten()
+    # fig, axes = plt.subplots(n_row, n_col, figsize=(15, 5 * n_row))
+    fig, axes = plt.subplots(n_row, n_col, figsize=(7, 5 * n_row))
+    # axes = axes.flatten()
+    axes = [axes]
 
     # Generate and plot embeddings
     plot_tsne(embeddings, labels, items_id, dataset, axes, perplexities, color_map)
@@ -369,19 +372,31 @@ def plot_tsne(embeddings, labels, items_id, dataset, axes, perplexities, color_m
     """Generate and plot t-SNE for different perplexity values."""
     for i, perplexity in enumerate(perplexities):
         print(f"Generating t-SNE with perplexity={perplexity}")
-        tsne = TSNE(n_components=2, perplexity=perplexity, random_state=100, n_iter=10000, metric="cosine", init="pca")
+        # tsne = TSNE(n_components=2, perplexity=perplexity, random_state=100, n_iter=10000, metric="cosine", init="pca")
+        tsne = TSNE(n_components=2, perplexity=perplexity, random_state=100)
         embeddings_2d = tsne.fit_transform(embeddings)
 
+        # Get the limits from the embeddings
+        x_min, x_max = np.min(embeddings_2d[:, 0]), np.max(embeddings_2d[:, 0])
+        y_min, y_max = np.min(embeddings_2d[:, 1]), np.max(embeddings_2d[:, 1])
+
+        # Calculate inset size relative to the axis limits
+        width = (x_max - x_min) * 0.05
+        height = (y_max - y_min) * 0.05
+
         ax = axes[i]  # Current subplot
+
         for label, color in color_map.items():
             idxs = [idx for idx, val in enumerate(labels) if val == str(label)]
-            ax.scatter(embeddings_2d[idxs, 0], embeddings_2d[idxs, 1], color=color, label=f"Family #0{label}")
+            ax.scatter(embeddings_2d[idxs, 0], embeddings_2d[idxs, 1], color=color, label=f"Family {int(label):04}")
 
             if idxs:  # Ensure there are indices for the family
-                plot_emb_img(ax, dataset, items_id, idxs, embeddings_2d, color_map)
+                plot_emb_img(ax, dataset, items_id, idxs, embeddings_2d, color_map, width, height)
 
-        ax.set_title(f"t-SNE (perplexity={perplexity})")
-        ax.legend()
+        # ax.set_title(f"t-SNE (perplexity={perplexity})")
+        ax.set_xlabel("Component 1")
+        ax.set_ylabel("Component 2")
+        ax.legend(loc="lower right")
 
 
 def plot_umap(embeddings, labels, items_id, dataset, axes, index, color_map):
@@ -398,7 +413,7 @@ def plot_umap(embeddings, labels, items_id, dataset, axes, index, color_map):
         ax.set_ylabel("Component 2")
 
         if idxs:
-            plot_emb_img(ax, dataset, items_id, idxs, embeddings_umap)
+            plot_emb_img(ax, dataset, items_id, idxs, embeddings_umap, color_map)
 
     ax.set_title("UMAP")
     ax.legend()
@@ -416,22 +431,18 @@ def plot_pacmap(embeddings, labels, items_id, dataset, axes, index, color_map):
         ax.scatter(embeddings_pacmap[idxs, 0], embeddings_pacmap[idxs, 1], color=color, label=f"Family #0{label}")
 
         if idxs:
-            plot_emb_img(ax, dataset, items_id, idxs, embeddings_pacmap)
+            plot_emb_img(ax, dataset, items_id, idxs, embeddings_pacmap, color_map)
 
     ax.set_title("PaCMAP")
     ax.legend()
 
 
-def plot_emb_img(ax, dataset, items_id, idxs, embeddings_2d, color_map):
+def plot_emb_img(ax, dataset, items_id, idxs, embeddings_2d, color_map, width, height):
     """Plot three images in the insets of the given axis."""
-    # Calculate inset size relative to the axis limits
-    xlim = ax.get_xlim()
-    ylim = ax.get_ylim()
-    width = (xlim[1] - xlim[0]) * 0.1  # 10% of the x-axis range
-    height = (ylim[1] - ylim[0]) * 0.1  # 10% of the y-axis range
 
     # Plot up to three images
-    for i, idx in enumerate(idxs[:1]):  # Limit to first three indices
+    idxs = [idxs[0], idxs[len(idxs) // 2 + 1], idxs[-1]]
+    for i, idx in enumerate(idxs):  # Limit to first three indices
         img = torch2numpy(dataset[items_id[idx]][1])  # Use the image for the current index
 
         family_id = dataset[idx][2]  # Get the family ID for the current index
@@ -484,7 +495,7 @@ def plot_emb_img(ax, dataset, items_id, idxs, embeddings_2d, color_map):
 # %%
 def setup(root_dir, ckpt_path, batch_size, samples_per_member, gpu: int = 0):
     # Loading and sampling the dataset
-    val_dataset = FIW(root_dir=root_dir, families=[22, 53, 44, 63, 40], samples_per_member=samples_per_member)
+    val_dataset = FIW(root_dir=root_dir, families=[22, 40, 44, 53, 63], samples_per_member=samples_per_member)
     # val_dataset = FIW(root_dir=root_dir, families=[], samples_per_member=samples_per_member)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, pin_memory=False)
 
@@ -537,5 +548,5 @@ else:
     ckpt_path = Path(Path.home(), f".guild/runs/{experiment}/exp/checkpoints/{checkpoint}")
     # ckpt_path = Path(HERE, f"../ours/weights/model_track1.pth")
     plot_path = "plots_experiments/sota_tsne.png"
-    model, val_loader = setup(root_dir, ckpt_path, batch_size, samples_per_member=15)
+    model, val_loader = setup(root_dir, ckpt_path, batch_size, samples_per_member=100)
     run(model, val_loader, plot_path)

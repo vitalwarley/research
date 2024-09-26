@@ -20,11 +20,11 @@ class FIWFaCoRNet(FIW):
         super().__init__(**kwargs)
 
     def __getitem__(self, item):
-        (img1, img2, labels) = super().__getitem__(item)
+        images, labels = super().__getitem__(item)
         # Convert img1 and img2 to BGR - they're tensors (C, H, W)
         # img1 = img1[[2, 1, 0], :, :]
         # img2 = img2[[2, 1, 0], :, :]
-        return img1, img2, labels
+        return images, labels
 
 
 class FaCoRNetDataModule(L.LightningDataModule):
@@ -166,18 +166,18 @@ class FaCoRNetDMTask3(L.LightningDataModule):
                 sample_cls=SampleGallery,
                 transform=self.transform,
             )
-            self.search_retrieval = FIWSearchRetrieval(self.probe_dataset, self.gallery_dataset)
+            self.search_retrieval = FIWSearchRetrieval(self.probe_dataset, self.gallery_dataset, self.batch_size)
         print(f"Setup {stage} datasets")
 
     def predict_dataloader(self):
         return DataLoader(
             self.search_retrieval,
-            batch_size=self.batch_size,
+            batch_size=1,
             shuffle=False,
             pin_memory=True,
             collate_fn=sr_collate_fn_v2,
             # Why num_workers reset the gallery_start_index?
-            num_workers=2,
+            num_workers=4,
         )
 
 
@@ -263,8 +263,8 @@ if __name__ == "__main__":
     fiw_sr = data_module.predict_dataloader()
     print(len(fiw_sr))
     # Iters through the probe and gallery samples
-    for i, ((probe_index, probe_images), (gallery_indexes, gallery_images)) in enumerate(fiw_sr):
+    for i, (probe_index, probe_images, gallery_indexes, gallery_images) in enumerate(fiw_sr):
         # if i % len(fiw_gallery) == 0:
         print(probe_index, len(probe_images), gallery_indexes)
-        if i > 2:
+        if probe_index == 2:
             break

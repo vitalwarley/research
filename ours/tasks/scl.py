@@ -18,6 +18,8 @@ logger.addFilter(IgnorePLFilter())
 class MyLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.add_argument("--operation:scl:train", default=None)
+        # With -- prefix, the - gets converted to _
+        # parser.add_argument("operation:scl:tri-subject-train", default=None)
         return parser
 
 

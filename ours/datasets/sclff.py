@@ -4,7 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import lightning as L
-from datasets.fiw import FIWFamilyV3, FIWFamilyV4AG
+from datasets.fiw import FIWFamilyV3, FIWFamilyV4AG, FIWTask2
 from datasets.utils import collate_fn_fiw_family_v3, collate_fn_fiw_family_v4
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
@@ -196,6 +196,82 @@ class SCLFFDataModule(L.LightningDataModule):
             self.test_dataset,
             batch_size=self.batch_size,
             shuffle=self.shuffle,
+            num_workers=N_WORKERS,
+            pin_memory=True,
+            persistent_workers=True,
+        )
+
+
+class SCLDataModuleTask2(L.LightningDataModule):
+
+    def __init__(
+        self,
+        batch_size=20,
+        root_dir=".",
+    ):
+        super().__init__()
+        self.batch_size = batch_size
+        self.root_dir = root_dir
+        self.train_transforms = T.Compose([T.ToTensor()])
+        self.val_transforms = T.Compose([T.ToTensor()])
+
+    def setup(self, stage=None):
+        if stage == "fit" or stage is None:
+            self.train_dataset = FIWTask2(
+                root_dir=self.root_dir,
+                sample_path=Path(FIWTask2.TRAIN_PAIRS),
+                batch_size=self.batch_size,
+                transform=self.train_transforms,
+                sample_cls=FIWTask2.SAMPLE,
+            )
+            self.val_dataset = FIWTask2(
+                root_dir=self.root_dir,
+                sample_path=Path(FIWTask2.VAL_PAIRS),
+                batch_size=self.batch_size,
+                transform=self.val_transforms,
+                sample_cls=FIWTask2.SAMPLE,
+            )
+        if stage == "validate" or stage is None:
+            self.val_dataset = FIWTask2(
+                root_dir=self.root_dir,
+                sample_path=Path(FIWTask2.VAL_PAIRS),
+                batch_size=self.batch_size,
+                transform=self.val_transforms,
+                sample_cls=FIWTask2.SAMPLE,
+            )
+        if stage == "test" or stage is None:
+            self.test_dataset = FIWTask2(
+                root_dir=self.root_dir,
+                sample_path=Path(FIWTask2.TEST_PAIRS),
+                batch_size=self.batch_size,
+                transform=self.val_transforms,
+                sample_cls=FIWTask2.SAMPLE,
+            )
+        print(f"Setup {stage} datasets")
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            num_workers=N_WORKERS,
+            pin_memory=True,
+            persistent_workers=True,
+            shuffle=True,
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            num_workers=N_WORKERS,
+            pin_memory=True,
+            persistent_workers=True,
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.batch_size,
             num_workers=N_WORKERS,
             pin_memory=True,
             persistent_workers=True,

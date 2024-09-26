@@ -1,0 +1,46 @@
+seed_everything: 100
+ckpt_path: null
+
+data:
+   class_path: datasets.facornet.FaCoRNetDMTask3
+   init_args:
+     root_dir: data/rfiw2021-track3
+     batch_size: 20
+
+model:
+  class_path: models.scl.SCL
+  init_args:
+    num_families: 0
+    loss_factor: 0
+    optimizer: SGD
+    adamw_beta1: 0.9
+    adamw_beta2: 0.999
+    lr: 1e-4
+    momentum: 0.9
+    weight_decay: 0
+    start_lr: 1e-10
+    end_lr: 1e-10
+    lr_factor: 0.75
+    lr_steps: [8, 14, 25, 35, 40, 50, 60]
+    warmup: 200
+    cooldown: 400
+    scheduler: null
+    threshold: null
+    anneal_strategy: cos
+    weights: null
+    model:
+      class_path: models.base.SimpleModel
+      init_args:
+        model: adaface_ir_101
+    loss: 
+      class_path: losses.scl.HardContrastiveLossV6
+      init_args:
+        tau: 0.08
+        alpha: 0.0
+        gamma_ex: 0.0
+        gamma_in: 0.0
+        inter_pos: no
+        extra_neg: no
+        dim_mixing: no
+        normalize: no
+    list_dir: data/rfiw2021-track3/txt/

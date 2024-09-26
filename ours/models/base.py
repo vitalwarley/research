@@ -5,12 +5,10 @@ import lightning as L
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torchmetrics as tm
 from datasets.utils import Sample
 from models.insightface.recognition.arcface_torch.backbones import get_model
 from models.utils import l2_norm
-from sklearn.manifold import TSNE
 from torch.nn import (
     BatchNorm1d,
     BatchNorm2d,
@@ -512,6 +510,7 @@ class LightningBaseModel(L.LightningModule):
         num_families=0,
         loss_factor=0,
         weights=None,
+        list_dir="",
     ):
         super().__init__()
         self.save_hyperparameters(ignore=("model"))
@@ -520,12 +519,21 @@ class LightningBaseModel(L.LightningModule):
         self.criterion = loss
         self.threshold = threshold
         self.loss_factor = loss_factor
+        self.list_dir = list_dir
 
         self.similarities = CollectPreds("similarities")
         self.is_kin_labels = CollectPreds("is_kin_labels")
         self.kin_labels = CollectPreds("kin_labels")
 
         self.sample_cls = Sample
+
+        if weights:
+            print(f"Loading weights from {weights}")
+            self.load_weights(weights)
+
+    def load_weights(self, checkpoint_path):
+        checkpoint = torch.load(checkpoint_path)
+        self.load_state_dict(checkpoint["state_dict"], strict=False)
 
     def forward(self, inputs):
         return self.model(inputs)
@@ -818,3 +826,30 @@ class SimpleModel(torch.nn.Module):
         z_1 = l2_norm(z_1)
 
         return z_0, z_1
+
+
+class SimpleModelTask2(SimpleModel):
+
+    def forward(self, imgs):
+        img1, img2, img3 = imgs
+        idx = [2, 1, 0]
+
+        if "adaface" in self.model:
+            z_1, x1_feat = self.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
+            z_2, x2_feat = self.backbone(img2[:, idx])  # ...
+            z_3, x3_feat = self.backbone(img3[:, idx])  # ...
+        else:
+            z_1 = self.backbone(img1)
+            z_2 = self.backbone(img2)
+            z_3 = self.backbone(img3)
+
+        if self.projection:
+            z_1 = self.projection_head(z_1)
+            z_2 = self.projection_head(z_2)
+            z_3 = self.projection_head(z_3)
+
+        z_1 = l2_norm(z_1)
+        z_2 = l2_norm(z_2)
+        z_3 = l2_norm(z_3)
+
+        return z_1, z_2, z_3

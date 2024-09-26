@@ -36,18 +36,11 @@ def sr_collate_fn_v2(batch):
     """
 
     # Unpack the batch
-    probe_info, gallery_info = zip(*[(probe_info, gallery_info) for (probe_info, gallery_info) in batch])
+    probe_info, gallery_info = batch[0]  # Always 1 element
+    probe_id, probe_images = probe_info
+    gallery_ids, gallery_images = zip(*[(gallery_id, gallery_images) for (gallery_id, gallery_images) in gallery_info])
 
-    unique_probe_id = probe_info[0][0]
-    unique_probe_images = probe_info[0][1]
-
-    # You may choose to use default_collate to handle tensor operations if necessary
-    # If you're using tensors and transformations that require them to be tensors, use default_collate
-    gallery_info = list(zip(*gallery_info))
-    probe_images = default_collate(unique_probe_images)
-    gallery_indexes = default_collate(gallery_info[0])
-    gallery_images = default_collate(gallery_info[1])
-    return (unique_probe_id, probe_images), (gallery_indexes, gallery_images)
+    return probe_id, default_collate(probe_images), default_collate(gallery_ids), default_collate(gallery_images)
 
 
 def collate_fn_fiw_family_v3(batch):
@@ -147,6 +140,22 @@ class Sample:
         except Exception:
             self.f1mid = 0
             self.f2mid = 0
+
+
+class SampleTask2:
+    # TODO: move to utils.py
+    NAME2LABEL = {
+        "non-kin": 0,
+        "FMD": 1,
+        "FMS": 2,
+    }
+
+    def __init__(self, f1: str, f2: str, f3: str, kin_relation: str, is_kin: str, *args, **kwargs):
+        self.f1 = f1
+        self.f2 = f2
+        self.f3 = f3
+        self.kin_relation = kin_relation
+        self.is_kin = int(is_kin)
 
 
 class SampleKFC:

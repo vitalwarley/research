@@ -28,8 +28,8 @@ from torchmetrics.utilities import dim_zero_cat
 plt.switch_backend("agg")
 HERE = Path(__file__).parent
 models = {
-    "adaface_ir_101": "/mnt/heavy/DeepLearning/Research/research/ours/weights/adaface_ir101_webface12m.ckpt",
-    "finetuned_fiw_adaface": "/mnt/heavy/DeepLearning/Research/research/ours/weights/train_30_epochs.pth",
+    "finetuned_fiw_adaface": "/home/levi/Documents/research/ours/weights/train_30_epochs.pth",
+    "adaface_ir_101": "/home/levi/Documents/research/ours/weights/adaface_ir101_webface12m.ckpt"
 }
 
 class ToBGRTensor:

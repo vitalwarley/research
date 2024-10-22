@@ -12,7 +12,7 @@ from torchmetrics.functional import accuracy
 import torch.nn.functional as F
 from torch.optim import Adam
 
-adaface, adaface_transform = load_pretrained_model()
+adaface, adaface_transform = load_pretrained_model("finetuned_fiw_adaface")
 
 def train(config, train_loader, test_loader, name):
     run_name = name
@@ -81,17 +81,18 @@ def val_model(model, val_loader):
         features2 = [adaface(img.to(device))[0] for img in images2]
         inputs1 = torch.stack(features1)
         inputs2 = torch.stack(features2)
-        
+
         preds = model([inputs1, inputs2])
         preds = F.softmax(preds, dim=1)
         preds = torch.argmax(preds, dim=1)
-        
+
+
         y_pred.extend(preds)
-        y_true.extend(labels)
+        y_true.extend(labels.to(device))
 
     y_pred = torch.stack(y_pred)
     y_true = torch.stack(y_true)
-    acc = accuracy(y_pred, y_true, task="binary",)
+    acc = accuracy(y_pred, y_true, task="binary")
     return acc
 
 def cross_validate(config):
@@ -113,8 +114,9 @@ def cross_validate(config):
 
 if __name__ == "__main__":
     mlflow.set_tracking_uri("sqlite:///mlruns.db")
-    mlflow.set_experiment("RBKin Verification")
-    config =  yaml.safe_load(open("/mnt/heavy/DeepLearning/Research/research/FKV with Age Transformation/configs/rbkin.yml"))
+    exp_name = input("Type the name of the experiment")
+    mlflow.set_experiment(exp_name)
+    config =  yaml.safe_load(open("/home/levi/Documents/research/FKV with Age Transformation/configs/rbkin.yml"))
 
     means = cross_validate(config)
 

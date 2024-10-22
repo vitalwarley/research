@@ -3,6 +3,6 @@ batch_size: 32
 learning_rate: 1e-3
 weight_decay: 1e-4
 dropout_rate: 5e-2
-epochs: 3
+epochs: 30
 # Data parameters
-data_path: "/mnt/heavy/DeepLearning/Research/research/rfiw2021/Track1"
+data_path: "/home/levi/Documents/research/rfiw2021/Track1"

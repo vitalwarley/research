@@ -18,7 +18,7 @@ def train(config, train_loader, test_loader):
         mlflow.set_tag("dataset", "FIW")
         mlflow.log_params(config) 
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
         model = adaface
         model.to(device)
         triplet_loss = nn.TripletMarginLoss()

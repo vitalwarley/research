@@ -116,7 +116,7 @@ if __name__ == "__main__":
     mlflow.set_tracking_uri("sqlite:///mlruns.db")
     exp_name = input("Type the name of the experiment")
     mlflow.set_experiment(exp_name)
-    config =  yaml.safe_load(open("/home/levi/Documents/research/FKV with Age Transformation/configs/rbkin.yml"))
+    config =  yaml.safe_load(open("../params/rbkin.yml"))
 
     means = cross_validate(config)
 

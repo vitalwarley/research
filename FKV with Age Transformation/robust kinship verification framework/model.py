@@ -34,7 +34,7 @@ if __name__ == "__main__":
     adaface, adaface_transform = load_pretrained_model()
     adaface.eval()
 
-    config = yaml.safe_load(open("/mnt/heavy/DeepLearning/Research/research/FKV with Age Transformation/configs/rbkin.yml"))
+    config = yaml.safe_load(open("../params/rbkin.yml"))
 
     train_dataset = ageFIW(config['data_path'], "train_sort.csv", transform=adaface_transform, training=False)
     train_loader = DataLoader(train_dataset, batch_size=8, num_workers=4, pin_memory=False)

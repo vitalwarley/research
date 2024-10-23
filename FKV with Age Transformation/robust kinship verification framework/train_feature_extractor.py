@@ -54,7 +54,7 @@ def train(config, train_loader, test_loader):
 if __name__ == "__main__":
     mlflow.set_tracking_uri("sqlite:///mlruns.db")
     mlflow.set_experiment("Feature Extractor")
-    config = yaml.safe_load(open("../configs/fe_triplet.yml"))
+    config = yaml.safe_load(open("../params/fe_triplet.yml"))
 
     train_dataset = FIW(config['data_path'], "sample0/train_sort_triplet.csv", transform=adaface_transform, training=True)
     train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], num_workers=4, pin_memory=False)

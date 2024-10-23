@@ -1,3 +1,8 @@
+# Project Specific
+rfiw2021/backbone/*
+rfiw2021_dataset.zip
+.vscode/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

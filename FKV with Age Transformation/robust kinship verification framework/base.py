@@ -5,6 +5,7 @@ import lightning as L
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import yaml
 import torch.nn as nn
 import torchmetrics as tm
 from torchvision import transforms
@@ -27,10 +28,8 @@ from torchmetrics.utilities import dim_zero_cat
 
 plt.switch_backend("agg")
 HERE = Path(__file__).parent
-models = {
-    "finetuned_fiw_adaface": "/home/levi/Documents/research/ours/weights/train_30_epochs.pth",
-    "adaface_ir_101": "/home/levi/Documents/research/ours/weights/adaface_ir101_webface12m.ckpt"
-}
+
+models = yaml.safe_load(open("../params/adaface.yml"))
 
 class ToBGRTensor:
     def __call__(self, img):

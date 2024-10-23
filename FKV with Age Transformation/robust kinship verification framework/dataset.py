@@ -5,20 +5,19 @@ import torch
 from PIL import Image
 
 class ageFIW(Dataset):
-    def __init__(self, data_path, csv_path, transform=None, training=False):
+    def __init__(self, data_path, transform=None, train=False):
         self.data_path = data_path
         self.transform = transform
-        self.training = training
-        self.csv_path = os.path.join(data_path, csv_path)
+        self.train = train
         self.image_paths = self._load_image_paths()
 
     def _load_image_paths(self):
-        if self.training:
-            df = pd.read_csv(self.csv_path, sep=' ', names=['id', 'anchor', 'positive', 'negative', 'kin', '1'])
+        if self.train:
+            df = pd.read_csv(self.data_path + "/train_sort.csv", sep=' ', names=['id', 'f1', 'f2', 'kt', 'label'])
         else:
-            df = pd.read_csv(self.csv_path, sep=' ', names=['id', 'image_1', 'image_2', 'kin', 'label'])
+            df = pd.read_csv(self.data_path + "/val.csv", sep=' ', names=['id', 'f1', 'f2', 'kt', 'label'])
         return df
-    
+
     def _open_images(self, img):
         images = []
         for age in ['20', '30', '40', '50', '60']:
@@ -28,19 +27,12 @@ class ageFIW(Dataset):
             images.append(image)
         images = torch.stack(images)
         return images
-    
+
     def __getitem__(self, index):
-        if self.training:
-            anchor_img = self._open_images(self.image_paths.iloc[index]['anchor'])
-            positive_img = self._open_images(self.image_paths.iloc[index]['positive'])
-            negative_img = self._open_images(self.image_paths.iloc[index]['negative'])
-        
-            return anchor_img, positive_img, negative_img
-        else:
-            image_1 = self._open_images(self.image_paths.iloc[index]['image_1'])
-            image_2 = self._open_images(self.image_paths.iloc[index]['image_2'])
+            image_1 = self._open_images(self.image_paths.iloc[index]['f1'])
+            image_2 = self._open_images(self.image_paths.iloc[index]['f2'])
             label = self.image_paths.iloc[index]['label']
-            
+
             return image_1, image_2, label
 
     def __len__(self):
@@ -62,7 +54,7 @@ class ageKinFace(Dataset):
         else:
             df = df[df['fold'] == self.fold]
         return df
-    
+
     def _open_images(self, img):
         images = []
         for age in ['20', '30', '40', '50', '60']:
@@ -72,17 +64,17 @@ class ageKinFace(Dataset):
             images.append(image)
         images = torch.stack(images)
         return images
-    
+
     def __getitem__(self, index):
             image_1 = self._open_images(self.image_paths.iloc[index]['image1'])
             image_2 = self._open_images(self.image_paths.iloc[index]['image2'])
             label = self.image_paths.iloc[index]['label']
-            
+
             return image_1, image_2, label
 
     def __len__(self):
         return len(self.image_paths)
-    
+
 class FIW(Dataset):
     def __init__(self, data_path, csv_path, transform=None, training=False):
         self.data_path = data_path
@@ -97,25 +89,25 @@ class FIW(Dataset):
         else:
             df = pd.read_csv(self.csv_path, sep=' ', names=['id', 'image_1', 'image_2', 'kin', 'label'])
         return df
-    
+
     def _open_image(self, img):
         image = Image.open(os.path.join(self.data_path, img))
         if self.transform:
             image = self.transform(image)
         return image
-    
+
     def __getitem__(self, index):
         if self.training:
             anchor_img = self._open_image(self.image_paths.iloc[index]['anchor'])
             positive_img = self._open_image(self.image_paths.iloc[index]['positive'])
             negative_img = self._open_image(self.image_paths.iloc[index]['negative'])
-        
+
             return anchor_img, positive_img, negative_img
         else:
             image_1 = self._open_image(self.image_paths.iloc[index]['image_1'])
             image_2 = self._open_image(self.image_paths.iloc[index]['image_2'])
             label = self.image_paths.iloc[index]['label']
-            
+
             return image_1, image_2, label
 
     def __len__(self):

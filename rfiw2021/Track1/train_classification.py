@@ -3,7 +3,7 @@ import os
 import sys
 from datetime import datetime
 
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
 FILE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, f"{FILE}/..")

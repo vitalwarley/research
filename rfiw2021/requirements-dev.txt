@@ -1,6 +1,0 @@
-# noteboooks
-jupyterlab
-jupyter_ai
-jupytext
-openai
-plotly

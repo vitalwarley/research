@@ -1,5 +1,0 @@
-gluonfr
-mxnet-cu112
-Cython
-cmake
-insightface

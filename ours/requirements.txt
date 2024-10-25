@@ -1,7 +1,0 @@
-guildai
-torch
-torchvision
-torchmetrics
-scikit-learn
-opencv-python
-tqdm

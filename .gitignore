@@ -140,3 +140,7 @@ lightning_logs/
 fitw2020
 runs
 old
+data
+
+**/.ipynb_checkpoints
+**/.jupyter

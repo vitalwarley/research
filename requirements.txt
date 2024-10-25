@@ -1,7 +1,7 @@
-jupyterlab
-jupyter_ai
-jupytext
-openai
-
-# mivolo
-ipywidgets
+guildai
+torch
+torchvision
+torchmetrics
+scikit-learn
+opencv-python
+tqdm

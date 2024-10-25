@@ -1,128 +1,148 @@
-- config: train-flags
-  flags:
-    data-dir: /home/warley/dev/datasets/MS1M_v2
-    devices: 2
-    max_epochs: 50
-    model: resnet101
-    batch-size: 1024
-    accumulate_grad_batches: 2 
-    gradient_clip_val: 5
-    task: pretrain 
-    lr: 0.1 
-    momentum: 0.9 
-    weight-decay: 5e-4 
-    warmup: 0 
-    cooldown: 0 
-    arcface-s: 64 
-    arcface-m: 0.5 
-    precision: 16 
-    loss: arcface 
-    scheduler: poly
-
-- config: train-flags-finetune
-  flags:
-    accumulate_grad_batches: 1 
-    batch-size: 64
-    cooldown: 400 
-    data-dir: /home/warley/dev/datasets/fiw
-    devices: 2
-    end-lr: 1e-10
-    embedding-dim: 512
-    gradient_clip_val: 1.5
-    insightface: 
-      arg-switch: yes
-    loss: ce 
-    lr: 1e-4 
-    lr-factor: 0.75
-    lr-steps:
-      default: "8 14 25 35 40 50 60"  
-      arg-split: yes
-      type: int
-    max_epochs: 50
-    momentum: 0.9 
-    model: resnet101
-    normalize: 
-      type: boolean
-      default: no
-      arg-switch: yes
-    num-classes: 570
-    precision: 16 
-    task: finetune 
-    scheduler: multistep
-    start-lr: 1e-10
-    warmup: 200 
-    weight-decay: 1e-4 
-    weights: ''
-
-- model: tcc
-  sourcecode: 
-    - '*.py'
+- model: scl
   operations:
-    pretrain:
-      main: train
-      flags:
-        $include: train-flags
-
-    pretrain-ddp:
-      exec: torchrun --nnodes=1 --nproc_per_node=${nprocs} train.py --task=${task} --data-dir=${data-dir} --devices=${devices} --max_epochs=${max_epochs} --model=${model} --batch-size=${batch-size} --accumulate_grad_batches=${accumulate_grad_batches} --gradient_clip_val=${gradient_clip_val} --lr=${lr} --momentum=${momentum} --weight-decay=${weight-decay} --warmup=${warmup} --cooldown=${cooldown} --arcface-s=${arcface-s} --arcface-m=${arcface-m} --precision=${precision} --loss=${loss} --scheduler=${scheduler}
-      flags:
-        $include: train-flags
-        devices: 2
-        nprocs: 2
-      requires:
-        - file: train.py
-
-    finetune:
-      main: train
-      flags:
-        $include: train-flags-finetune
-      requires:
-        - file: train.py
-    
-    finetune-ddp:
-      exec: torchrun --nnodes=1 --nproc_per_node=${nprocs} train.py --task=${task} --data-dir=${data-dir} --devices=${devices} --max_epochs=${max_epochs} --model=${model} --batch-size=${batch-size} --accumulate_grad_batches=${accumulate_grad_batches} --gradient_clip_val=${gradient_clip_val} --lr=${lr} --start-lr=${start-lr} --end-lr=${end-lr} --lr-steps=${lr-steps} --lr-factor=${lr-factor} --momentum=${momentum} --weight-decay=${weight-decay} --warmup=${warmup} --cooldown=${cooldown} --precision=${precision} --loss=${loss} --scheduler=${scheduler} --embedding-dim=${embedding-dim} --normalize
-      flags:
-        $include: train-flags-finetune
-        devices: 2
-        nprocs: 2
-      requires:
-        - file: train.py
-
-    finetune-test:
-      main: val
-      flags:
-        $include: train-flags-finetune
-        test:
-          arg-switch: yes
-          default: no
-
-    validate:
-      main: val_shadrikov
-      flags:
-        run-models: both
-        torch-model: ''
-        mxnet-model: ''
-        insightface: 
-          arg-switch: yes
-        dataset: fiw
-        task: verification
-        batch-size: 24
-        device: cuda
-      requires:
-          # TODO: operations?
-        - file: run/
-        - file: ../datasets/fiw
-
-- model: shadrikov
-  sourcecode:
-    select:
-      - 'fitw2020/*.py'
-      - '*.py'
-  operations:
-    classification:
-      main: fitw2020.train
-      flags-dest: globals
+    train:
+      description: Supervised Contrastive Learning experiments
+      exec: python tasks/scl.py fit --config scl.yml
+      sourcecode:
+        - utils.py
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/scl.py
       flags-import: all
+      flags-dest: config:configs/scl.yml
+      output-scalars: '(\key)=(\value)'
       requires:
-        - file: fitw2020/models/
-        - file: ../datasets/fiw
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - file: configs/scl.yml
+          target-type: link
+    val:
+      description: Supervised Contrastive Learning experiments
+      exec: python tasks/scl.py validate --config scl.yml
+      sourcecode:
+        - utils.py
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/scl.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - file: configs/scl.yml
+          target-type: link
+        - operation: scl:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    test:
+      description: Supervised Contrastive Learning experiments
+      exec: python tasks/scl.py test --config scl.yml
+      sourcecode:
+        - utils.py
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/scl.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - operation: scl:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    tri-subject-train:
+      description: Supervised Contrastive Learning experiments
+      exec: python tasks/scl.py fit --config scl_t2.yml
+      sourcecode:
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/scl_t2.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+    tri-subject-test:
+      description: Supervised Contrastive Learning experiments
+      exec: python tasks/scl.py test --config scl_t2.yml
+      sourcecode:
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/scl_t2.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - operation: scl:tri-subject-train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    search-retrieval:
+      description: Supervised Contrastive Learning experiments
+      exec: python tasks/scl.py predict --config scl_t3.yml
+      sourcecode:
+        - utils.py
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/scl_t3.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: ../datasets/
+          target-type: link
+          rename: data
+        - operation: scl:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt

@@ -30,14 +30,14 @@ trainer:
         mode: 'max'  # Use 'min' if the metric should decrease
 
 data:
-   class_path: datasets.sclff.SCLFFDataModule
+   class_path: datasets.scl.SCLDataModule
    init_args:
      batch_size: 20
-     root_dir: data/facornet
+     root_dir: data/fiw/track1
      sampler: no
      augment: no
      bias: no
-     dataset: facornet
+     dataset: fiw
      augmentation_params:
        color_jitter:
          brightness: 0.5
@@ -50,8 +50,6 @@ data:
 model:
   class_path: models.scl.SCL
   init_args:
-    num_families: 0
-    loss_factor: 0
     optimizer: SGD
     adamw_beta1: 0.9
     adamw_beta2: 0.999

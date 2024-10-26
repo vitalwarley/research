@@ -7,8 +7,8 @@ import lightning as L
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
-from datasets.fiw import FIW, FIWFamilyV3, FIWFamilyV4AG, FIWTask2
-from datasets.utils import collate_fn_fiw_family_v3, collate_fn_fiw_family_v4
+from datasets.fiw import FIW, FIWFamilyV3, FIWTask2
+from datasets.utils import collate_fn_fiw_family_v3
 
 N_WORKERS = os.cpu_count() or 16
 
@@ -81,8 +81,8 @@ class KinshipBatchSampler:
 
 
 class SCLDataModule(L.LightningDataModule):
-    DATASETS = {"facornet": FIW, "ff-v4-ag": FIWFamilyV4AG, "ff-v3": FIWFamilyV3}
-    COLLATE_FN = {"facornet": None, "ff-v4-ag": collate_fn_fiw_family_v4, "ff-v3": collate_fn_fiw_family_v3}
+    DATASETS = {"fiw": FIW, "ff-v3": FIWFamilyV3}
+    COLLATE_FN = {"fiw": None, "ff-v3": collate_fn_fiw_family_v3}
 
     def __init__(
         self,

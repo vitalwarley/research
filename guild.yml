@@ -19,9 +19,8 @@
           rename: models/insightface
         - file: weights
           target-type: link
-        - file: ../datasets/
+        - file: data/
           target-type: link
-          rename: data
         - file: configs/scl.yml
           target-type: link
     val:
@@ -43,9 +42,8 @@
           rename: models/insightface
         - file: weights
           target-type: link
-        - file: ../datasets/
+        - file: data/
           target-type: link
-          rename: data
         - file: configs/scl.yml
           target-type: link
         - operation: scl:train
@@ -70,9 +68,8 @@
           rename: models/insightface
         - file: weights
           target-type: link
-        - file: ../datasets/
+        - file: data/
           target-type: link
-          rename: data
         - operation: scl:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt
@@ -94,9 +91,8 @@
           rename: models/insightface
         - file: weights
           target-type: link
-        - file: ../datasets/
+        - file: data/
           target-type: link
-          rename: data
     tri-subject-test:
       description: Supervised Contrastive Learning experiments
       exec: python tasks/scl.py test --config scl_t2.yml
@@ -115,9 +111,8 @@
           rename: models/insightface
         - file: weights
           target-type: link
-        - file: ../datasets/
+        - file: data/
           target-type: link
-          rename: data
         - operation: scl:tri-subject-train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt
@@ -140,7 +135,7 @@
           rename: models/insightface
         - file: weights
           target-type: link
-        - file: ../datasets/
+        - file: data/
           target-type: link
           rename: data
         - operation: scl:train

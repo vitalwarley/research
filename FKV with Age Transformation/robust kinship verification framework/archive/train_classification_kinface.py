@@ -57,10 +57,11 @@ def train(config, train_loader, test_loader, name):
 
             model.eval()
             with torch.no_grad():
-                acc = val_model(model, test_loader)
+                acc, val_loss = val_model(model, test_loader)
 
             mlflow.log_metrics({
                 "loss": loss_epoch,
+                "val_loss": val_loss,
                 "val_accuracy": acc,
             }, step=epoch)
 
@@ -75,6 +76,7 @@ def train(config, train_loader, test_loader, name):
 def val_model(model, val_loader):
     y_true = []
     y_pred = []
+    val_loss = 0.0
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     for images1, images2, labels in val_loader:
         features1 = [adaface(img.to(device))[0] for img in images1]
@@ -86,14 +88,14 @@ def val_model(model, val_loader):
         preds = F.softmax(preds, dim=1)
         preds = torch.argmax(preds, dim=1)
 
-
+        val_loss += F.cross_entropy(preds, labels.to(device)).item()
         y_pred.extend(preds)
         y_true.extend(labels.to(device))
 
     y_pred = torch.stack(y_pred)
     y_true = torch.stack(y_true)
     acc = accuracy(y_pred, y_true, task="binary")
-    return acc
+    return acc, val_loss
 
 def cross_validate(config):
     folder_means = []

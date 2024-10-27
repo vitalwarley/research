@@ -39,6 +39,56 @@ class ageFIW(Dataset):
         return len(self.image_paths)
 
 class ageKinFace(Dataset):
+    def __init__(self, data_root, fold, transform=None, train=False, kinface_version='I'):
+        self.data_path = os.path.join(data_root, f'KinFaceW-{kinface_version}', 'images')
+        self.fold = fold
+        self.train = train
+        self.transform = transform
+        self.csv_path = os.path.join(data_root, f'KinFaceW-{kinface_version}', f'KinFaceW-{kinface_version}.csv')
+        self.kin_types = {
+            'fd': 'father-dau',
+            'fs': 'father-son',
+            'md': 'mother-dau',
+            'ms': 'mother-son'
+        }
+        self.image_paths = self._load_image_paths()
+
+    def _add_folder_name(self, image_path):
+        for key, value in self.kin_types.items():
+            if key in image_path:
+                return f"{value}/{image_path}"
+
+    def _load_image_paths(self):
+        df = pd.read_csv(self.csv_path) # image1, image2, fold, label
+        if self.train:
+            df = df[df['fold'] != self.fold]
+        else:
+            df = df[df['fold'] == self.fold]
+        df['image1'] = df['image1'].apply(self._add_folder_name)
+        df['image2'] = df['image2'].apply(self._add_folder_name)
+        return df
+
+    def _open_images(self, img):
+        images = []
+        for age in ['20', '30', '40', '50', '60']:
+            image = Image.open(os.path.join(self.data_path, img + age + '.jpg'))
+            if self.transform:
+                image = self.transform(image)
+            images.append(image)
+        images = torch.stack(images)
+        return images
+
+    def __getitem__(self, index):
+            image_1 = self._open_images(self.image_paths.iloc[index]['image1'])
+            image_2 = self._open_images(self.image_paths.iloc[index]['image2'])
+            label = self.image_paths.iloc[index]['label']
+
+            return image_1, image_2, label
+
+    def __len__(self):
+        return len(self.image_paths)
+
+class ageKinFaceByFolder(Dataset):
     def __init__(self, data_root, data_folder, fold, transform=None, train=False, kinface_version='I'):
         self.data_path = os.path.join(data_root, f'KinFaceW-{kinface_version}', 'images', data_folder)
         self.fold = fold

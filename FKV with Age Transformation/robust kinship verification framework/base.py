@@ -9,6 +9,7 @@ import yaml
 import torch.nn as nn
 import torchmetrics as tm
 from torchvision import transforms
+from torch_resnet101 import KitModel
 
 from torch.nn import (
     BatchNorm1d,
@@ -40,13 +41,16 @@ class ToBGRTensor:
 
         # Convert to PyTorch tensor and adjust dimensions
         tensor = torch.tensor(bgr_img.transpose(2, 0, 1)).float()
-        
+
         return tensor
 
 def load_pretrained_model(architecture="adaface_ir_101"):
     # load model and pretrained statedict
     assert architecture in models.keys()
-    model = build_model(architecture)
+    if "clkin" in architecture:
+        model = Net().cuda()
+    else:
+        model = build_model(architecture)
 
     if ".pth" in models[architecture]:
         model_statedict = torch.load(models[architecture], map_location=torch.device('cpu'))
@@ -63,9 +67,6 @@ def load_pretrained_model(architecture="adaface_ir_101"):
 
     return model, transform
 
-
-
-
 def initialize_weights(modules):
     """Weight initilize, conv2d and linear is initialized with kaiming_normal"""
     for m in modules:
@@ -81,6 +82,34 @@ def initialize_weights(modules):
             if m.bias is not None:
                 m.bias.data.zero_()
 
+class Net(torch.nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.encoder=KitModel("./data/kit_resnet101.pkl")
+
+        self.projection=nn.Sequential(
+            torch.nn.Linear(512, 256),
+            torch.nn.BatchNorm1d(256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 128),
+        )
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.projection.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.uniform_(m.weight -0.05, 0.05)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm1d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, imgs):
+        img1,img2=imgs
+        embeding1 ,embeding2= self.encoder(img1),self.encoder(img2)
+        pro1 ,pro2=self.projection(embeding1),self.projection(embeding2)
+        return embeding1,embeding2,pro1,pro2
 
 class Flatten(Module):
     """Flat tensor"""

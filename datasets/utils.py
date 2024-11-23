@@ -44,21 +44,28 @@ def sr_collate_fn_v2(batch):
 
 
 def collate_fn_fiw_family_v3(batch):
-    imgs1_batch = [item[0] for item in batch]
-    imgs2_batch = [item[1] for item in batch]
-    is_kin = [item[2] for item in batch]
+    # Unpack the batch - each item is (images, labels) where:
+    # images = (imgs1, imgs2)
+    # labels = (is_kin, kin_ids)
+    imgs1_batch = [item[0][0] for item in batch]
+    imgs2_batch = [item[0][1] for item in batch]
+    kin_ids = [item[1][0] for item in batch]
+    is_kin = [item[1][1] for item in batch]
 
     # Flatten the list of lists into a single list of tensors
     imgs1_flat = [img for imgs in imgs1_batch for img in imgs]
     imgs2_flat = [img for imgs in imgs2_batch for img in imgs]
     is_kin_flat = [label for labels in is_kin for label in labels]
+    kin_ids_flat = [kid for kids in kin_ids for kid in kids]
 
     # Stack tensors along the batch dimension
     imgs1_tensor = torch.stack(imgs1_flat)
     imgs2_tensor = torch.stack(imgs2_flat)
     is_kin_tensor = torch.tensor(is_kin_flat)
+    kin_ids_tensor = [Sample.NAME2LABEL[kid] for kid in kin_ids_flat]
+    kin_ids_tensor = torch.tensor(kin_ids_tensor)
 
-    return imgs1_tensor, imgs2_tensor, is_kin_tensor
+    return (imgs1_tensor, imgs2_tensor), (kin_ids_tensor, is_kin_tensor)
 
 
 def collate_fn_fiw_family_v4(batch):

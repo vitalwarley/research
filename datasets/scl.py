@@ -1,3 +1,4 @@
+import sys
 import os
 import random
 from collections import defaultdict
@@ -6,6 +7,9 @@ from pathlib import Path
 import lightning as L
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
+
+# Add the parent directory to sys.path using pathlib (to run standalone in ubuntu)
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from datasets.fiw import FIW, FIWFamilyV3, FIWTask2
 from datasets.utils import collate_fn_fiw_family_v3
@@ -58,14 +62,14 @@ class KinshipBatchSampler:
             batch = []
 
             for pair in sub_batch:
-                imgs1, imgs2, _ = pair
+                imgs1, imgs2, labels = pair
                 img1 = self._get_image_with_min_count(imgs1)
                 img2 = self._get_image_with_min_count(imgs2)
-                img1_id = self.dataset.persons2idx[img1]
-                img2_id = self.dataset.persons2idx[img2]
+                img1_id = self.dataset.person2idx[img1]
+                img2_id = self.dataset.person2idx[img2]
                 self.image_counters[img1] += 1
                 self.image_counters[img2] += 1
-                batch.append((img1_id, img2_id))
+                batch.append((img1_id, img2_id, labels))
 
             yield batch
 
@@ -280,13 +284,23 @@ class SCLDataModuleTask2(L.LightningDataModule):
 if __name__ == "__main__":
     batch_size = 20
     dm = SCLDataModule(
-        dataset="fiw",
+        dataset="ff-v3",
         batch_size=batch_size,
-        root_dir="../datasets/facornet",
+        root_dir="data/fiw/track1",
     )
-    dm.setup("validate")
-    data_loader = dm.val_dataloader()
+    dm.setup("fit")
+    data_loader = dm.train_dataloader()
 
     # Iterate over DataLoader
-    for i, batch in enumerate(data_loader):
-        print(f"Batch {i + 1}: ", batch[-1])
+    batch = next(iter(data_loader))
+    # Get images1, images2, is_kin, kin_ids from the batch
+    images, labels = batch
+    # Print one image shape and labels
+    print(f"Batch 1: ", images[0].shape, labels)
+
+    # setup for validation set
+    dm.setup("validate")
+    data_loader = dm.val_dataloader()
+    batch = next(iter(data_loader))
+    images, labels = batch
+    print(f"Batch 1: ", images[0].shape, labels)

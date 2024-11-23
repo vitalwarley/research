@@ -189,9 +189,9 @@ class FIWFamilyV3(FIW):
             if cur_family.is_dir()
         ]
         self.fam2rel = defaultdict(list)
-        self.persons = []
-        self.persons2idx = {}
-        self.idx2persons = {}
+        self.people = []
+        self.person2idx = {}
+        self.idx2person = {}
         self.person2family = {}
         self.cache = {}
         self.relationships = self._generate_relationships()
@@ -203,10 +203,12 @@ class FIWFamilyV3(FIW):
         for sample_idx, sample in enumerate(self.sample_list):
             # Only consider training set, therefore only positive samples
             relation = (sample.f1fid,) + tuple(sorted([sample.f1mid, sample.f2mid]))
+            # Path to images f1 and f2
             persons.append(sample.f1)
             persons.append(sample.f2)
             if relation not in unique_relations:
-                unique_relations.add(relation)
+                unique_relations.add(relation)  # New relation
+                # Get all images from individuals in this relation (FX/MY/<images>)
                 person1_images = list(Path(self.root_dir, self.images_dir, sample.f1).parent.glob("*.jpg"))
                 person2_images = list(Path(self.root_dir, self.images_dir, sample.f2).parent.glob("*.jpg"))
                 # Filter path relative to images_dir
@@ -216,17 +218,19 @@ class FIWFamilyV3(FIW):
                 person1_images = [person for person in person1_images if person in self.filepaths]
                 person2_images = [person for person in person2_images if person in self.filepaths]
                 if person1_images and person2_images:
-                    labels = (sample.f1mid, sample.f2mid, sample.f1fid)
+                    # Store pair and individual information: members IDs, family id, and kinship relation
+                    labels = (sample.f1mid, sample.f2mid, sample.f1fid, sample.is_kin, sample.kin_relation)
+                    # List with all images from both individuals
                     relationships.append((person1_images, person2_images, labels))
+                    # Store index of the current relationship in the relationships list for a given family
                     self.fam2rel[sample.f1fid].append(len(relationships) - 1)
-
-        self.person2family = {person: int(person.split("/")[2][1:]) for person in persons}
-        self.persons = sorted(list(set(persons)))
-        self.persons2idx = {person: idx for idx, person in enumerate(self.persons)}
-        self.idx2persons = {idx: person for person, idx in self.persons2idx.items()}
+        # List of unique persons (based on the filepath)
+        self.people = sorted(list(set(persons)))
+        # Mapping from person to its index
+        self.person2idx = {person: idx for idx, person in enumerate(self.people)}
 
         print(f"Generated {len(relationships)} relationships")
-        print(f"Found {len(self.persons)} unique persons")
+        print(f"Found {len(self.people)} unique persons")
 
         return relationships
 
@@ -238,14 +242,19 @@ class FIWFamilyV3(FIW):
         return image
 
     def __getitem__(self, idx: list[tuple[int, int]]):
-        img1_idx, img2_idx = list(zip(*idx))
-        imgs1, imgs2 = [self.persons[idx] for idx in img1_idx], [self.persons[idx] for idx in img2_idx]
-        is_kin = [
-            int(self.person2family[person1] == self.person2family[person2]) for person1, person2 in zip(imgs1, imgs2)
-        ]
+        # idx comes from person indices (person2idx)
+        img1_idx, img2_idx, labels = list(zip(*idx))
+        imgs1, imgs2 = [self.people[idx] for idx in img1_idx], [self.people[idx] for idx in img2_idx]
+        # Get is_kin from the stored relationship
+        is_kin = [labels[i][3] == labels[i][3] for i in range(len(imgs1))]
+        # Get kin_id from the stored relationship
+        kin_ids = [labels[i][4] for i in range(len(imgs1))]  # collate fn will convert from name to label
+
         imgs1 = [self._process_one_image(img) for img in imgs1]
         imgs2 = [self._process_one_image(img) for img in imgs2]
-        sample = (imgs1, imgs2, is_kin)  # collate!
+        images = (imgs1, imgs2)
+        labels = (kin_ids, is_kin)
+        sample = (images, labels)
         return sample
 
     def __len__(self):

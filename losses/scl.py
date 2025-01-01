@@ -6,7 +6,73 @@ class HCL(torch.nn.Module):
     def __init__(
         self,
         tau=0.2,
-        alpha=0.8,
+        alpha_neg=0.8,
+        alpha_pos=0.0,
+        normalize=False,
+    ):
+        super().__init__()
+        self.tau = tau
+        self.alpha_neg = alpha_neg
+        self.alpha_pos = alpha_pos
+
+    def forward(self, embeddings, positive_pairs, stage):
+        sim_matrix = F.cosine_similarity(embeddings.unsqueeze(1), embeddings.unsqueeze(0), dim=2)
+        return self.compute_loss(sim_matrix, positive_pairs, stage)
+
+    def compute_loss(self, sim_matrix, positive_pairs, stage):
+        device = sim_matrix.device
+        num_pairs = len(positive_pairs)
+        indices_i, indices_j = positive_pairs.T
+
+        mask = torch.eye(sim_matrix.size(0), dtype=torch.bool, device=device)
+        mask[indices_i, indices_j] = True
+        mask[indices_j, indices_i] = True
+
+        exp_sim = torch.exp(sim_matrix / self.tau)
+        exp_sim_masked = exp_sim.masked_fill(mask, 0)
+
+        pos_sim_ij = exp_sim[indices_i, indices_j]
+        pos_sim_ji = exp_sim[indices_j, indices_i]
+
+        exp_i = exp_sim_masked[indices_i]
+        exp_j = exp_sim_masked[indices_j]
+
+        if stage in ["train", "sanity_check"]:  # pytorch lightning needs
+            threshold_i = torch.quantile(exp_i, self.alpha_neg, dim=1, keepdim=True)
+            threshold_j = torch.quantile(exp_j, self.alpha_neg, dim=1, keepdim=True)
+
+            hard_neg_sims_i = torch.where(exp_i >= threshold_i, exp_i, torch.tensor(0.0, device=device))
+            hard_neg_sims_j = torch.where(exp_j >= threshold_j, exp_j, torch.tensor(0.0, device=device))
+
+            sum_hard_neg_sims_i = hard_neg_sims_i.sum(dim=1)
+            sum_hard_neg_sims_j = hard_neg_sims_j.sum(dim=1)
+
+            threshold_pos_i = torch.quantile(pos_sim_ij.unsqueeze(1), self.alpha_pos)
+            threshold_pos_j = torch.quantile(pos_sim_ji.unsqueeze(1), self.alpha_pos)
+
+            pos_sim_ij = torch.where(pos_sim_ij >= threshold_pos_i, pos_sim_ij, torch.tensor(0.0, device=device))
+            pos_sim_ji = torch.where(pos_sim_ji >= threshold_pos_j, pos_sim_ji, torch.tensor(0.0, device=device))
+
+            loss_ij = -torch.log(pos_sim_ij / (pos_sim_ij + sum_hard_neg_sims_i))
+            loss_ji = -torch.log(pos_sim_ji / (pos_sim_ji + sum_hard_neg_sims_j))
+        else:
+            sum_neg_sims_i = exp_i.sum(dim=1)
+            sum_neg_sims_j = exp_j.sum(dim=1)
+
+            loss_ij = -torch.log(pos_sim_ij / (pos_sim_ij + sum_neg_sims_i))
+            loss_ji = -torch.log(pos_sim_ji / (pos_sim_ji + sum_neg_sims_j))
+
+        contrastive_loss = (loss_ij + loss_ji).sum()
+        return contrastive_loss / (2 * num_pairs)
+
+
+# Not used in the paper
+class HCLFT(HCL):
+    def __init__(
+        self,
+        tau=0.2,
+        alpha_neg=0.8,
+        alpha_pos=0.0,
         gamma_ex=2.0,
         gamma_in=1.6,
         dim_mixing=False,
@@ -14,9 +80,7 @@ class HCL(torch.nn.Module):
         inter_pos=False,
         extra_neg=False,
     ):
-        super().__init__()
-        self.tau = tau
-        self.alpha = alpha
+        super().__init__(tau, alpha_neg, alpha_pos)
         self.gamma_ex = gamma_ex
         self.gamma_in = gamma_in
         self.dim_mixing = dim_mixing
@@ -27,7 +91,6 @@ class HCL(torch.nn.Module):
     def forward(self, embeddings, positive_pairs, stage):
         original_sim = F.cosine_similarity(embeddings.unsqueeze(1), embeddings.unsqueeze(0), dim=2)
 
-        # To disable the feature transformation, set gamma_ex and gamma_in to 0
         if self.gamma_ex or self.gamma_in:
             if self.gamma_ex:
                 transformation = "ex" if not self.inter_pos else "in"
@@ -58,49 +121,8 @@ class HCL(torch.nn.Module):
 
         return self.compute_loss(original_sim, positive_pairs, stage)
 
-    def compute_loss(self, sim_matrix, positive_pairs, stage):
-        device = sim_matrix.device
-        num_pairs = len(positive_pairs)
-        indices_i, indices_j = positive_pairs.T
-
-        mask = torch.eye(sim_matrix.size(0), dtype=torch.bool, device=device)
-        mask[indices_i, indices_j] = True
-        mask[indices_j, indices_i] = True
-
-        exp_sim = torch.exp(sim_matrix / self.tau)
-        exp_sim_masked = exp_sim.masked_fill(mask, 0)
-
-        pos_sim_ij = exp_sim[indices_i, indices_j]
-        pos_sim_ji = exp_sim[indices_j, indices_i]
-
-        exp_i = exp_sim_masked[indices_i]
-        exp_j = exp_sim_masked[indices_j]
-
-        if stage in ["train", "sanity_check"]:
-            threshold_i = torch.quantile(exp_i, self.alpha, dim=1, keepdim=True)
-            threshold_j = torch.quantile(exp_j, self.alpha, dim=1, keepdim=True)
-
-            hard_neg_sims_i = torch.where(exp_i >= threshold_i, exp_i, torch.tensor(0.0, device=device))
-            hard_neg_sims_j = torch.where(exp_j >= threshold_j, exp_j, torch.tensor(0.0, device=device))
-
-            sum_hard_neg_sims_i = hard_neg_sims_i.sum(dim=1)
-            sum_hard_neg_sims_j = hard_neg_sims_j.sum(dim=1)
-
-            loss_ij = -torch.log(pos_sim_ij / (pos_sim_ij + sum_hard_neg_sims_i))
-            loss_ji = -torch.log(pos_sim_ji / (pos_sim_ji + sum_hard_neg_sims_j))
-        else:
-            sum_neg_sims_i = exp_i.sum(dim=1)
-            sum_neg_sims_j = exp_j.sum(dim=1)
-
-            loss_ij = -torch.log(pos_sim_ij / (pos_sim_ij + sum_neg_sims_i))
-            loss_ji = -torch.log(pos_sim_ji / (pos_sim_ji + sum_neg_sims_j))
-
-        contrastive_loss = (loss_ij + loss_ji).sum()
-        return contrastive_loss / (2 * num_pairs)
-
     @staticmethod
     def generate_negative_pairs(batch_size, positive_pairs):
-        # TODO: implement this method performance
         all_pairs = set((i, j) for i in range(batch_size) for j in range(batch_size) if i != j)
         positive_pairs_set = set((i.item(), j.item()) for i, j in positive_pairs)
         negative_pairs = list(all_pairs - positive_pairs_set)

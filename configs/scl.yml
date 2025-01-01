@@ -1,6 +1,7 @@
 seed_everything: 100
 ckpt_path: null
 trainer:
+  devices: 0
   limit_train_batches: 50
   accumulate_grad_batches: 1
   num_sanity_val_steps: 1
@@ -74,10 +75,5 @@ model:
       class_path: losses.scl.HCL
       init_args:
         tau: 0.20
-        alpha: 0.0
-        gamma_ex: 0.0
-        gamma_in: 0.0
-        inter_pos: no
-        extra_neg: no
-        dim_mixing: no
-        normalize: no
+        alpha_neg: 0.0
+        alpha_pos: 0.0

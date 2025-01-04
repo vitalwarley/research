@@ -1,12 +1,12 @@
-import sys
 import logging
+import sys
 from pathlib import Path
-
-# Add the parent directory to sys.path using pathlib
-sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import torch
 from lightning.pytorch.cli import LightningCLI
+
+# Add the parent directory to sys.path using pathlib
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 torch.set_float32_matmul_precision("medium")
 
@@ -18,6 +18,7 @@ class IgnorePLFilter(logging.Filter):
 
 logger = logging.getLogger("pytorch_lightning.utilities.rank_zero")
 logger.addFilter(IgnorePLFilter())
+
 
 class MyLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
@@ -32,7 +33,6 @@ def main(args=None):
 
 
 if __name__ == "__main__":
-    import sys
-
-    print(sys.path)
-    # main()
+    # import sys
+    # print(sys.path)
+    main()

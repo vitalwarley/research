@@ -1,6 +1,6 @@
-import sys
 import os
 import random
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -11,19 +11,281 @@ from torchvision import transforms as T
 # Add the parent directory to sys.path using pathlib (to run standalone in ubuntu)
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from datasets.fiw import FIW, FIWFamilyV3, FIWTask2
-from datasets.utils import collate_fn_fiw_family_v3
+from datasets.fiw import FIW, FIWFamilyV3, FIWTask2  # noqa
+from datasets.utils import collate_fn_fiw_family_v3  # noqa
 
 N_WORKERS = os.cpu_count() or 16
 
 
 class KinshipBatchSampler:
-    def __init__(self, dataset, batch_size):
+    def __init__(
+        self,
+        dataset,
+        batch_size,
+        balance_families=False,
+        balance_relationships=False,
+        max_attempts=100,
+        max_families_to_check=50,
+        verbose=False,
+    ):
         self.dataset = dataset
         self.batch_size = batch_size
         self.image_counters = defaultdict(int)
         self.indices = list(range(len(self.dataset)))
+
+        # Balancing flags and parameters
+        self.balance_families = balance_families
+        self.balance_relationships = balance_relationships
+        self.max_attempts = max_attempts
+        self.max_families_to_check = max_families_to_check
+        self.verbose = verbose
+
+        if self.verbose:
+            print(
+                f"Initializing KinshipBatchSampler with batch_size={batch_size}, "
+                f"balance_families={balance_families}, balance_relationships={balance_relationships}"
+            )
+
+        self.family_counters = defaultdict(int)
+        self.max_family_samples = self._compute_max_family_samples()
+
+        # Initialize counters only if needed
+        if balance_relationships:
+            self.relationship_counters = defaultdict(int)
+            self.relationship_targets = self._compute_relationship_targets()
+            # Cache relationship mappings if needed
+            self.rel_type_to_pairs = defaultdict(list)
+            for rel_idx, rel in enumerate(self.dataset.relationships):
+                rel_type = rel[2][4]  # Relationship type
+                fam = rel[2][2]  # Family ID
+                self.rel_type_to_pairs[rel_type].append((rel_idx, fam))
+
+            # New sampling parameters
+            self.MAX_PAIRS_PER_REL = 100  # Max pairs to consider per relationship
+            self.EARLY_STOP_SCORE = 0.3  # Score threshold for early stopping
+
+            # Pre-compute initial sampling scores
+            self.pair_scores = {}
+            for rel_type in self.rel_type_to_pairs:
+                for idx, fam in self.rel_type_to_pairs[rel_type]:
+                    self.pair_scores[(idx, fam)] = self._compute_sampling_score(idx, fam)
+
         self._shuffle_indices()
+
+    def _compute_relationship_targets(self):
+        total_relationships = len(self.dataset)
+        rel_types = set(labels[4] for _, _, labels in self.dataset.relationships)
+        return {rel: total_relationships // len(rel_types) for rel in rel_types}
+
+    def _compute_max_family_samples(self):
+        n_families = len(self.dataset.fam2rel)
+        total_samples = len(self.dataset)
+        return total_samples // n_families * 2
+
+    def _replace_duplicates(self, sub_batch):  # noqa
+        family_counts = defaultdict(int)
+        for pair in sub_batch:
+            fam = pair[2][2]  # Family ID
+            family_counts[fam] += 1
+
+        attempts = 0
+        initial_duplicates = sum(count > 1 for count in family_counts.values())
+
+        if self.verbose and initial_duplicates > 0:
+            print(f"Found {initial_duplicates} duplicate families in batch. Attempting replacement...")
+
+        while any(count > 1 for count in family_counts.values()) and attempts < self.max_attempts:
+            attempts += 1
+            for i in range(len(sub_batch)):
+                current_fam = sub_batch[i][2][2]
+                if family_counts[current_fam] > 1:
+                    if self.balance_families and self.balance_relationships:
+                        replacement_pair = self._find_balanced_replacement(current_fam)
+                        strategy = "balanced"
+                    elif self.balance_families:
+                        replacement_pair = self._find_family_replacement(current_fam)
+                        strategy = "family"
+                    elif self.balance_relationships:
+                        replacement_pair = self._find_relationship_replacement(current_fam)
+                        strategy = "relationship"
+                    else:
+                        # Original behavior
+                        replacement_pair = self._fallback_replacement(current_fam)
+                        strategy = "fallback"
+                    if replacement_pair:
+                        self._apply_replacement(sub_batch, i, current_fam, replacement_pair, family_counts, strategy)
+
+        if attempts >= self.max_attempts:
+            if self.verbose:
+                print(
+                    f"Warning: Max attempts ({self.max_attempts}) reached. "
+                    "Falling back to random selection for remaining duplicates"
+                )
+            # Fall back to random selection for remaining duplicates
+            for i in range(len(sub_batch)):
+                current_fam = sub_batch[i][2][2]
+                if family_counts[current_fam] > 1:
+                    replacement_pair = self._fallback_replacement(current_fam)
+                    if replacement_pair:
+                        self._apply_replacement(sub_batch, i, current_fam, replacement_pair, family_counts, "fallback")
+
+        if self.verbose:
+            final_duplicates = sum(count > 1 for count in family_counts.values())
+            print(f"Replacement complete. Remaining duplicates: {final_duplicates}")
+
+        return sub_batch
+
+    def _apply_replacement(self, sub_batch, index, current_fam, replacement_pair, family_counts, strategy):
+        """Apply a replacement pair to the sub-batch and update family counts.
+
+        Args:
+            sub_batch: List of relationship tuples to modify
+            index: Index in sub_batch to replace
+            current_fam: Current family ID being replaced
+            replacement_pair: New relationship tuple to insert
+            family_counts: Counter tracking family frequencies
+            strategy: String describing replacement strategy used
+        """
+        if self.verbose:
+            print(
+                f"Replaced family {current_fam} (relationship type: {sub_batch[index][2][4]})"
+                f" with family {replacement_pair[2][2]} (relationship type: {replacement_pair[2][4]})"
+                f" using {strategy} strategy"
+            )
+        sub_batch[index] = replacement_pair
+        family_counts[current_fam] -= 1
+        family_counts[replacement_pair[2][2]] += 1
+
+    def _fallback_replacement(self, current_fam):
+        """Find a random replacement relationship from a different family.
+
+        This method provides a simple fallback strategy when more sophisticated balancing
+        approaches fail. It randomly selects a different family and returns a random
+        relationship from that family.
+
+        Args:
+            current_fam: The family ID to exclude from replacement selection
+
+        Returns:
+            tuple | None: A randomly selected relationship tuple from a different family,
+                         or None if no eligible families exist. The tuple contains
+                         (image1_path, image2_path, labels).
+        """
+        eligible_families = self._get_eligible_families(current_fam)
+        if not eligible_families:
+            return None
+
+        replacement_fam = random.choice(eligible_families)
+        rel_indices = self.dataset.fam2rel[replacement_fam]  # This is a list of indices
+        rel_idx = random.choice(rel_indices)  # Choose one index
+        return self.dataset.relationships[rel_idx]  # Get the relationship at that index
+
+    def _get_eligible_families(self, current_fam, max_family_samples=None):
+        """Get families eligible for replacement, optionally considering sample limits."""
+        if max_family_samples is None:
+            eligible = [fam for fam in self.dataset.fam2rel.keys() if fam != current_fam]
+        else:
+            eligible = [
+                fam
+                for fam in self.dataset.fam2rel.keys()
+                if fam != current_fam and self.family_counters[fam] < max_family_samples
+            ]
+
+        if self.verbose:
+            print(f"Found {len(eligible)} eligible families for replacement")
+
+        if self.max_families_to_check and len(eligible) > self.max_families_to_check:
+            if self.verbose:
+                print(f"Sampling {self.max_families_to_check} families from {len(eligible)} eligible")
+            return random.sample(eligible, self.max_families_to_check)
+        return eligible
+
+    def _compute_sampling_score(self, pair_idx, fam):
+        rel_type = self.dataset.relationships[pair_idx][2][4]
+        img1, img2 = self.dataset.relationships[pair_idx][:2]
+
+        # Base scores
+        rel_score = self.relationship_counters[rel_type] / self.relationship_targets[rel_type]
+        fam_score = self.family_counters[fam] / self.max_family_samples
+
+        # Image score calculation
+        img1_count = max(min(self.image_counters[img] for img in img1), 1)  # avoid division by zero
+        img2_count = max(min(self.image_counters[img] for img in img2), 1)
+
+        # Use the maximum count between the two images
+        # Higher count = higher score = less likely to be selected
+        img_score = max(img1_count, img2_count)
+
+        # Normalize by adding 1 to avoid division by zero and keep early samples competitive
+        img_score = img_score / (max(max(self.image_counters.values(), default=0), 1) + 1)
+
+        # Dynamic weights based on relationship type and current counts
+        if rel_type in ["gmgs", "gmgd", "gfgs", "gfgd"]:
+            # Rare relationships: prioritize relationship balance
+            weights = {
+                "rel": 0.7,  # High weight for rare relationships
+                "fam": 0.2,  # Lower family weight
+                "img": 0.1,  # Moderate image weight
+            }
+        else:
+            # Common relationships: prioritize image diversity
+            weights = {
+                "rel": 0.2,  # Lower for common relationships
+                "fam": 0.3,  # Moderate family weight
+                "img": 0.5,  # Higher image weight
+            }
+
+        final_score = rel_score * weights["rel"] + fam_score * weights["fam"] + img_score * weights["img"]
+
+        return final_score
+
+    def _find_min_count_relationship(self, families_to_check):
+        """Find relationship with minimum count using pre-computed scores."""
+        families_set = set(families_to_check)
+
+        # Get all pairs from eligible families with their scores
+        eligible_pairs = [(pair, score) for pair, score in self.pair_scores.items() if pair[1] in families_set]
+
+        if not eligible_pairs:
+            return None
+
+        # Sample pairs if there are too many
+        if len(eligible_pairs) > self.MAX_PAIRS_PER_REL:
+            eligible_pairs = random.sample(eligible_pairs, self.MAX_PAIRS_PER_REL)
+
+        # Sort by score
+        eligible_pairs.sort(key=lambda x: x[1])
+
+        # Early stopping if we find a good enough score
+        for (idx, _), score in eligible_pairs:
+            if score < self.EARLY_STOP_SCORE:
+                return self.dataset.relationships[idx]
+
+        # Return the best pair if no early stopping
+        return self.dataset.relationships[eligible_pairs[0][0][0]]
+
+    def _find_balanced_replacement(self, current_fam):
+        # Find replacement considering both family and relationship balance
+        eligible_families = self._get_eligible_families(current_fam, self.max_family_samples)
+
+        if not eligible_families:
+            return None
+
+        return self._find_min_count_relationship(eligible_families)
+
+    def _find_family_replacement(self, current_fam):
+        eligible_families = self._get_eligible_families(current_fam)
+
+        if not eligible_families:
+            return None
+
+        replacement_fam = random.choice(eligible_families)
+        return random.choice([self.dataset.relationships[idx] for idx in self.dataset.fam2rel[replacement_fam]])
+
+    def _find_relationship_replacement(self, current_fam):
+        # Check all families except current one, without family count restrictions
+        eligible_families = self._get_eligible_families(current_fam)
+        return self._find_min_count_relationship(eligible_families)
 
     def _shuffle_indices(self):
         random.shuffle(self.indices)
@@ -32,27 +294,22 @@ class KinshipBatchSampler:
         min_count_image = min(person_images, key=lambda person: self.image_counters[person])
         return min_count_image
 
-    def _replace_duplicates(self, sub_batch):
-        family_counts = defaultdict(int)
-        for pair in sub_batch:
-            fam = pair[2][2]  # Label, Family ID
-            family_counts[fam] += 1
-
-        while any(count > 1 for count in family_counts.values()):
-            # print(f"Family counts: {family_counts}")
-            for i in range(len(sub_batch)):
-                current_fam = sub_batch[i][2][2]
-                if family_counts[current_fam] > 1:
-                    # print(f"Checking pair {i + 1}: {current_fam}")
-                    while (replacement_fam := random.choice(list(self.dataset.fam2rel.keys()))) in family_counts:
-                        pass
-                    replacement_pair_idx = random.choice(self.dataset.fam2rel[replacement_fam])
-                    replacement_pair = self.dataset.relationships[replacement_pair_idx]
-                    sub_batch[i] = replacement_pair
-                    family_counts[current_fam] -= 1
-                    family_counts[replacement_fam] += 1
-                    # print(f"Replaced pair {i + 1} with a new pair")
-        return sub_batch
+    def _update_counters(self, labels):
+        """Update counters and sampling scores."""
+        rel_type = labels[4]
+        fam = labels[2]
+        if self.balance_relationships:
+            self.relationship_counters[rel_type] += 1
+            # Update sampling scores for affected relationships
+            affected_pairs = [
+                (idx, f)
+                for idx, f in self.pair_scores.keys()
+                if f == fam or self.dataset.relationships[idx][2][4] == rel_type
+            ]
+            for pair in affected_pairs:
+                self.pair_scores[pair] = self._compute_sampling_score(pair[0], pair[1])
+        if self.balance_families:
+            self.family_counters[fam] += 1
 
     def __iter__(self):
         for i in range(0, len(self.indices), self.batch_size):
@@ -70,6 +327,7 @@ class KinshipBatchSampler:
                 self.image_counters[img1] += 1
                 self.image_counters[img2] += 1
                 batch.append((img1_id, img2_id, labels))
+                self._update_counters(labels)
 
             yield batch
 
@@ -97,6 +355,11 @@ class SCLDataModule(L.LightningDataModule):
         sampler=True,
         dataset="ff-v4-ag",
         bias=False,
+        sampler_balance_families=False,
+        sampler_balance_relationships=False,
+        sampler_max_attempts=100,
+        sampler_max_families=50,
+        sampler_verbose=False,
     ):
         super().__init__()
         self.batch_size = batch_size
@@ -125,6 +388,11 @@ class SCLDataModule(L.LightningDataModule):
         self.collate_fn = self.COLLATE_FN[dataset]
         self.sampler = sampler
         self.bias = bias
+        self.sampler_balance_families = sampler_balance_families
+        self.sampler_balance_relationships = sampler_balance_relationships
+        self.sampler_max_attempts = sampler_max_attempts
+        self.sampler_max_families = sampler_max_families
+        self.sampler_verbose = sampler_verbose
 
     def setup(self, stage=None):
         # For Hard Contrastive Loss, we need batches to have at least 1 positive pair
@@ -162,17 +430,26 @@ class SCLDataModule(L.LightningDataModule):
                 batch_size=self.batch_size,
                 transform=self.val_transforms,
             )
-        print(f"Setup {stage} datasets")
+        print(f"Setup {stage or 'all'} datasets")
 
     def train_dataloader(self):
         if self.sampler:
-            sampler = KinshipBatchSampler(self.train_dataset, self.batch_size)
-            batch_size = 1  # Sampler returns batches
-            shuffle = False  # Cannot shuffle with sampler
+            sampler = KinshipBatchSampler(
+                self.train_dataset,
+                self.batch_size,
+                balance_families=self.sampler_balance_families,
+                balance_relationships=self.sampler_balance_relationships,
+                max_attempts=self.sampler_max_attempts,
+                max_families_to_check=self.sampler_max_families,
+                verbose=self.sampler_verbose,
+            )
+            batch_size = 1
+            shuffle = False
         else:
             sampler = None
             shuffle = not self.bias
             batch_size = self.batch_size
+
         return DataLoader(
             self.train_dataset,
             batch_size=batch_size,
@@ -250,7 +527,7 @@ class SCLDataModuleTask2(L.LightningDataModule):
                 transform=self.val_transforms,
                 sample_cls=FIWTask2.SAMPLE,
             )
-        print(f"Setup {stage} datasets")
+        print(f"Setup {stage or 'all'} datasets")
 
     def train_dataloader(self):
         return DataLoader(
@@ -296,11 +573,11 @@ if __name__ == "__main__":
     # Get images1, images2, is_kin, kin_ids from the batch
     images, labels = batch
     # Print one image shape and labels
-    print(f"Batch 1: ", images[0].shape, labels)
+    print("Batch 1: ", images[0].shape, labels)
 
     # setup for validation set
     dm.setup("validate")
     data_loader = dm.val_dataloader()
     batch = next(iter(data_loader))
     images, labels = batch
-    print(f"Batch 1: ", images[0].shape, labels)
+    print("Batch 1: ", images[0].shape, labels)

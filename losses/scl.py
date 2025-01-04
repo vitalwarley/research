@@ -8,7 +8,6 @@ class HCL(torch.nn.Module):
         tau=0.2,
         alpha_neg=0.8,
         alpha_pos=0.0,
-        normalize=False,
     ):
         super().__init__()
         self.tau = tau

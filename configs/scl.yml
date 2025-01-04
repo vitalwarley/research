@@ -1,7 +1,6 @@
 seed_everything: 100
 ckpt_path: null
 trainer:
-  devices: 0
   limit_train_batches: 50
   accumulate_grad_batches: 1
   num_sanity_val_steps: 1
@@ -9,7 +8,7 @@ trainer:
   accelerator: "gpu"
   deterministic: yes
   fast_dev_run: no
-  max_epochs: 40
+  max_epochs: 50
   default_root_dir: exp/
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
@@ -37,7 +36,7 @@ data:
      root_dir: data/fiw/track1
      sampler: no
      augment: no
-     bias: no
+     bias: yes
      dataset: fiw
      augmentation_params:
        color_jitter:
@@ -74,6 +73,6 @@ model:
     loss: 
       class_path: losses.scl.HCL
       init_args:
-        tau: 0.20
+        tau: 0.08
         alpha_neg: 0.0
         alpha_pos: 0.0

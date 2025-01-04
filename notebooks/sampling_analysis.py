@@ -1,3 +1,19 @@
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     formats: ipynb,py:percent
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.16.6
+#   kernelspec:
+#     display_name: kinship
+#     language: python
+#     name: python3
+# ---
+
 # %% [markdown]
 # # Sampling Strategy Analysis for FIW Dataset
 #
@@ -422,9 +438,7 @@ def print_sampling_statistics(individual_counts, relationship_type_counts, famil
 
 # %%
 print("Original Sampling Analysis:")
-dm = SCLDataModule(
-    dataset="ff-v3", batch_size=64, root_dir="../data/fiw/track1", sampler_verbose=True  # Adjust path as needed
-)
+dm = SCLDataModule(dataset="ff-v3", batch_size=64, root_dir="../data/fiw/track1", sampler_verbose=False)
 dm.setup("fit")
 sampler = dm.train_dataloader().batch_sampler
 individual_counts, relationship_type_counts, family_counts = analyze_epoch_sampling(sampler)
@@ -440,7 +454,7 @@ dm = SCLDataModule(
     dataset="ff-v3",
     batch_size=64,
     root_dir="../data/fiw/track1",  # Adjust path as needed
-    sampler_verbose=True,
+    sampler_verbose=False,
     sampler_balance_families=True,
     sampler_balance_relationships=True,
     sampler_max_attempts=100,
@@ -452,4 +466,73 @@ individual_counts, relationship_type_counts, family_counts = analyze_epoch_sampl
 visualize_sampling_results(individual_counts, relationship_type_counts, family_counts, "Balanced Sampling: ")
 print_sampling_statistics(individual_counts, relationship_type_counts, family_counts)
 
+# %% [markdown]
+# ## Understanding Coefficient of Variation (CV)
+
 # %%
+# What is CV?
+# - Statistical measure of relative variability
+# - Calculated as: `CV = (Standard Deviation / Mean) × 100%`
+# - Expressed as a percentage
+# - Allows comparison of variation across different scales
+# - Lower values indicate more even distribution
+
+# %% [markdown]
+# ## Current Results
+
+# %% [markdown]
+# ### Relationship Types CV:
+# - Original: 64.1%
+#   - Parent-child relations: ~14.8-15.6%
+#   - Siblings: ~7.6-14.2%
+#   - Grandparents: ~2.1-2.5%
+# - Balanced: 51.4%
+#   - Parent-child relations: ~13.5-14.0%
+#   - Siblings: ~9.4-13.1%
+#   - Grandparents: ~3.1-3.5%
+
+# %% [markdown]
+# ### Family Sampling CV:
+# - Original: 71.0%
+#   - Range: 1 to 44 samples/family
+# - Balanced: 69.4%
+#   - Range: 1 to 40 samples/family
+#   - Minor improvement
+
+# %% [markdown]
+# ## Target CV Values
+
+# %% [markdown]
+# ### Relationship Types:
+# - Ideal: < 15%
+#   - Would mean all types near ~9.1% (1/11)
+# - Realistic target: < 25%
+#   - Parent-child: ~10-12%
+#   - Siblings: ~8-10%
+#   - Grandparents: ~6-8%
+# - Current 51.4% is still too high
+
+# %% [markdown]
+# ### Family Sampling:
+# - Ideal: < 25%
+# - Realistic target: < 40%
+#   - Constrained by:
+#     - Varying family sizes (2-23 people)
+#     - Different relationship availability (4.54 types/family)
+#     - Natural family structure
+# - Current 69.4% needs significant improvement
+
+# %% [markdown]
+# ## Challenges
+# 1. Relationship constraints:
+#   - Parent-child in ~99% of families
+#   - Grandparents in only ~17-20% of families
+# 2. Family size variation:
+#   - Mean: 5.12 people
+#   - Range: 2-23 people
+# 3. Trade-offs between:
+#   - Relationship balance
+#   - Family sampling
+#   - Individual/image usage
+#
+# The balanced approach shows improvement but still needs work to reach target CVs.

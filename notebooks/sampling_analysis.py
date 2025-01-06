@@ -454,7 +454,7 @@ dm = SCLDataModule(
     dataset="ff-v3",
     batch_size=64,
     root_dir="../data/fiw/track1",  # Adjust path as needed
-    sampler_verbose=True,
+    sampler_verbose=False,
     sampler_balance_families=True,
     sampler_balance_relationships=True,
     sampler_max_attempts=100,
@@ -469,7 +469,7 @@ print_sampling_statistics(individual_counts, relationship_type_counts, family_co
 # %% [markdown]
 # ## Understanding Coefficient of Variation (CV)
 
-# %%
+# %% [markdown]
 # What is CV?
 # - Statistical measure of relative variability
 # - Calculated as: `CV = (Standard Deviation / Mean) × 100%`
@@ -482,22 +482,24 @@ print_sampling_statistics(individual_counts, relationship_type_counts, family_co
 
 # %% [markdown]
 # ### Relationship Types CV:
-# - Original: 64.1%
-#   - Parent-child relations: ~14.8-15.6%
-#   - Siblings: ~7.6-14.2%
-#   - Grandparents: ~2.1-2.5%
-# - Balanced: 51.4%
-#   - Parent-child relations: ~13.5-14.0%
-#   - Siblings: ~9.4-13.1%
-#   - Grandparents: ~3.1-3.5%
+# - Original: 63.5%
+#   - Parent-child relations: ~15.2-15.5%
+#   - Siblings: ~7.3-13.9%
+#   - Grandparents: ~2.1-2.7%
+# - Balanced: 47.2%
+#   - Parent-child relations: ~13.5-14.1%
+#   - Siblings: ~7.2-12.9%
+#   - Grandparents: ~4.2-4.3%
 
 # %% [markdown]
 # ### Family Sampling CV:
-# - Original: 71.0%
-#   - Range: 1 to 44 samples/family
-# - Balanced: 69.4%
-#   - Range: 1 to 40 samples/family
-#   - Minor improvement
+# - Original: 70.5%
+#   - Range: 1 to 41 samples/family
+#   - Mean: 8.37 samples/family
+# - Balanced: 74.1%
+#   - Range: 1 to 37 samples/family
+#   - Mean: 8.37 samples/family
+#   - Slight degradation in uniformity
 
 # %% [markdown]
 # ## Target CV Values
@@ -510,29 +512,30 @@ print_sampling_statistics(individual_counts, relationship_type_counts, family_co
 #   - Parent-child: ~10-12%
 #   - Siblings: ~8-10%
 #   - Grandparents: ~6-8%
-# - Current 51.4% is still too high
+# - Current 47.2% shows improvement but still high
 
 # %% [markdown]
 # ### Family Sampling:
 # - Ideal: < 25%
 # - Realistic target: < 40%
 #   - Constrained by:
-#     - Varying family sizes (2-23 people)
-#     - Different relationship availability (4.54 types/family)
+#     - Family size variation
+#     - Available relationships per family
 #     - Natural family structure
-# - Current 69.4% needs significant improvement
+# - Current 74.1% indicates need for better family balancing
 
 # %% [markdown]
 # ## Challenges
 # 1. Relationship constraints:
-#   - Parent-child in ~99% of families
-#   - Grandparents in only ~17-20% of families
-# 2. Family size variation:
-#   - Mean: 5.12 people
-#   - Range: 2-23 people
+#   - Parent-child dominates (~55% of relationships)
+#   - Grandparents underrepresented (~17% with balanced sampling)
+# 2. Individual sampling:
+#   - Current range: 1-11 samples per individual
+#   - ~7350-7660 unique individuals sampled
 # 3. Trade-offs between:
-#   - Relationship balance
-#   - Family sampling
+#   - Relationship balance (improved with balanced sampling)
+#   - Family sampling (slightly worse with balanced sampling)
 #   - Individual/image usage
 #
-# The balanced approach shows improvement but still needs work to reach target CVs.
+# While relationship balance has improved significantly (CV down from 63.5% to 47.2%),
+# family sampling remains a challenge and actually worsened slightly with the balanced approach.

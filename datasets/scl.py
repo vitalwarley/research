@@ -61,6 +61,16 @@ class KinshipBatchSampler:
 
         self.rel_frequencies = self._compute_relationship_frequencies()
 
+        # Add weights initialization here
+        self.sampling_weights = {}
+        for rel_type in self.rel_type_to_pairs:
+            rel_freq = self.rel_frequencies[rel_type]
+            self.sampling_weights[rel_type] = {
+                "rel": 0.6 * (1 - rel_freq),  # Higher weight for rare relationships
+                "fam": 0.2,  # Consistent family weight
+                "img": 0.2 + (0.4 * rel_freq),  # Higher image weight for common relationships
+            }
+
         # Pre-compute initial sampling scores
         self.pair_scores = {}
         for rel_type in self.rel_type_to_pairs:
@@ -226,27 +236,8 @@ class KinshipBatchSampler:
     def _compute_sampling_score(self, pair_idx, fam):
         """Compute a sampling score for a relationship pair to guide selection.
 
-        This method calculates a weighted score based on three factors:
-        1. Relationship type balance - favors underrepresented relationship types
-        2. Family sampling balance - prevents oversampling from single families
-        3. Image usage balance - promotes diversity in image selection
-
-        The weights are dynamically adjusted based on relationship type:
-        - Rare relationships (grandparent types) prioritize relationship balance
-        - Common relationships prioritize image diversity
-
-        Args:
-            pair_idx (int): Index of the relationship pair in dataset.relationships
-            fam (str): Family ID for this relationship pair
-
-        Returns:
-            float: Composite score between 0-1 where lower scores indicate
-                  better candidates for sampling. The score combines:
-                  - Relationship type ratio (current count / target)
-                  - Family sampling ratio (current count / max allowed)
-                  - Image usage ratio (normalized by max usage)
+        Uses pre-computed weights from initialization to calculate the score.
         """
-
         rel_type = self.dataset.relationships[pair_idx][2][4]
         img1, img2 = self.dataset.relationships[pair_idx][:2]
 
@@ -261,22 +252,19 @@ class KinshipBatchSampler:
             fam_score = 0
 
         # Image score calculation (normalized by max count)
-        if self.image_counters:
-            max_count = max(self.image_counters.values())
-            img1_score = max((self.image_counters[img] for img in img1), default=0) / max_count
-            img2_score = max((self.image_counters[img] for img in img2), default=0) / max_count
-            img_score = max(img1_score, img2_score)
-        else:
-            img_score = 0  # When no images have been used yet
+        # t0 = time.time()
+        # if self.image_counters:
+        # max_count = max(self.image_counters.values())
+        # img1_score = max((self.image_counters[img] for img in img1), default=0) / max_count
+        # img2_score = max((self.image_counters[img] for img in img2), default=0) / max_count
+        # img_score = max(img1_score, img2_score)
+        # else:
+        # img_score = 0
+        # if self.verbose:
+        # print(f"Image score calculation took: {time.time() - t0:.4f}s")
+        img_score = 0
 
-        # Calculate weights based on relationship frequency
-        rel_freq = self.rel_frequencies[rel_type]
-        weights = {
-            "rel": 0.6 * (1 - rel_freq),  # Higher weight for rare relationships
-            "fam": 0.2,  # Consistent family weight
-            "img": 0.2 + (0.4 * rel_freq),  # Higher image weight for common relationships
-        }
-
+        weights = self.sampling_weights[rel_type]
         final_score = rel_score * weights["rel"] + fam_score * weights["fam"] + img_score * weights["img"]
         return final_score
 
@@ -339,13 +327,20 @@ class KinshipBatchSampler:
         if self.balance_relationships:
             self.relationship_counters[rel_type] += 1
             # Update sampling scores for affected relationships
+            start_time = time.time()
             affected_pairs = [
                 (idx, f)
                 for idx, f in self.pair_scores.keys()
                 if f == fam or self.dataset.relationships[idx][2][4] == rel_type
             ]
+            if self.verbose:
+                print(f"Collecting {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s")
+
+            start_time = time.time()
             for pair in affected_pairs:
                 self.pair_scores[pair] = self._compute_sampling_score(pair[0], pair[1])
+            if self.verbose:
+                print(f"Updating {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s")
 
             # Print max and min scores
             if self.verbose:
@@ -356,15 +351,10 @@ class KinshipBatchSampler:
 
     def __iter__(self):
         for i in range(0, len(self.indices), self.batch_size):
-            start_time = time.time()
             sub_batch_indices = self.indices[i : i + self.batch_size]
-            if self.verbose:
-                print(f"Getting batch indices took: {time.time() - start_time:.4f}s")
 
             start_time = time.time()
             sub_batch = [self.dataset.relationships[idx] for idx in sub_batch_indices]
-            if self.verbose:
-                print(f"Creating sub-batch took: {time.time() - start_time:.4f}s")
 
             start_time = time.time()
             sub_batch = self._replace_duplicates(sub_batch)
@@ -374,20 +364,13 @@ class KinshipBatchSampler:
 
             start_time = time.time()
             for pair in sub_batch:
-                pair_start = time.time()
                 imgs1, imgs2, labels = pair
 
-                t0 = time.time()
                 img1 = self._get_image_with_min_count(imgs1)
                 img2 = self._get_image_with_min_count(imgs2)
-                if self.verbose:
-                    print(f"Getting min count images took: {time.time() - t0:.4f}s")
 
-                t0 = time.time()
                 img1_id = self.dataset.person2idx[img1]
                 img2_id = self.dataset.person2idx[img2]
-                if self.verbose:
-                    print(f"Getting person indices took: {time.time() - t0:.4f}s")
 
                 t0 = time.time()
                 self.image_counters[img1] += 1
@@ -396,7 +379,6 @@ class KinshipBatchSampler:
                 self._update_counters(labels)
                 if self.verbose:
                     print(f"Updating counters took: {time.time() - t0:.4f}s")
-                    print(f"Total pair processing took: {time.time() - pair_start:.4f}s")
 
             if self.verbose:
                 print(f"Processing all pairs took: {time.time() - start_time:.4f}s")

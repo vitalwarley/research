@@ -62,7 +62,6 @@ class KinshipBatchSampler:
 
             # New sampling parameters
             self.MAX_PAIRS_PER_REL = 100  # Max pairs to consider per relationship
-            self.EARLY_STOP_SCORE = 0.3  # Score threshold for early stopping
 
             # Pre-compute initial sampling scores
             self.pair_scores = {}
@@ -253,16 +252,9 @@ class KinshipBatchSampler:
         if len(eligible_pairs) > self.MAX_PAIRS_PER_REL:
             eligible_pairs = random.sample(eligible_pairs, self.MAX_PAIRS_PER_REL)
 
-        # Sort by score
-        eligible_pairs.sort(key=lambda x: x[1])
-
-        # Early stopping if we find a good enough score
-        for (idx, _), score in eligible_pairs:
-            if score < self.EARLY_STOP_SCORE:
-                return self.dataset.relationships[idx]
-
-        # Return the best pair if no early stopping
-        return self.dataset.relationships[eligible_pairs[0][0][0]]
+        # Find pair with minimum score
+        min_pair = min(eligible_pairs, key=lambda x: x[1])
+        return self.dataset.relationships[min_pair[0][0]]
 
     def _find_balanced_replacement(self, current_fam):
         # Find replacement considering both family and relationship balance

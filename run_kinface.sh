@@ -78,6 +78,7 @@ echo "Running $OPERATION..."
 if [ "$OPERATION" = "kinface-ft" ]; then
     # Run for both datasets and all folds
     guild run scl:$OPERATION \
+        model.init_args.lr=[1e-3,1e-4,1e-5] \
         model.init_args.weights="$CKPT_PATH" \
         data.init_args.dataset=[I,II] \
         data.init_args.fold=[1,2,3,4,5] -y

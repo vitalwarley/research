@@ -44,7 +44,7 @@ model:
     optimizer: SGD
     adamw_beta1: 0.9
     adamw_beta2: 0.999
-    lr: 1e-5
+    lr: 1e-3
     momentum: 0.9
     weight_decay: 0
     start_lr: 1e-10

@@ -141,3 +141,52 @@
         - operation: scl:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt
+    kinface-ft:
+      description: KinFace fine-tuning experiments
+      exec: python tasks/scl.py fit --config kinface.yml
+      sourcecode:
+        - utils.py
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/kinface.yml
+      output-scalars: '(\key)=(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: data/
+          target-type: link
+        - file: configs/kinface.yml
+          target-type: link
+        - operation: scl:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    kinface-ce:
+      description: KinFace cross-eval experiments
+      exec: python tasks/scl.py fit --config kinface.yml
+      sourcecode:
+        - utils.py
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/scl.py
+      flags-import: all
+      flags-dest: config:configs/kinface.yml
+      output-scalars: '(\key)=(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: data/
+          target-type: link
+        - file: configs/kinface.yml
+          target-type: link

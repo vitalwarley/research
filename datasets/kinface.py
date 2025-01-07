@@ -1,12 +1,11 @@
 import random
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import cv2
 import lightning as L
-import torch
 from sklearn.model_selection import KFold
-from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
 
@@ -188,8 +187,7 @@ class KinFaceWDatasetKFold(Dataset):
             child_img = self.transform(child_img)
 
         kinship_label = list(self.kinship_types.values()).index(kinship)
-
-        return parent_img, child_img, (kinship_label, is_kin)
+        return (parent_img, child_img), (kinship_label, is_kin)
 
     def _load_image(self, img_path):
         img = cv2.imread(str(img_path))

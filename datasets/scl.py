@@ -65,6 +65,9 @@ class KinshipBatchSampler:
 
         self._shuffle_indices()
 
+        # Add score tracking
+        self.score_history = []
+
     def _compute_relationship_frequencies(self):
         """Calculate the frequency of each relationship type in the dataset.
 
@@ -311,10 +314,38 @@ class KinshipBatchSampler:
         if self.verbose:
             print(f"Updating {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s")
 
-        # Print max and min scores
-        if self.verbose:
-            print(f"Max score: {max(self.pair_scores.values())}")
-            print(f"Min score: {min(self.pair_scores.values())}")
+        # Track scores per relationship type
+        if self.sampling_weights:
+            scores_by_rel_type = defaultdict(list)
+            for (idx, _), score in self.pair_scores.items():
+                rel = self.dataset.relationships[idx][2][4]
+                scores_by_rel_type[rel].append(score)
+
+            # Compute statistics for each relationship type
+            rel_type_stats = {}
+            for rel, scores in scores_by_rel_type.items():
+                rel_type_stats[rel] = {
+                    "min": min(scores),
+                    "max": max(scores),
+                    "mean": sum(scores) / len(scores),
+                    "count": len(scores),
+                }
+
+            # Track overall and per-relationship type statistics
+            self.score_history.append(
+                {
+                    "overall": {
+                        "min": min(self.pair_scores.values()),
+                        "max": max(self.pair_scores.values()),
+                        "mean": sum(self.pair_scores.values()) / len(self.pair_scores),
+                    },
+                    "by_relationship": rel_type_stats,
+                }
+            )
+
+    def get_score_statistics(self):
+        """Return score history for analysis."""
+        return self.score_history
 
     def __iter__(self):
         for i in range(0, len(self.indices), self.batch_size):

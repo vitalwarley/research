@@ -750,3 +750,131 @@ for name, weights in weight_configs.items():
 #    - Combined effect promotes overall sampling balance
 
 # %%
+
+# %% [markdown]
+# ## Sampling Score Distribution Analysis
+
+
+# %%
+def analyze_score_distribution(sampler):
+    """Analyze and visualize the sampling score distribution over an epoch."""
+    # Collect scores for one epoch
+    scores = []
+    for batch_idx, batch in enumerate(tqdm(sampler, desc="Collecting scores")):
+        score_data = sampler.sampler.score_history[-1]
+        score_data["batch"] = batch_idx
+        scores.append(score_data)
+
+    if not scores:
+        print("No scores were collected. Make sure sampling_weights is set in the DataModule.")
+        return None
+
+    # Create visualization with subplots
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12))
+
+    # Plot overall scores
+    batches = range(len(scores))
+    overall_min = [s["overall"]["min"] for s in scores]
+    overall_max = [s["overall"]["max"] for s in scores]
+    overall_mean = [s["overall"]["mean"] for s in scores]
+
+    ax1.fill_between(batches, overall_min, overall_max, alpha=0.3, label="Overall Range")
+    ax1.plot(batches, overall_mean, "r-", label="Overall Mean", linewidth=2)
+    ax1.set_title("Overall Score Distribution")
+    ax1.set_xlabel("Batch")
+    ax1.set_ylabel("Score")
+    ax1.legend()
+    ax1.grid(True)
+
+    # Plot per-relationship scores
+    rel_types = scores[0]["by_relationship"].keys()
+    for rel_type in rel_types:
+        means = [s["by_relationship"][rel_type]["mean"] for s in scores]
+        ax2.plot(batches, means, label=f"{rel_type}", linewidth=1.5)
+
+    ax2.set_title("Score Distribution by Relationship Type")
+    ax2.set_xlabel("Batch")
+    ax2.set_ylabel("Mean Score")
+    ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    ax2.grid(True)
+
+    # Add statistics
+    if scores:
+        last_stats = scores[-1]["overall"]
+        last_rel_stats = scores[-1]["by_relationship"]
+
+        stats_text = "Final Statistics:\n\n"
+        stats_text += "Overall:\n"
+        stats_text += f"Mean Score: {last_stats['mean']:.3f}\n"
+        stats_text += f"Score Range: [{last_stats['min']:.3f}, {last_stats['max']:.3f}]\n\n"
+
+        stats_text += "By Relationship Type:\n"
+        for rel, stats_ in last_rel_stats.items():
+            stats_text += f"{rel}:\n"
+            stats_text += f"  Mean: {stats_['mean']:.3f}\n"
+            stats_text += f"  Range: [{stats_['min']:.3f}, {stats_['max']:.3f}]\n"
+            stats_text += f"  Count: {stats_['count']}\n"
+
+        plt.figtext(1.15, 0.5, stats_text, fontsize=8, bbox=dict(facecolor="white", alpha=0.8))
+
+    plt.tight_layout()
+    plt.show()
+
+    # Convert to DataFrame for additional analysis if needed
+    df = pd.DataFrame(
+        {
+            "batch": range(len(scores)),
+            "overall_min": overall_min,
+            "overall_max": overall_max,
+            "overall_mean": overall_mean,
+            **{f"{rel}_mean": [s["by_relationship"][rel]["mean"] for s in scores] for rel in rel_types},
+        }
+    )
+
+    return df
+
+
+# %%
+print("Analyzing score distribution...")
+dm = SCLDataModule(
+    dataset="ff-v3",
+    batch_size=64,
+    root_dir="../data/fiw/track1",
+    sampling_weights={"rel": 0.33, "fam": 0.33, "ind": 0.34},  # Make sure weights are set
+    sampler_verbose=False,
+)
+dm.setup("fit")
+sampler = dm.train_dataloader().batch_sampler
+score_df = analyze_score_distribution(sampler)
+
+# %%
+if score_df is not None:
+    print("\nScore Distribution Statistics:")
+    print(f"Initial Mean Score: {score_df['overall_mean'].iloc[0]:.3f}")
+    print(f"Final Mean Score: {score_df['overall_mean'].iloc[-1]:.3f}")
+    print(f"Score Range: [{score_df['overall_min'].min():.3f}, {score_df['overall_max'].max():.3f}]")
+    print(f"Mean Score Variance: {score_df['overall_mean'].var():.3f}")
+# %%
+
+
+# %%
+print("Analyzing score distribution...")
+dm = SCLDataModule(
+    dataset="ff-v3",
+    batch_size=64,
+    root_dir="../data/fiw/track1",
+    sampling_weights={"rel": 0.6, "fam": 0.2, "ind": 0.2},  # Make sure weights are set
+    sampler_verbose=False,
+)
+dm.setup("fit")
+sampler = dm.train_dataloader().batch_sampler
+score_df = analyze_score_distribution(sampler)
+
+# %%
+if score_df is not None:
+    print("\nScore Distribution Statistics:")
+    print(f"Initial Mean Score: {score_df['overall_mean'].iloc[0]:.3f}")
+    print(f"Final Mean Score: {score_df['overall_mean'].iloc[-1]:.3f}")
+    print(f"Score Range: [{score_df['overall_min'].min():.3f}, {score_df['overall_max'].max():.3f}]")
+    print(f"Mean Score Variance: {score_df['overall_mean'].var():.3f}")
+# %%

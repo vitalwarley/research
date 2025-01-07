@@ -23,8 +23,7 @@ class KinshipBatchSampler:
         self,
         dataset,
         batch_size,
-        balance_families=False,
-        balance_relationships=False,
+        sampling_weights=None,
         max_attempts=100,
         max_families_to_check=50,
         verbose=False,
@@ -33,49 +32,36 @@ class KinshipBatchSampler:
         self.batch_size = batch_size
         self.image_counters = defaultdict(int)
         self.indices = list(range(len(self.dataset)))
-
-        # Balancing flags and parameters
-        self.balance_families = balance_families
-        self.balance_relationships = balance_relationships
         self.max_attempts = max_attempts
         self.max_families_to_check = max_families_to_check
         self.verbose = verbose
 
-        if self.verbose:
-            print(
-                f"Initializing KinshipBatchSampler with batch_size={batch_size}, "
-                f"balance_families={balance_families}, balance_relationships={balance_relationships}"
-            )
-
+        # Initialize counters
         self.family_counters = defaultdict(int)
-        self.max_family_samples = self._compute_max_family_samples()
-
         self.relationship_counters = defaultdict(int)
+        self.individual_counters = defaultdict(int)
+        self.max_family_samples = self._compute_max_family_samples()
         self.relationship_targets = self._compute_relationship_targets()
-        # Cache relationship mappings if needed
+
+        # Cache relationship mappings
         self.rel_type_to_pairs = defaultdict(list)
         for rel_idx, rel in enumerate(self.dataset.relationships):
             rel_type = rel[2][4]  # Relationship type
             fam = rel[2][2]  # Family ID
             self.rel_type_to_pairs[rel_type].append((rel_idx, fam))
 
-        self.rel_frequencies = self._compute_relationship_frequencies()
+        # Initialize default weights if none provided
+        self.sampling_weights = sampling_weights
 
-        # Add weights initialization here
-        self.sampling_weights = {}
-        for rel_type in self.rel_type_to_pairs:
-            rel_freq = self.rel_frequencies[rel_type]
-            self.sampling_weights[rel_type] = {
-                "rel": 0.6 * (1 - rel_freq),  # Higher weight for rare relationships
-                "fam": 0.2,  # Consistent family weight
-                "img": 0.2 + (0.4 * rel_freq),  # Higher image weight for common relationships
-            }
+        # Pre-compute average samples per individual
+        self.avg_samples_per_individual = len(self.dataset) * 2 / len(self.dataset.person2idx)
 
-        # Pre-compute initial sampling scores
-        self.pair_scores = {}
-        for rel_type in self.rel_type_to_pairs:
-            for idx, fam in self.rel_type_to_pairs[rel_type]:
-                self.pair_scores[(idx, fam)] = self._compute_sampling_score(idx, fam)
+        # Pre-compute initial sampling scores if using weighted sampling
+        if self.sampling_weights:
+            self.pair_scores = {}
+            for rel_type in self.rel_type_to_pairs:
+                for idx, fam in self.rel_type_to_pairs[rel_type]:
+                    self.pair_scores[(idx, fam)] = self._compute_sampling_score(idx, fam)
 
         self._shuffle_indices()
 
@@ -129,22 +115,12 @@ class KinshipBatchSampler:
             for i in range(len(sub_batch)):
                 current_fam = sub_batch[i][2][2]
                 if family_counts[current_fam] > 1:
-                    if self.balance_families and self.balance_relationships:
-                        replacement_pair = self._find_balanced_replacement(exclude_families)
-                        strategy = "balanced"
-                    elif self.balance_families:
-                        replacement_pair = self._find_family_replacement(exclude_families)
-                        strategy = "family"
-                    elif self.balance_relationships:
-                        replacement_pair = self._find_relationship_replacement(exclude_families)
-                        strategy = "relationship"
-                    else:
-                        replacement_pair = self._fallback_replacement(exclude_families)
-                        strategy = "fallback"
+                    # Always use balanced replacement strategy
+                    replacement_pair = self._find_balanced_replacement(exclude_families)
 
                     if replacement_pair:
                         family_counts = self._apply_replacement(
-                            sub_batch, i, current_fam, replacement_pair, family_counts, strategy
+                            sub_batch, i, current_fam, replacement_pair, family_counts, "balanced"
                         )
                         # Update exclude_families with the new family
                         exclude_families.discard(current_fam)
@@ -159,10 +135,10 @@ class KinshipBatchSampler:
                 for i in range(len(sub_batch)):
                     current_fam = sub_batch[i][2][2]
                     if family_counts[current_fam] > 1:
-                        replacement_pair = self._fallback_replacement(exclude_families)
+                        replacement_pair = self._random_replacement(exclude_families)
                         if replacement_pair:
                             family_counts = self._apply_replacement(
-                                sub_batch, i, current_fam, replacement_pair, family_counts, "fallback"
+                                sub_batch, i, current_fam, replacement_pair, family_counts, "random"
                             )
                             exclude_families.discard(current_fam)
                             exclude_families.add(replacement_pair[2][2])
@@ -198,7 +174,7 @@ class KinshipBatchSampler:
         family_counts[replacement_pair[2][2]] += 1
         return family_counts
 
-    def _fallback_replacement(self, exclude_families):
+    def _random_replacement(self, exclude_families):
         """Find a random replacement relationship from a different family."""
         eligible_families = self._get_eligible_families(exclude_families)
         if not eligible_families:
@@ -233,39 +209,41 @@ class KinshipBatchSampler:
             return random.sample(eligible, self.max_families_to_check)
         return eligible
 
-    def _compute_sampling_score(self, pair_idx, fam):
-        """Compute a sampling score for a relationship pair to guide selection.
+    def _get_person_ids(self, labels):
+        """Get person IDs from relationship labels.
 
-        Uses pre-computed weights from initialization to calculate the score.
+        Args:
+            labels: Tuple of (f1mid, f2mid, fid, ...)
+
+        Returns:
+            Tuple of (person1_id, person2_id)
         """
+        f1mid, f2mid, fid = labels[:3]
+        person1_key = f"F{fid:04d}_MID{f1mid}"
+        person2_key = f"F{fid:04d}_MID{f2mid}"
+        return (self.dataset.person2idx[person1_key], self.dataset.person2idx[person2_key])
+
+    def _compute_sampling_score(self, pair_idx, fam):
+        """Compute a sampling score for a relationship pair using weights."""
+        if not self.sampling_weights:
+            return 0
+
         rel_type = self.dataset.relationships[pair_idx][2][4]
-        img1, img2 = self.dataset.relationships[pair_idx][:2]
+        labels = self.dataset.relationships[pair_idx][2]
+        person1_id, person2_id = self._get_person_ids(labels)
 
-        # Base scores (normalized between 0-1)
-        if self.balance_relationships:
-            rel_score = self.relationship_counters[rel_type] / self.relationship_targets[rel_type]
-        else:
-            rel_score = 0
-        if self.balance_families:
-            fam_score = self.family_counters[fam] / self.max_family_samples
-        else:
-            fam_score = 0
-
-        # Image score calculation (normalized by max count)
-        # t0 = time.time()
-        # if self.image_counters:
-        # max_count = max(self.image_counters.values())
-        # img1_score = max((self.image_counters[img] for img in img1), default=0) / max_count
-        # img2_score = max((self.image_counters[img] for img in img2), default=0) / max_count
-        # img_score = max(img1_score, img2_score)
-        # else:
-        # img_score = 0
-        # if self.verbose:
-        # print(f"Image score calculation took: {time.time() - t0:.4f}s")
-        img_score = 0
-
-        weights = self.sampling_weights[rel_type]
-        final_score = rel_score * weights["rel"] + fam_score * weights["fam"] + img_score * weights["img"]
+        # Normalize counts (0-1 range)
+        rel_score = self.relationship_counters[rel_type] / self.relationship_targets[rel_type]
+        fam_score = self.family_counters[fam] / self.max_family_samples
+        ind_score = (self.individual_counters[person1_id] + self.individual_counters[person2_id]) / (
+            2 * self.avg_samples_per_individual
+        )
+        # Apply weights
+        final_score = (
+            rel_score * self.sampling_weights["rel"]
+            + fam_score * self.sampling_weights["fam"]
+            + ind_score * self.sampling_weights["ind"]
+        )
         return final_score
 
     def _find_min_count_relationship(self, families_to_check):
@@ -284,22 +262,13 @@ class KinshipBatchSampler:
         return self.dataset.relationships[min_pair[0][0]]
 
     def _find_balanced_replacement(self, exclude_families):
-        # Find replacement considering both family and relationship balance
+        """Find replacement considering relationship, family and individual balance using sampling scores."""
+        if not self.sampling_weights:
+            return self._random_replacement(exclude_families)
+
         eligible_families = self._get_eligible_families(exclude_families, self.max_family_samples)
         if not eligible_families:
             return None
-        return self._find_min_count_relationship(eligible_families)
-
-    def _find_family_replacement(self, exclude_families):
-        eligible_families = self._get_eligible_families(exclude_families)
-        if not eligible_families:
-            return None
-        replacement_fam = random.choice(eligible_families)
-        return random.choice([self.dataset.relationships[idx] for idx in self.dataset.fam2rel[replacement_fam]])
-
-    def _find_relationship_replacement(self, exclude_families):
-        # Check all families except excluded ones, without family count restrictions
-        eligible_families = self._get_eligible_families(exclude_families)
         return self._find_min_count_relationship(eligible_families)
 
     def _shuffle_indices(self):
@@ -310,44 +279,42 @@ class KinshipBatchSampler:
         return min_count_image
 
     def _update_counters(self, labels):
-        """Update relationship and family counters and recompute sampling scores.
-
-        Updates internal counters tracking relationship type and family frequencies.
-        If balancing is enabled, also recomputes sampling scores for affected pairs.
-        Lower scores indicate more optimal sampling candidates, with the ideal score
-        being close to 0 when both relationship type and family are undersampled.
-
-        Args:
-            labels: Tuple containing relationship metadata, where:
-                labels[4] is the relationship type (e.g. 'parent-child')
-                labels[2] is the family ID
-        """
+        """Update relationship, family and individual counters and recompute sampling scores."""
         rel_type = labels[4]
         fam = labels[2]
-        if self.balance_relationships:
-            self.relationship_counters[rel_type] += 1
-            # Update sampling scores for affected relationships
-            start_time = time.time()
-            affected_pairs = [
-                (idx, f)
-                for idx, f in self.pair_scores.keys()
-                if f == fam or self.dataset.relationships[idx][2][4] == rel_type
-            ]
-            if self.verbose:
-                print(f"Collecting {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s")
 
-            start_time = time.time()
-            for pair in affected_pairs:
-                self.pair_scores[pair] = self._compute_sampling_score(pair[0], pair[1])
-            if self.verbose:
-                print(f"Updating {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s")
+        # Update relationship and family counters
+        self.relationship_counters[rel_type] += 1
+        self.family_counters[fam] += 1
 
-            # Print max and min scores
-            if self.verbose:
-                print(f"Max score: {max(self.pair_scores.values())}")
-                print(f"Min score: {min(self.pair_scores.values())}")
-        if self.balance_families:
-            self.family_counters[fam] += 1
+        # Update individual counters
+        person1_id, person2_id = self._get_person_ids(labels)
+        self.individual_counters[person1_id] += 1
+        self.individual_counters[person2_id] += 1
+
+        if not self.sampling_weights:
+            return
+
+        # Update sampling scores for affected relationships
+        start_time = time.time()
+        affected_pairs = [
+            (idx, f)
+            for idx, f in self.pair_scores.keys()
+            if f == fam or self.dataset.relationships[idx][2][4] == rel_type
+        ]
+        if self.verbose:
+            print(f"Collecting {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s")
+
+        start_time = time.time()
+        for pair in affected_pairs:
+            self.pair_scores[pair] = self._compute_sampling_score(pair[0], pair[1])
+        if self.verbose:
+            print(f"Updating {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s")
+
+        # Print max and min scores
+        if self.verbose:
+            print(f"Max score: {max(self.pair_scores.values())}")
+            print(f"Min score: {min(self.pair_scores.values())}")
 
     def __iter__(self):
         for i in range(0, len(self.indices), self.batch_size):
@@ -369,8 +336,8 @@ class KinshipBatchSampler:
                 img1 = self._get_image_with_min_count(imgs1)
                 img2 = self._get_image_with_min_count(imgs2)
 
-                img1_id = self.dataset.person2idx[img1]
-                img2_id = self.dataset.person2idx[img2]
+                img1_id = self.dataset.image2idx[img1]
+                img2_id = self.dataset.image2idx[img2]
 
                 t0 = time.time()
                 self.image_counters[img1] += 1
@@ -388,13 +355,6 @@ class KinshipBatchSampler:
         return len(self.dataset) // self.batch_size
 
 
-# Example usage:
-# Assuming dataset is an instance of a Dataset class where __getitem__ returns (img1, img2, labels)
-# batch_size = 32
-# sampler = KinshipBatchSampler(dataset, batch_size)
-# data_loader = torch.utils.data.DataLoader(dataset, batch_sampler=sampler)
-
-
 class SCLDataModule(L.LightningDataModule):
     DATASETS = {"fiw": FIW, "ff-v3": FIWFamilyV3}
     COLLATE_FN = {"fiw": None, "ff-v3": collate_fn_fiw_family_v3}
@@ -408,8 +368,7 @@ class SCLDataModule(L.LightningDataModule):
         sampler=True,
         dataset="ff-v4-ag",
         bias=False,
-        sampler_balance_families=False,
-        sampler_balance_relationships=False,
+        sampling_weights=None,
         sampler_max_attempts=100,
         sampler_max_families=50,
         sampler_verbose=False,
@@ -441,8 +400,7 @@ class SCLDataModule(L.LightningDataModule):
         self.collate_fn = self.COLLATE_FN[dataset]
         self.sampler = sampler
         self.bias = bias
-        self.sampler_balance_families = sampler_balance_families
-        self.sampler_balance_relationships = sampler_balance_relationships
+        self.sampling_weights = sampling_weights
         self.sampler_max_attempts = sampler_max_attempts
         self.sampler_max_families = sampler_max_families
         self.sampler_verbose = sampler_verbose
@@ -490,8 +448,7 @@ class SCLDataModule(L.LightningDataModule):
             sampler = KinshipBatchSampler(
                 self.train_dataset,
                 self.batch_size,
-                balance_families=self.sampler_balance_families,
-                balance_relationships=self.sampler_balance_relationships,
+                sampling_weights=self.sampling_weights,
                 max_attempts=self.sampler_max_attempts,
                 max_families_to_check=self.sampler_max_families,
                 verbose=self.sampler_verbose,

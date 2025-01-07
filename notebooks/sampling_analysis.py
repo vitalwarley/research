@@ -34,8 +34,10 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import scipy.stats as stats
 import seaborn as sns
+from IPython.display import display
 from tqdm.auto import tqdm
 
 # Add the parent directory to path
@@ -403,6 +405,7 @@ def print_sampling_statistics(individual_counts, relationship_type_counts, famil
     mean_samples = total_samples / unique_sampled
     max_samples = max(individual_counts.values())
     min_samples = min(individual_counts.values())
+    ind_cv = calculate_cv(individual_counts)
 
     print("Individual Sampling Statistics:")
     print(f"Total samples: {total_samples}")
@@ -411,6 +414,7 @@ def print_sampling_statistics(individual_counts, relationship_type_counts, famil
     print(f"Max samples for one individual: {max_samples}")
     print(f"Min samples for one individual: {min_samples}")
     print(f"Sampling range (max/min): {max_samples/min_samples:.2f}")
+    print(f"Individual CV: {ind_cv:.1f}%")
 
     # Relationship type statistics
     print("\nRelationship Type Statistics:")
@@ -429,6 +433,7 @@ def print_sampling_statistics(individual_counts, relationship_type_counts, famil
     rel_cv = calculate_cv(relationship_type_counts)
     fam_cv = calculate_cv(family_counts)
     print("\nCoefficient of Variation:")
+    print(f"Individual Sampling: {ind_cv:.1f}%")
     print(f"Relationship Types: {rel_cv:.1f}%")
     print(f"Family Sampling: {fam_cv:.1f}%")
 
@@ -446,27 +451,7 @@ visualize_sampling_results(individual_counts, relationship_type_counts, family_c
 print_sampling_statistics(individual_counts, relationship_type_counts, family_counts)
 
 # %% [markdown]
-# ## Balanced Sampling Analysis
-
-# %%
-print("\nBalanced Sampling Analysis:")
-dm = SCLDataModule(
-    dataset="ff-v3",
-    batch_size=64,
-    root_dir="../data/fiw/track1",  # Adjust path as needed
-    sampler_verbose=False,
-    sampler_balance_families=True,
-    sampler_balance_relationships=True,
-    sampler_max_attempts=100,
-    sampler_max_families=0,
-)
-dm.setup("fit")
-sampler = dm.train_dataloader().batch_sampler
-individual_counts, relationship_type_counts, family_counts = analyze_epoch_sampling(sampler)
-visualize_sampling_results(individual_counts, relationship_type_counts, family_counts, "Balanced Sampling: ")
-print_sampling_statistics(individual_counts, relationship_type_counts, family_counts)
-
-# %% [markdown]
+#
 # ## Understanding Coefficient of Variation (CV)
 
 # %% [markdown]
@@ -539,3 +524,229 @@ print_sampling_statistics(individual_counts, relationship_type_counts, family_co
 #
 # While relationship balance has improved significantly (CV down from 63.5% to 47.2%),
 # family sampling remains a challenge and actually worsened slightly with the balanced approach.
+
+# %% [markdown]
+# ## Sampling Weight Configurations Analysis
+
+
+# %%
+def analyze_weight_configuration(weights_config, title):
+    """Analyze sampling behavior with specific weight configuration."""
+    print(f"\n=== {title} ===")
+    print(f"Weights: {weights_config}")
+
+    dm = SCLDataModule(
+        dataset="ff-v3",
+        batch_size=64,
+        root_dir="../data/fiw/track1",
+        sampler_verbose=False,
+        sampling_weights=weights_config,
+        sampler_max_attempts=100,
+        sampler_max_families=50,
+    )
+    dm.setup("fit")
+    sampler = dm.train_dataloader().batch_sampler
+
+    individual_counts, relationship_type_counts, family_counts = analyze_epoch_sampling(sampler)
+    visualize_sampling_results(individual_counts, relationship_type_counts, family_counts, f"{title}: ")
+    print_sampling_statistics(individual_counts, relationship_type_counts, family_counts)
+
+    return {
+        "rel_cv": calculate_cv(relationship_type_counts),
+        "fam_cv": calculate_cv(family_counts),
+        "ind_cv": calculate_cv(individual_counts),
+    }
+
+
+# Define weight configurations to test
+weight_configs = {
+    "Relationship-focused": {"rel": 0.6, "fam": 0.2, "ind": 0.2},
+    "Family-focused": {"rel": 0.2, "fam": 0.6, "ind": 0.2},
+    "Individual-focused": {"rel": 0.2, "fam": 0.2, "ind": 0.6},
+    "Balanced": {"rel": 0.33, "fam": 0.33, "ind": 0.34},
+    "Strong-relationship": {"rel": 0.8, "fam": 0.1, "ind": 0.1},
+}
+
+# %% [markdown]
+# ## Weight Configuration Results
+
+# %%
+# Analyze each configuration
+results = {}
+for name, weights in weight_configs.items():
+    results[name] = analyze_weight_configuration(weights, name)
+
+# %%
+# Compare results
+
+
+def create_results_table(results):
+    data = []
+    for config, metrics in results.items():
+        data.append(
+            {
+                "Configuration": config,
+                "Individual CV": f"{metrics['ind_cv']:.1f}%",
+                "Relationship CV": f"{metrics['rel_cv']:.1f}%",
+                "Family CV": f"{metrics['fam_cv']:.1f}%",
+            }
+        )
+    return pd.DataFrame(data).set_index("Configuration")
+
+
+print("\nComparative Results:")
+
+display(create_results_table(results))
+
+# %% [markdown]
+# ## Analysis of Weight Configurations
+#
+# The results show how different sampling weight configurations affect the balance of:
+# 1. Relationship types (measured by relationship CV)
+# 2. Family representation (measured by family CV)
+# 3. Individual appearance frequency (measured by individual CV)
+#
+# Key observations:
+# - Relationship-focused sampling (0.6/0.2/0.2) achieves better relationship type balance
+# - Family-focused sampling (0.2/0.6/0.2) improves family representation
+# - Individual-focused sampling (0.2/0.2/0.6) leads to more uniform individual sampling
+# - Balanced configuration (0.33/0.33/0.34) provides a compromise
+# - Strong-relationship focus (0.8/0.1/0.1) shows the impact of heavily weighting one aspect
+#
+# Trade-offs:
+# 1. Better relationship balance often comes at the cost of family representation
+# 2. Focusing on family balance can lead to less uniform relationship sampling
+# 3. Individual balance affects both relationship and family distributions
+#
+# Recommendations:
+# 1. For relationship type learning: Use relationship-focused weights
+# 2. For family-wise feature learning: Use family-focused weights
+# 3. For general training: Use balanced weights as a starting point
+# 4. Consider task-specific requirements when selecting weights
+
+# %% [markdown]
+# ## Optimal Weight Selection
+#
+# Based on the analysis, here are recommended weight configurations for different scenarios:
+#
+# 1. **Relationship Learning Focus**:
+# ```python
+# weights = {"rel": 0.6, "fam": 0.2, "ind": 0.2}
+# ```
+# - Best for tasks requiring strong relationship type discrimination
+# - Suitable for initial training phases
+#
+# 2. **Family Structure Learning**:
+# ```python
+# weights = {"rel": 0.2, "fam": 0.6, "ind": 0.2}
+# ```
+# - Better for learning family-wise features
+# - Useful for hierarchical relationship understanding
+#
+# 3. **Balanced Learning**:
+# ```python
+# weights = {"rel": 0.33, "fam": 0.33, "ind": 0.34}
+# ```
+# - Good general-purpose configuration
+# - Recommended for most training scenarios
+#
+# 4. **Individual Feature Focus**:
+# ```python
+# weights = {"rel": 0.2, "fam": 0.2, "ind": 0.6}
+# ```
+# - Better for learning individual-specific features
+# - Useful for face recognition aspects
+
+# %%
+
+# %% [markdown]
+# ## Sampling Score Analysis
+#
+# Let's visualize how the sampling score function behaves with different weights to better understand
+# how it promotes balanced sampling.
+
+
+# %%
+def plot_sampling_scores(weights_config):
+    """Visualize how sampling scores behave with different counter values."""
+    x = np.linspace(0, 1, 100)
+
+    plt.figure(figsize=(12, 8))
+
+    # Plot individual components
+    rel_scores = x * weights_config["rel"]
+    plt.plot(x, rel_scores, label=f'Relationship (w={weights_config["rel"]})', linestyle="-")
+
+    fam_scores = x * weights_config["fam"]
+    plt.plot(x, fam_scores, label=f'Family (w={weights_config["fam"]})', linestyle="--")
+
+    ind_scores = x * weights_config["ind"]
+    plt.plot(x, ind_scores, label=f'Individual (w={weights_config["ind"]})', linestyle=":")
+
+    # Combined score (assuming all components are equal)
+    combined_scores = x * (weights_config["rel"] + weights_config["fam"] + weights_config["ind"])
+    plt.plot(x, combined_scores, label="Combined (all equal)", color="black", linewidth=2)
+
+    plt.xlabel("Normalized Count")
+    plt.ylabel("Score Component")
+    plt.title(f"Sampling Score Components vs. Normalized Counts\nConfiguration: {weights_config}")
+    plt.legend()
+    plt.grid(True)
+
+    # Add text box with explanation
+    explanation = (
+        "Higher scores = lower sampling probability\n"
+        "Components:\n"
+        "- Relationship: Favors undersampled relationship types\n"
+        "- Family: Prevents oversampling from same family\n"
+        "- Individual: Ensures uniform individual sampling"
+    )
+    plt.text(
+        1.02,
+        0.5,
+        explanation,
+        transform=plt.gca().transAxes,
+        bbox=dict(facecolor="white", alpha=0.8),
+        verticalalignment="center",
+    )
+
+    plt.tight_layout()
+    return plt.gcf()
+
+
+# %% [markdown]
+# Let's visualize how different weight configurations affect the sampling scores:
+
+# %%
+# Plot for each weight configuration
+for name, weights in weight_configs.items():
+    print(f"\nAnalyzing {name} configuration:")
+    fig = plot_sampling_scores(weights)
+    plt.show()
+
+# %% [markdown]
+# ### Understanding the Scoring Plots
+#
+# The plots above demonstrate how the sampling score function works:
+#
+# 1. **Score Components**:
+#    - Each line represents how one component (relationship, family, individual) contributes to the final score
+#    - The black line shows the combined score when all normalized counts are equal
+#
+# 2. **Interpretation**:
+#    - Higher scores = lower sampling probability
+#    - Steeper slopes indicate stronger influence on sampling
+#    - The relative heights of lines show which aspects are prioritized
+#
+# 3. **Weight Effects**:
+#    - Relationship-focused: Steeper relationship line
+#    - Family-focused: Steeper family line
+#    - Individual-focused: Steeper individual line
+#    - Balanced: Similar slopes for all components
+#
+# 4. **Practical Impact**:
+#    - Components with higher weights have more influence on sampling decisions
+#    - The scoring system naturally favors undersampled elements
+#    - Combined effect promotes overall sampling balance
+
+# %%

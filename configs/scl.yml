@@ -38,8 +38,10 @@ data:
      augment: no
      bias: no
      dataset: ff-v3
-     sampler_balance_families: yes
-     sampler_balance_relationships: yes
+     sampling_weights:
+       rel: 0.33
+       fam: 0.33
+       ind: 0.33
      sampler_max_attempts: 100
      sampler_max_families: 0
      sampler_verbose: no

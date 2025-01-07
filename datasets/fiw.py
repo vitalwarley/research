@@ -1,13 +1,11 @@
 import math
 from collections import defaultdict
-from itertools import combinations, islice
 from pathlib import Path
 
 import cv2
 import torch
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from torchvision import transforms as T
-from tqdm import tqdm
 
 from datasets.utils import Sample, SampleGallery, SampleProbe, SampleTask2, sr_collate_fn_v2
 
@@ -200,12 +198,18 @@ class FIWFamilyV3(FIW):
         relationships = []
         unique_relations = set()
         persons = []
+        images = []
         for sample_idx, sample in enumerate(self.sample_list):
             # Only consider training set, therefore only positive samples
             relation = (sample.f1fid,) + tuple(sorted([sample.f1mid, sample.f2mid]))
             # Path to images f1 and f2
-            persons.append(sample.f1)
-            persons.append(sample.f2)
+            # Create unique person ID by combining family ID and member ID
+            person1_id = f"F{sample.f1fid:04d}_MID{sample.f1mid}"
+            person2_id = f"F{sample.f2fid:04d}_MID{sample.f2mid}"
+            persons.append(person1_id)
+            persons.append(person2_id)
+            images.append(sample.f1)
+            images.append(sample.f2)
             if relation not in unique_relations:
                 unique_relations.add(relation)  # New relation
                 # Get all images from individuals in this relation (FX/MY/<images>)
@@ -226,12 +230,13 @@ class FIWFamilyV3(FIW):
                     self.fam2rel[sample.f1fid].append(len(relationships) - 1)
         # List of unique persons (based on the filepath)
         self.people = sorted(list(set(persons)))
+        self.images = sorted(list(set(images)))
         # Mapping from person to its index
         self.person2idx = {person: idx for idx, person in enumerate(self.people)}
-
+        self.image2idx = {image: idx for idx, image in enumerate(self.images)}
         print(f"Generated {len(relationships)} relationships")
         print(f"Found {len(self.people)} unique persons")
-
+        print(f"Found {len(self.images)} unique images")
         return relationships
 
     def _process_one_image(self, image_path):
@@ -244,7 +249,7 @@ class FIWFamilyV3(FIW):
     def __getitem__(self, idx: list[tuple[int, int]]):
         # idx comes from person indices (person2idx)
         img1_idx, img2_idx, labels = list(zip(*idx))
-        imgs1, imgs2 = [self.people[idx] for idx in img1_idx], [self.people[idx] for idx in img2_idx]
+        imgs1, imgs2 = [self.images[idx] for idx in img1_idx], [self.images[idx] for idx in img2_idx]
         # Get is_kin from the stored relationship
         is_kin = [labels[i][3] == labels[i][3] for i in range(len(imgs1))]
         # Get kin_id from the stored relationship

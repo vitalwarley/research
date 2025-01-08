@@ -28,6 +28,9 @@ METADATA_COLUMNS = [
 # Mapping for kinship types correction
 KINSHIP_MAPPING = {"accuracy/non-kin": "fd", "accuracy/md": "fs", "accuracy/ms": "md", "accuracy/sibs": "ms"}
 
+# Add new constant for results organization
+RESULTS_BY_LABEL_DIR = OUTPUT_DIR / "by_label"
+
 
 def generate_guild_metadata() -> pd.DataFrame:
     """Generate metadata CSV using Guild AI command and return as DataFrame."""
@@ -132,10 +135,20 @@ def calculate_mean_metrics(df: pd.DataFrame) -> pd.DataFrame:
     return mean_df
 
 
-def main():
-    """Main execution function."""
+def main(label: str = None):
+    """Main execution function.
+
+    Args:
+        label: Optional label to filter results. If None, processes all labels.
+    """
     # Get metadata from Guild
     guild_metadata = generate_guild_metadata()
+
+    # Filter by label if specified
+    if label:
+        guild_metadata = guild_metadata[guild_metadata["label"] == label]
+        if guild_metadata.empty:
+            raise ValueError(f"No data found for label: {label}")
 
     # Get metrics from TensorBoard
     tensorboard_metrics = fetch_tensorboard_results()
@@ -149,18 +162,33 @@ def main():
     # Calculate mean metrics
     mean_results = calculate_mean_metrics(main_results)
 
+    # Create output paths based on label
+    if label:
+        output_csv = RESULTS_BY_LABEL_DIR / f"kinfacew_results_{label}.csv"
+        mean_metrics_csv = RESULTS_BY_LABEL_DIR / f"mean_metrics_{label}.csv"
+    else:
+        output_csv = OUTPUT_CSV
+        mean_metrics_csv = MEAN_METRICS_CSV
+
     # Print results
-    print("Mean Accuracy and AUC by Dataset:")
+    print(f"Mean Accuracy and AUC{f' for label {label}' if label else ''}:")
     print(mean_results.to_string(index=False))
 
     # Save results
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    main_results.to_csv(OUTPUT_CSV, index=False)
-    mean_results.to_csv(MEAN_METRICS_CSV, index=False)
+    RESULTS_BY_LABEL_DIR.mkdir(parents=True, exist_ok=True)
+    main_results.to_csv(output_csv, index=False)
+    mean_results.to_csv(mean_metrics_csv, index=False)
     print("\nResults saved to:")
-    print(f"- {OUTPUT_CSV}")
-    print(f"- {MEAN_METRICS_CSV}")
+    print(f"- {output_csv}")
+    print(f"- {mean_metrics_csv}")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate KinFaceW results")
+    parser.add_argument("--label", type=str, help="Filter results by specific label")
+    args = parser.parse_args()
+
+    main(args.label)

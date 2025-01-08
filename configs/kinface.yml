@@ -60,7 +60,7 @@ model:
     model:
       class_path: models.base.SimpleModel
       init_args:
-        model: adaface_ir_101
+        model: adaface_ir_18
     loss: 
       class_path: losses.scl.HCL
       init_args:

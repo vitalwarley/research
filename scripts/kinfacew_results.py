@@ -20,9 +20,11 @@ METADATA_COLUMNS = [
     "=data.init_args.dataset as dataset",
     "=data.init_args.fold as fold",
     "=data.init_args.batch_size as batch_size",
+    "=model.init_args.model.init_args.model as model",
+    "=model.init_args.weights as weights",
     "=model.init_args.lr as lr",
     "=model.init_args.loss.init_args.tau as tau",
-    "=model.init_args.loss.init_args.alpha_neg as alpha",
+    "=model.init_args.loss.init_args.alpha_neg as alpha_neg",
 ]
 
 # Mapping for kinship types correction
@@ -50,7 +52,10 @@ def generate_guild_metadata() -> pd.DataFrame:
 
     try:
         subprocess.run(guild_command, check=True)
-        return pd.read_csv(metadata_csv)
+        df = pd.read_csv(metadata_csv)
+        # process weights column: weights/<run_id>/exp/checkpoints/<ckpt_file> to <run_id>[:8]
+        df["weights"] = df["weights"].apply(lambda x: x.split("/")[1][:8] if not pd.isna(x) else "")
+        return df
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to execute Guild command: {e}")
     except Exception as e:
@@ -110,7 +115,7 @@ def merge_guild_and_tensorboard_data(guild_df: pd.DataFrame, tensorboard_df: pd.
     tensorboard_df["run"] = tensorboard_df["run"].apply(lambda x: x.split()[0])
 
     # Merge on run column
-    merged_df = pd.merge(guild_df, tensorboard_df, on="run", how="inner")
+    merged_df = pd.merge(guild_df, tensorboard_df, on="run", how="left")
 
     return merged_df
 
@@ -131,6 +136,14 @@ def calculate_mean_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
     # Calculate average of kinship-specific accuracies
     mean_df["avg_kinship"] = mean_df[["fd", "fs", "md", "ms"]].mean(axis=1)
+
+    # Readd weights, model, tau, alpha_neg, dropping duplicates first
+    unique_params = df[["label", "weights", "model", "tau", "alpha_neg"]].drop_duplicates()
+    mean_df = pd.merge(mean_df, unique_params, on="label", how="left")
+    # Move these columns to the front
+    mean_df = mean_df[
+        ["label", "weights", "model", "tau", "alpha_neg", "dataset", "batch_size", "lr", *metrics, "avg_kinship"]
+    ]
 
     return mean_df
 
@@ -172,7 +185,7 @@ def main(label: str = None):
 
     # Print results
     print(f"Mean Accuracy and AUC{f' for label {label}' if label else ''}:")
-    print(mean_results.to_string(index=False))
+    print(mean_results.to_markdown(index=False))
 
     # Save results
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

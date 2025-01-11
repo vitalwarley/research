@@ -60,10 +60,10 @@ model:
     model:
       class_path: models.base.SimpleModel
       init_args:
-        model: adaface_ir_18
+        model: arcface_ir_101
     loss: 
       class_path: losses.scl.HCL
       init_args:
-        tau: 0.2
-        alpha_neg: 0.8
+        tau: 0.08
+        alpha_neg: 0.0
         alpha_pos: 0.0

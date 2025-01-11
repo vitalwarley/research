@@ -86,16 +86,16 @@ if [ "$OPERATION" = "kinface-ft" ]; then
         # Run with checkpoint
         guild run scl:$OPERATION \
             -l "$LABEL" \
-            model.init_args.lr=1e-3 \
+            model.init_args.lr=[1e-3,1e-4,1e-5] \
             model.init_args.weights="$CKPT_PATH" \
-            data.init_args.dataset=II \
+            data.init_args.dataset=[I,II] \
             data.init_args.fold=[1,2,3,4,5] -y
     else
         # Run without checkpoint
         guild run scl:$OPERATION \
             -l "$LABEL" \
-            model.init_args.lr=1e-3 \
-            data.init_args.dataset=I \
+            model.init_args.lr=[1e-4,1e-5] \
+            data.init_args.dataset=[I,II] \
             data.init_args.fold=[1,2,3,4,5] -y
     fi
 else

@@ -1,7 +1,7 @@
 seed_everything: 100
 ckpt_path: null
 trainer:
-  limit_train_batches: 1.0
+  limit_train_batches: 50
   accumulate_grad_batches: 1
   num_sanity_val_steps: 1
   log_every_n_steps: 10
@@ -34,14 +34,14 @@ data:
    init_args:
      batch_size: 20
      root_dir: data/fiw/track1
-     sampler: yes
+     sampler: no
      augment: no
-     bias: no
-     dataset: ff-v3
+     bias: yes
+     dataset: fiw
      sampling_weights:
-       rel: 0.33
-       fam: 0.33
-       ind: 0.33
+       rel: 0.0
+       fam: 0.0
+       ind: 0.0
      sampler_max_attempts: 100
      sampler_max_families: 0
      sampler_verbose: no
@@ -76,10 +76,10 @@ model:
     model:
       class_path: models.base.SimpleModel
       init_args:
-        model: adaface_ir_101
+        model: arcface_ir_101
     loss: 
       class_path: losses.scl.HCL
       init_args:
-        tau: 0.2
-        alpha_neg: 0.8
+        tau: 0.08
+        alpha_neg: 0.0
         alpha_pos: 0.0

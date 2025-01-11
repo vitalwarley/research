@@ -51,7 +51,9 @@ class KinshipBatchSampler:
             self.rel_type_to_pairs[rel_type].append((rel_idx, fam))
 
         # Initialize default weights if none provided
-        self.sampling_weights = sampling_weights
+        self.sampling_weights = (
+            None if sampling_weights and all(v == 0 for v in sampling_weights.values()) else sampling_weights
+        )
 
         # Pre-compute average samples per individual
         self.avg_samples_per_individual = len(self.dataset) * 2 / len(self.dataset.person2idx)

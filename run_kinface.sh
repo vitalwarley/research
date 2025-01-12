@@ -5,6 +5,7 @@ METRIC=""
 OPERATION="kinface-ft"
 RUN_ID=""
 LABEL="vX"
+MODEL="scl"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
             LABEL="$2"
             shift 2
             ;;
+        --model)
+            MODEL="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown parameter: $1"
             exit 1
@@ -35,6 +40,12 @@ done
 # Validate operation
 if [[ ! "$OPERATION" =~ ^(kinface-ft|kinface-ce)$ ]]; then
     echo "Error: operation must be either 'kinface-ft' or 'kinface-ce'"
+    exit 1
+fi
+
+# Validate model
+if [[ ! "$MODEL" =~ ^(scl|facornet)$ ]]; then
+    echo "Error: model must be either 'scl' or 'facornet'"
     exit 1
 fi
 
@@ -80,11 +91,11 @@ if [ "$USE_CKPT" = true ]; then
 fi
 
 # Run the specified KinFace operation
-echo "Running $OPERATION..."
+echo "Running $OPERATION with $MODEL model..."
 if [ "$OPERATION" = "kinface-ft" ]; then
     if [ "$USE_CKPT" = true ]; then
         # Run with checkpoint
-        guild run scl:$OPERATION \
+        guild run $MODEL:$OPERATION \
             -l "$LABEL" \
             model.init_args.lr=[1e-3,1e-4,1e-5] \
             model.init_args.weights="$CKPT_PATH" \
@@ -92,12 +103,12 @@ if [ "$OPERATION" = "kinface-ft" ]; then
             data.init_args.fold=[1,2,3,4,5] -y
     else
         # Run without checkpoint
-        guild run scl:$OPERATION \
+        guild run $MODEL:$OPERATION \
             -l "$LABEL" \
             model.init_args.lr=[1e-4,1e-5] \
             data.init_args.dataset=[I,II] \
             data.init_args.fold=[1,2,3,4,5] -y
     fi
 else
-    guild run scl:$OPERATION -y
+    guild run $MODEL:$OPERATION -y
 fi 

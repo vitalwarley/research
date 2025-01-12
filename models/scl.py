@@ -34,9 +34,13 @@ class SCL(LightningBaseModel):
 
     def training_step(self, batch, batch_idx):
         outputs = self._step(batch)
+        self._log(outputs)
+        loss = outputs["contrastive_loss"]
+        return loss
+
+    def _log(self, outputs):
         loss = outputs["contrastive_loss"]
         self._log_training_metrics(loss)
-        return loss
 
     def _log_training_metrics(self, loss):
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]

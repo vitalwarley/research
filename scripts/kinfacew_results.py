@@ -13,6 +13,9 @@ GUILD_EXPERIMENT = "scl:kinface-ft"
 # Add new constant for TensorBoard URL
 TENSORBOARD_URL = "http://localhost:12345"  # Adjust this to your TensorBoard URL
 
+# Add new constant for default pivot metric
+DEFAULT_PIVOT_METRIC = "accuracy"
+
 # Column configurations
 METADATA_COLUMNS = [
     "run",
@@ -55,6 +58,8 @@ def generate_guild_metadata() -> pd.DataFrame:
         df = pd.read_csv(metadata_csv)
         # process weights column: weights/<run_id>/exp/checkpoints/<ckpt_file> to <run_id>[:8]
         df["weights"] = df["weights"].apply(lambda x: x.split("/")[1][:8] if not pd.isna(x) else "")
+        # drop runs where label doesn't start with v
+        df = df[df["label"].str.startswith("v")]
         return df
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to execute Guild command: {e}")
@@ -62,11 +67,14 @@ def generate_guild_metadata() -> pd.DataFrame:
         raise RuntimeError(f"Failed to process Guild metadata: {e}")
 
 
-def fetch_tensorboard_results() -> pd.DataFrame:
+def fetch_tensorboard_results(pivot_metric: str = DEFAULT_PIVOT_METRIC) -> pd.DataFrame:
     """Fetch results from TensorBoard for all runs.
 
+    Args:
+        pivot_metric: Metric to use for finding the best epoch (default: 'accuracy')
+
     Returns:
-        pd.DataFrame: DataFrame with metrics for the epoch with maximum accuracy
+        pd.DataFrame: DataFrame with metrics for the epoch with maximum metric value
     """
     # Fetch all runs
     runs = utils.fetch_runs(TENSORBOARD_URL)
@@ -84,22 +92,22 @@ def fetch_tensorboard_results() -> pd.DataFrame:
     if df is None:
         raise RuntimeError("Failed to fetch metric data")
 
-    # Process the data to get values at max accuracy epoch for each run
+    # Process the data to get values at max metric epoch for each run
     results = []
     for run in df["run"].unique():
         run_data = df[df["run"] == run]
 
-        # Find epoch with maximum accuracy
-        accuracy_data = run_data[run_data["metric"] == "accuracy"]
-        if accuracy_data.empty:
-            continue
+        # Find epoch with maximum specified metric
+        metric_data = run_data[run_data["metric"] == pivot_metric]
+        if metric_data.empty:
+            raise ValueError(f"No data found for pivot metric: {pivot_metric}")
 
-        max_accuracy_epoch = accuracy_data.loc[accuracy_data["Value"].idxmax(), "Step"]
+        max_metric_epoch = metric_data.loc[metric_data["Value"].idxmax(), "Step"]
 
         # Get all metrics for this epoch
         run_metrics = {"run": run}
         for metric in metrics_to_fetch:
-            metric_at_epoch = run_data[(run_data["metric"] == metric) & (run_data["Step"] == max_accuracy_epoch)][
+            metric_at_epoch = run_data[(run_data["metric"] == metric) & (run_data["Step"] == max_metric_epoch)][
                 "Value"
             ].iloc[0]
             run_metrics[metric] = metric_at_epoch
@@ -148,11 +156,12 @@ def calculate_mean_metrics(df: pd.DataFrame) -> pd.DataFrame:
     return mean_df
 
 
-def main(label: str = None):
+def main(label: str = None, pivot_metric: str = DEFAULT_PIVOT_METRIC):
     """Main execution function.
 
     Args:
         label: Optional label to filter results. If None, processes all labels.
+        pivot_metric: Metric to use for finding the best epoch (default: 'accuracy')
     """
     # Get metadata from Guild
     guild_metadata = generate_guild_metadata()
@@ -164,7 +173,7 @@ def main(label: str = None):
             raise ValueError(f"No data found for label: {label}")
 
     # Get metrics from TensorBoard
-    tensorboard_metrics = fetch_tensorboard_results()
+    tensorboard_metrics = fetch_tensorboard_results(pivot_metric)
 
     # Merge the data
     main_results = merge_guild_and_tensorboard_data(guild_metadata, tensorboard_metrics)
@@ -202,6 +211,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Generate KinFaceW results")
     parser.add_argument("--label", type=str, help="Filter results by specific label")
+    parser.add_argument(
+        "--pivot-metric", type=str, default=DEFAULT_PIVOT_METRIC, help="Metric to use for finding the best epoch"
+    )
     args = parser.parse_args()
 
-    main(args.label)
+    main(args.label, args.pivot_metric)

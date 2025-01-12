@@ -36,7 +36,7 @@ data:
      root_dir: data/fiw/track1
      sampler: no
      augment: no
-     bias: yes
+     bias: no
      dataset: fiw
      sampling_weights:
        rel: 0.0
@@ -55,7 +55,7 @@ data:
        random_horizontal_flip_prob: 0.5
 
 model:
-  class_path: models.scl.SCL
+  class_path: models.facornet.FaCoRNet
   init_args:
     optimizer: SGD
     adamw_beta1: 0.9
@@ -74,12 +74,11 @@ model:
     anneal_strategy: cos
     weights: null
     model:
-      class_path: models.base.SimpleModel
+      class_path: models.facornet.FaCoR
       init_args:
-        model: arcface_ir_101
+        model: adaface_ir_101
+        attention: models.attention.FaCoRAttention
     loss: 
-      class_path: losses.scl.HCL
+      class_path: losses.facornet.FaCoRNetCL
       init_args:
-        tau: 0.2
-        alpha_neg: 0.8
-        alpha_pos: 0.0
+        s: 500

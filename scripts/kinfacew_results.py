@@ -8,7 +8,7 @@ import utils
 OUTPUT_DIR = Path("results") / "kinface"
 OUTPUT_CSV = OUTPUT_DIR / "kinfacew_results.csv"
 MEAN_METRICS_CSV = OUTPUT_DIR / "mean_metrics_by_dataset.csv"
-GUILD_EXPERIMENT = "scl:kinface-ft"
+DEFAULT_GUILD_EXPERIMENT = "scl:kinface-ft"
 
 # Add new constant for TensorBoard URL
 TENSORBOARD_URL = "http://localhost:12345"  # Adjust this to your TensorBoard URL
@@ -17,18 +17,31 @@ TENSORBOARD_URL = "http://localhost:12345"  # Adjust this to your TensorBoard UR
 DEFAULT_PIVOT_METRIC = "accuracy"
 
 # Column configurations
-METADATA_COLUMNS = [
-    "run",
-    ".label",
-    "=data.init_args.dataset as dataset",
-    "=data.init_args.fold as fold",
-    "=data.init_args.batch_size as batch_size",
-    "=model.init_args.model.init_args.model as model",
-    "=model.init_args.weights as weights",
-    "=model.init_args.lr as lr",
-    "=model.init_args.loss.init_args.tau as tau",
-    "=model.init_args.loss.init_args.alpha_neg as alpha_neg",
-]
+METADATA_COLUMNS = {
+    "scl:kinface-ft": [
+        "run",
+        ".label",
+        "=data.init_args.dataset as dataset",
+        "=data.init_args.fold as fold",
+        "=data.init_args.batch_size as batch_size",
+        "=model.init_args.model.init_args.model as model",
+        "=model.init_args.weights as weights",
+        "=model.init_args.lr as lr",
+        "=model.init_args.loss.init_args.tau as tau",
+        "=model.init_args.loss.init_args.alpha_neg as alpha_neg",
+    ],
+    "facornet:kinface-ft": [
+        "run",
+        ".label",
+        "=data.init_args.dataset as dataset",
+        "=data.init_args.fold as fold",
+        "=data.init_args.batch_size as batch_size",
+        "=model.init_args.model.init_args.model as model",
+        "=model.init_args.weights as weights",
+        "=model.init_args.lr as lr",
+        "=model.init_args.loss.init_args.s as s",
+    ],
+}
 
 # Mapping for kinship types correction
 KINSHIP_MAPPING = {"accuracy/non-kin": "fd", "accuracy/md": "fs", "accuracy/ms": "md", "accuracy/sibs": "ms"}
@@ -36,9 +49,23 @@ KINSHIP_MAPPING = {"accuracy/non-kin": "fd", "accuracy/md": "fs", "accuracy/ms":
 # Add new constant for results organization
 RESULTS_BY_LABEL_DIR = OUTPUT_DIR / "by_label"
 
+# Add new constants for mean metrics calculations
+PARAM_COLUMNS = {
+    "scl:kinface-ft": ["label", "weights", "model", "tau", "alpha_neg"],
+    "facornet:kinface-ft": ["label", "weights", "model", "s"],
+}
 
-def generate_guild_metadata() -> pd.DataFrame:
-    """Generate metadata CSV using Guild AI command and return as DataFrame."""
+BASE_COLUMNS = ["label", "weights", "model"]
+EXPERIMENT_COLUMNS = {"scl:kinface-ft": ["tau", "alpha_neg"], "facornet:kinface-ft": ["s"]}
+COMMON_COLUMNS = ["dataset", "batch_size", "lr"]
+
+
+def generate_guild_metadata(guild_experiment: str) -> pd.DataFrame:
+    """Generate metadata CSV using Guild AI command and return as DataFrame.
+
+    Args:
+        guild_experiment: Guild experiment to analyze
+    """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     metadata_csv = OUTPUT_DIR / "guild_metadata.csv"
 
@@ -46,9 +73,9 @@ def generate_guild_metadata() -> pd.DataFrame:
         "guild",
         "compare",
         "-Fo",
-        GUILD_EXPERIMENT,
+        guild_experiment,
         "-cc",
-        ",".join(METADATA_COLUMNS),
+        ",".join(METADATA_COLUMNS[guild_experiment]),
         "--csv",
         str(metadata_csv),
     ]
@@ -128,15 +155,8 @@ def merge_guild_and_tensorboard_data(guild_df: pd.DataFrame, tensorboard_df: pd.
     return merged_df
 
 
-def calculate_mean_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate mean metrics grouped by dataset, batch_size, and learning rate.
-
-    Args:
-        df: Input DataFrame with all results
-
-    Returns:
-        DataFrame with mean metrics
-    """
+def calculate_mean_metrics(df: pd.DataFrame, guild_experiment: str) -> pd.DataFrame:
+    """Calculate mean metrics grouped by dataset, batch_size, and learning rate."""
     metrics = ["accuracy", "auc", "fd", "fs", "md", "ms"]
     mean_df = (
         df.groupby(["label", "dataset", "batch_size", "lr"]).agg({metric: "mean" for metric in metrics}).reset_index()
@@ -145,26 +165,28 @@ def calculate_mean_metrics(df: pd.DataFrame) -> pd.DataFrame:
     # Calculate average of kinship-specific accuracies
     mean_df["avg_kinship"] = mean_df[["fd", "fs", "md", "ms"]].mean(axis=1)
 
-    # Readd weights, model, tau, alpha_neg, dropping duplicates first
-    unique_params = df[["label", "weights", "model", "tau", "alpha_neg"]].drop_duplicates()
+    # Get unique parameters based on experiment type
+    unique_params = df[PARAM_COLUMNS[guild_experiment]].drop_duplicates()
+
+    # Merge unique parameters with mean metrics
     mean_df = pd.merge(mean_df, unique_params, on="label", how="left")
-    # Move these columns to the front
-    mean_df = mean_df[
-        ["label", "weights", "model", "tau", "alpha_neg", "dataset", "batch_size", "lr", *metrics, "avg_kinship"]
-    ]
+
+    # Reorder columns
+    mean_df = mean_df[BASE_COLUMNS + EXPERIMENT_COLUMNS[guild_experiment] + COMMON_COLUMNS + metrics + ["avg_kinship"]]
 
     return mean_df
 
 
-def main(label: str = None, pivot_metric: str = DEFAULT_PIVOT_METRIC):
+def main(label: str = None, pivot_metric: str = DEFAULT_PIVOT_METRIC, guild_experiment: str = DEFAULT_GUILD_EXPERIMENT):
     """Main execution function.
 
     Args:
         label: Optional label to filter results. If None, processes all labels.
         pivot_metric: Metric to use for finding the best epoch (default: 'accuracy')
+        guild_experiment: Guild experiment to analyze (default: 'scl:kinface-ft')
     """
     # Get metadata from Guild
-    guild_metadata = generate_guild_metadata()
+    guild_metadata = generate_guild_metadata(guild_experiment)
 
     # Filter by label if specified
     if label:
@@ -182,12 +204,12 @@ def main(label: str = None, pivot_metric: str = DEFAULT_PIVOT_METRIC):
     main_results = main_results.rename(columns=KINSHIP_MAPPING)
 
     # Calculate mean metrics
-    mean_results = calculate_mean_metrics(main_results)
+    mean_results = calculate_mean_metrics(main_results, guild_experiment)
 
     # Create output paths based on label
     if label:
-        output_csv = RESULTS_BY_LABEL_DIR / f"kinfacew_results_{label}.csv"
-        mean_metrics_csv = RESULTS_BY_LABEL_DIR / f"mean_metrics_{label}.csv"
+        output_csv = RESULTS_BY_LABEL_DIR / f"kinfacew_results_{guild_experiment}_{label}.csv"
+        mean_metrics_csv = RESULTS_BY_LABEL_DIR / f"mean_metrics_{guild_experiment}_{label}.csv"
     else:
         output_csv = OUTPUT_CSV
         mean_metrics_csv = MEAN_METRICS_CSV
@@ -214,6 +236,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--pivot-metric", type=str, default=DEFAULT_PIVOT_METRIC, help="Metric to use for finding the best epoch"
     )
+    parser.add_argument(
+        "--guild-experiment", type=str, default=DEFAULT_GUILD_EXPERIMENT, help="Guild experiment to analyze"
+    )
     args = parser.parse_args()
 
-    main(args.label, args.pivot_metric)
+    main(args.label, args.pivot_metric, args.guild_experiment)

@@ -144,3 +144,5 @@ data
 
 **/.ipynb_checkpoints
 **/.jupyter
+
+guild-config.yml

@@ -1,12 +1,31 @@
-[tool.black]
-line-length = 120
-target-version = ['py311']
+[project]
+name = "kinship"
+version = "0.1.0"
+description = "Kinship recognition research project"
+requires-python = "==3.11.*" # guildai requires 3.11
+dependencies = [
+  "guildai",
+  "torch",
+  "torchvision",
+  "torchmetrics",
+  "scikit-learn",
+  "opencv-python",
+  "tqdm",
+  "lightning[pytorch-extra]",
+  "jsonargparse[signatures]>=4.27.7",
+  "pandas",
+  "gdown",
+  "seaborn"
+]
 
-[tool.flake8]
-max-line-length = 120
-exclude = [".git", "__pycache__", "dist"]
-max-complexity = 10
-ignore = "E203, W503"
+[project.optional-dependencies]
+ai = [
+  "jupyter-ai",
+  "langchain-openai",
+  "jupyterlab",
+  "jupytext",
+  "openai"
+]
 
 [tool.isort]
 atomic = true

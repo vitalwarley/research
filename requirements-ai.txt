@@ -1,5 +1,0 @@
-jupyter-ai
-langchain-openai
-jupyterlab
-jupytext
-openai

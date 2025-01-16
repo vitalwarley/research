@@ -64,6 +64,8 @@ class KinshipBatchSampler:
             for rel_type in self.rel_type_to_pairs:
                 for idx, fam in self.rel_type_to_pairs[rel_type]:
                     self.pair_scores[(idx, fam)] = self._compute_sampling_score(idx, fam)
+        else:
+            print("No sampling weights defined. Pair selection will be random.")
 
         self._shuffle_indices()
 

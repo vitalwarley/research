@@ -9,7 +9,7 @@
         - models/*.py
         - models/insightface
         - datasets/*.py
-        - tasks/scl.py
+        - tasks/*.py
       flags-import: all
       flags-dest: config:configs/scl.yml
       output-scalars: '(\key)=(\value)'

@@ -1,4 +1,9 @@
-from tasks.base import base_main
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from tasks.base import base_main  # noqa
 
 
 def main(args=None):

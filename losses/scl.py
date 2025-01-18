@@ -3,6 +3,28 @@ import torch.nn.functional as F
 
 
 class HCL(torch.nn.Module):
+    """
+    Hard Contrastive Loss (HCL) implementation
+
+    This loss function extends the standard contrastive loss by introducing hard negative/positive mining.
+    It filters out easy negative samples and only considers hard negatives for more effective training.
+
+    Key Features:
+    - Uses cosine similarity between embeddings
+    - Implements hard negative mining using quantile-based thresholds
+    - Optionally supports hard positive mining
+
+    Args:
+        tau (float): Temperature parameter for scaling similarities (default: 0.2)
+        alpha_neg (float): Quantile threshold for hard negative mining (default: 0.8)
+        alpha_pos (float): Quantile threshold for hard positive mining (default: 0.0)
+
+    Note:
+        This implementation computes thresholds on exp(sim_matrix / tau) instead of sim_matrix.
+        This is mathematically equivalent since exp(x) is monotonically increasing:
+        s_{i,k} > s_i ⟺ exp(s_{i,k}/τ) > exp(s_i/τ) for any positive τ.
+    """
+
     def __init__(
         self,
         tau=0.2,
@@ -26,85 +48,84 @@ class HCL(torch.nn.Module):
         num_pairs = len(positive_pairs)
         indices_i, indices_j = positive_pairs.T
 
-        # Mask shape is (2 * num_pairs, 2 * num_pairs)
-        # Diagonal are same-individual pairs, therefore we mask them
+        # Create mask to exclude self-pairs and mark positive pairs
         mask = torch.eye(sim_matrix.size(0), dtype=torch.bool, device=device)
         mask[indices_i, indices_j] = True
         mask[indices_j, indices_i] = True
 
-        # exp_sim shape is (2 * num_pairs, 2 * num_pairs)
+        # Calculate exponential similarities with temperature scaling
         exp_sim = torch.exp(sim_matrix / self.tau)
-        # Positive pairs are masked
-        exp_sim_masked = exp_sim.masked_fill(mask, 0)
+        exp_sim_masked = exp_sim.masked_fill(
+            mask, 0
+        )  # Zero out self-pairs and positive pairs
 
-        # pos_sim_ij/ji shape are num_pairs in training, but in
-        # validation we can't know which pairs are positive
-        pos_sim_ij = exp_sim[indices_i, indices_j]
-        pos_sim_ji = exp_sim[indices_j, indices_i]
+        # Extract positive pair similarities
+        pos_exp_sim_ij = exp_sim[indices_i, indices_j]  # Similarities for i->j pairs
+        pos_exp_sim_ji = exp_sim[indices_j, indices_i]  # Similarities for j->i pairs
 
-        # neg_exp_i/j shape is (len(indices_i/j), num_pairs in training
-        neg_exp_i = exp_sim_masked[
-            indices_i
-        ]  # all negative pairs for each individual in indices_i
-        neg_exp_j = exp_sim_masked[
-            indices_j
-        ]  # all negative pairs for each individual in indices_j
+        # Get all negative similarities for each anchor
+        neg_exp_sim_i = exp_sim_masked[indices_i]  # Negative similarities for i anchors
+        neg_exp_sim_j = exp_sim_masked[indices_j]  # Negative similarities for j anchors
 
-        if stage in ["train", "sanity_check"]:  # pytorch lightning needs
-            # threshold_i shape is (len(indices_i), 1); similarity threshold for each individual in indices_i
-            threshold_i = torch.quantile(neg_exp_i, self.alpha_neg, dim=1, keepdim=True)
-            # threshold_j shape is (len(indices_j), 1); similarity threshold for each individual in indices_j
-            threshold_j = torch.quantile(neg_exp_j, self.alpha_neg, dim=1, keepdim=True)
-            # These thresholds are used to filter out negative pairs with similarity lower than the threshold
-            # The threshold is an interpolation between the the middle two values of the sorted similarity values
-            # For example, for the sorted similarity values [-1.0000, -0.6834, 0.1654, 1.0000]
-            # the threshold is -0.2590 - the middle two values are -0.6834 and 0.1654
-
-            # hard_neg_sims_i shape is neg_exp_i.shape
-            hard_neg_sims_i = torch.where(
-                neg_exp_i >= threshold_i, neg_exp_i, torch.tensor(0.0, device=device)
+        if stage in ["train", "sanity_check"]:
+            # Apply hard negative mining using quantile thresholds
+            threshold_neg_i = torch.quantile(
+                neg_exp_sim_i, self.alpha_neg, dim=1, keepdim=True
             )
-            # hard_neg_sims_j shape is neg_exp_j.shape
-            hard_neg_sims_j = torch.where(
-                neg_exp_j >= threshold_j, neg_exp_j, torch.tensor(0.0, device=device)
+            threshold_neg_j = torch.quantile(
+                neg_exp_sim_j, self.alpha_neg, dim=1, keepdim=True
             )
 
-            # sum_hard_neg_sims_i shape is len(indices_i) (or num_pairs)
-            sum_hard_neg_sims_i = hard_neg_sims_i.sum(dim=1)
-            # sum_hard_neg_sims_j shape is len(indices_j) (or num_pairs)
-            sum_hard_neg_sims_j = hard_neg_sims_j.sum(dim=1)
-
-            # threshold_pos_i shape is num_pairs
-            threshold_pos_i = torch.quantile(pos_sim_ij, 1 - self.alpha_pos)
-            # threshold_pos_j shape is num_pairs
-            threshold_pos_j = torch.quantile(pos_sim_ji, 1 - self.alpha_pos)
-
-            # pos_sim_ij/ji shape is num_pairs
-            pos_sim_ij = torch.where(
-                pos_sim_ij <= threshold_pos_i,
-                pos_sim_ij,
+            # Keep only hard negatives (those above threshold)
+            hard_neg_exp_sims_i = torch.where(
+                neg_exp_sim_i >= threshold_neg_i,
+                neg_exp_sim_i,
                 torch.tensor(0.0, device=device),
             )
-            pos_sim_ji = torch.where(
-                pos_sim_ji <= threshold_pos_j,
-                pos_sim_ji,
+            hard_neg_exp_sims_j = torch.where(
+                neg_exp_sim_j >= threshold_neg_j,
+                neg_exp_sim_j,
                 torch.tensor(0.0, device=device),
             )
 
-            # loss_ij/ji shape is num_pairs
+            # Sum hard negative similarities for denominator
+            sum_hard_neg_exp_sims_i = hard_neg_exp_sims_i.sum(dim=1)
+            sum_hard_neg_exp_sims_j = hard_neg_exp_sims_j.sum(dim=1)
+
+            # Apply hard positive mining if alpha_pos > 0
+            threshold_pos_i = torch.quantile(pos_exp_sim_ij, 1 - self.alpha_pos)
+            threshold_pos_j = torch.quantile(pos_exp_sim_ji, 1 - self.alpha_pos)
+
+            # Keep only hard positives (those below threshold)
+            pos_exp_sim_ij = torch.where(
+                pos_exp_sim_ij <= threshold_pos_i,
+                pos_exp_sim_ij,
+                torch.tensor(0.0, device=device),
+            )
+            pos_exp_sim_ji = torch.where(
+                pos_exp_sim_ji <= threshold_pos_j,
+                pos_exp_sim_ji,
+                torch.tensor(0.0, device=device),
+            )
+
+            # Calculate NCE loss with hard mining
             loss_ij = -torch.log(
-                (pos_sim_ij + self.eps) / (pos_sim_ij + sum_hard_neg_sims_i + self.eps)
+                (pos_exp_sim_ij + self.eps)
+                / (pos_exp_sim_ij + sum_hard_neg_exp_sims_i + self.eps)
             )
             loss_ji = -torch.log(
-                (pos_sim_ji + self.eps) / (pos_sim_ji + sum_hard_neg_sims_j + self.eps)
+                (pos_exp_sim_ji + self.eps)
+                / (pos_exp_sim_ji + sum_hard_neg_exp_sims_j + self.eps)
             )
         else:
-            sum_neg_sims_i = neg_exp_i.sum(dim=1)
-            sum_neg_sims_j = neg_exp_j.sum(dim=1)
+            # During validation, use standard contrastive loss without hard mining
+            sum_neg_exp_sims_i = neg_exp_sim_i.sum(dim=1)
+            sum_neg_exp_sims_j = neg_exp_sim_j.sum(dim=1)
 
-            loss_ij = -torch.log(pos_sim_ij / (pos_sim_ij + sum_neg_sims_i))
-            loss_ji = -torch.log(pos_sim_ji / (pos_sim_ji + sum_neg_sims_j))
+            loss_ij = -torch.log(pos_exp_sim_ij / (pos_exp_sim_ij + sum_neg_exp_sims_i))
+            loss_ji = -torch.log(pos_exp_sim_ji / (pos_exp_sim_ji + sum_neg_exp_sims_j))
 
+        # Average the bidirectional losses
         contrastive_loss = (loss_ij + loss_ji).sum()
         return contrastive_loss / (2 * num_pairs)
 

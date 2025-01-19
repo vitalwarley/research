@@ -9,11 +9,12 @@ import lightning as L
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
+from datasets.fiw import FIW, FIWFamilyV3, FIWTask2  # noqa
+from datasets.utils import collate_fn_fiw_family_v3  # noqa
+
 # Add the parent directory to sys.path using pathlib (to run standalone in ubuntu)
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from datasets.fiw import FIW, FIWFamilyV3, FIWTask2  # noqa
-from datasets.utils import collate_fn_fiw_family_v3  # noqa
 
 N_WORKERS = os.cpu_count() or 16
 
@@ -52,18 +53,24 @@ class KinshipBatchSampler:
 
         # Initialize default weights if none provided
         self.sampling_weights = (
-            None if sampling_weights and all(v == 0 for v in sampling_weights.values()) else sampling_weights
+            None
+            if sampling_weights and all(v == 0 for v in sampling_weights.values())
+            else sampling_weights
         )
 
         # Pre-compute average samples per individual
-        self.avg_samples_per_individual = len(self.dataset) * 2 / len(self.dataset.person2idx)
+        self.avg_samples_per_individual = (
+            len(self.dataset) * 2 / len(self.dataset.person2idx)
+        )
 
         # Pre-compute initial sampling scores if using weighted sampling
         if self.sampling_weights:
             self.pair_scores = {}
             for rel_type in self.rel_type_to_pairs:
                 for idx, fam in self.rel_type_to_pairs[rel_type]:
-                    self.pair_scores[(idx, fam)] = self._compute_sampling_score(idx, fam)
+                    self.pair_scores[(idx, fam)] = self._compute_sampling_score(
+                        idx, fam
+                    )
         else:
             print("No sampling weights defined. Pair selection will be random.")
 
@@ -112,9 +119,14 @@ class KinshipBatchSampler:
         initial_duplicates = sum(count > 1 for count in family_counts.values())
 
         if self.verbose and initial_duplicates > 0:
-            print(f"Found {initial_duplicates} duplicate families in batch. Attempting replacement...")
+            print(
+                f"Found {initial_duplicates} duplicate families in batch. Attempting replacement..."
+            )
 
-        while any(count > 1 for count in family_counts.values()) and attempts < self.max_attempts:
+        while (
+            any(count > 1 for count in family_counts.values())
+            and attempts < self.max_attempts
+        ):
             attempts += 1
             # Get set of all families currently in the batch
             exclude_families = {pair[2][2] for pair in sub_batch}
@@ -127,7 +139,12 @@ class KinshipBatchSampler:
 
                     if replacement_pair:
                         family_counts = self._apply_replacement(
-                            sub_batch, i, current_fam, replacement_pair, family_counts, "balanced"
+                            sub_batch,
+                            i,
+                            current_fam,
+                            replacement_pair,
+                            family_counts,
+                            "balanced",
                         )
                         # Update exclude_families with the new family
                         exclude_families.discard(current_fam)
@@ -135,7 +152,9 @@ class KinshipBatchSampler:
 
         if attempts >= self.max_attempts:
             if self.verbose:
-                print(f"Warning: Max attempts ({self.max_attempts}) reached. Falling back to random selection")
+                print(
+                    f"Warning: Max attempts ({self.max_attempts}) reached. Falling back to random selection"
+                )
             # Fall back to random selection for remaining duplicates
             while any(count > 1 for count in family_counts.values()):
                 exclude_families = {pair[2][2] for pair in sub_batch}
@@ -145,7 +164,12 @@ class KinshipBatchSampler:
                         replacement_pair = self._random_replacement(exclude_families)
                         if replacement_pair:
                             family_counts = self._apply_replacement(
-                                sub_batch, i, current_fam, replacement_pair, family_counts, "random"
+                                sub_batch,
+                                i,
+                                current_fam,
+                                replacement_pair,
+                                family_counts,
+                                "random",
                             )
                             exclude_families.discard(current_fam)
                             exclude_families.add(replacement_pair[2][2])
@@ -156,7 +180,9 @@ class KinshipBatchSampler:
 
         return sub_batch
 
-    def _apply_replacement(self, sub_batch, index, current_fam, replacement_pair, family_counts, strategy):
+    def _apply_replacement(
+        self, sub_batch, index, current_fam, replacement_pair, family_counts, strategy
+    ):
         """Apply a replacement pair to the sub-batch and update family counts.
 
         Args:
@@ -199,12 +225,17 @@ class KinshipBatchSampler:
             max_family_samples: Optional maximum samples per family limit
         """
         if max_family_samples is None:
-            eligible = [fam for fam in self.dataset.fam2rel.keys() if fam not in exclude_families]
+            eligible = [
+                fam
+                for fam in self.dataset.fam2rel.keys()
+                if fam not in exclude_families
+            ]
         else:
             eligible = [
                 fam
                 for fam in self.dataset.fam2rel.keys()
-                if fam not in exclude_families and self.family_counters[fam] < max_family_samples
+                if fam not in exclude_families
+                and self.family_counters[fam] < max_family_samples
             ]
 
         if self.verbose:
@@ -212,7 +243,9 @@ class KinshipBatchSampler:
 
         if self.max_families_to_check and len(eligible) > self.max_families_to_check:
             if self.verbose:
-                print(f"Sampling {self.max_families_to_check} families from {len(eligible)} eligible")
+                print(
+                    f"Sampling {self.max_families_to_check} families from {len(eligible)} eligible"
+                )
             return random.sample(eligible, self.max_families_to_check)
         return eligible
 
@@ -228,7 +261,10 @@ class KinshipBatchSampler:
         f1mid, f2mid, fid = labels[:3]
         person1_key = f"F{fid:04d}_MID{f1mid}"
         person2_key = f"F{fid:04d}_MID{f2mid}"
-        return (self.dataset.person2idx[person1_key], self.dataset.person2idx[person2_key])
+        return (
+            self.dataset.person2idx[person1_key],
+            self.dataset.person2idx[person2_key],
+        )
 
     def _compute_sampling_score(self, pair_idx, fam):
         """Compute a sampling score for a relationship pair using weights."""
@@ -240,11 +276,13 @@ class KinshipBatchSampler:
         person1_id, person2_id = self._get_person_ids(labels)
 
         # Normalize counts (0-1 range)
-        rel_score = self.relationship_counters[rel_type] / self.relationship_targets[rel_type]
-        fam_score = self.family_counters[fam] / self.max_family_samples
-        ind_score = (self.individual_counters[person1_id] + self.individual_counters[person2_id]) / (
-            2 * self.avg_samples_per_individual
+        rel_score = (
+            self.relationship_counters[rel_type] / self.relationship_targets[rel_type]
         )
+        fam_score = self.family_counters[fam] / self.max_family_samples
+        ind_score = (
+            self.individual_counters[person1_id] + self.individual_counters[person2_id]
+        ) / (2 * self.avg_samples_per_individual)
         # Apply weights
         final_score = (
             rel_score * self.sampling_weights["rel"]
@@ -258,7 +296,11 @@ class KinshipBatchSampler:
         families_set = set(families_to_check)
 
         # Get all pairs from eligible families with their scores
-        eligible_pairs = [(pair, score) for pair, score in self.pair_scores.items() if pair[1] in families_set]
+        eligible_pairs = [
+            (pair, score)
+            for pair, score in self.pair_scores.items()
+            if pair[1] in families_set
+        ]
 
         if not eligible_pairs:
             return None
@@ -273,7 +315,9 @@ class KinshipBatchSampler:
         if not self.sampling_weights:
             return self._random_replacement(exclude_families)
 
-        eligible_families = self._get_eligible_families(exclude_families, self.max_family_samples)
+        eligible_families = self._get_eligible_families(
+            exclude_families, self.max_family_samples
+        )
         if not eligible_families:
             return None
         return self._find_min_count_relationship(eligible_families)
@@ -282,7 +326,9 @@ class KinshipBatchSampler:
         random.shuffle(self.indices)
 
     def _get_image_with_min_count(self, person_images):
-        min_count_image = min(person_images, key=lambda person: self.image_counters[person])
+        min_count_image = min(
+            person_images, key=lambda person: self.image_counters[person]
+        )
         return min_count_image
 
     def _update_counters(self, labels):
@@ -310,13 +356,17 @@ class KinshipBatchSampler:
             if f == fam or self.dataset.relationships[idx][2][4] == rel_type
         ]
         if self.verbose:
-            print(f"Collecting {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s")
+            print(
+                f"Collecting {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s"
+            )
 
         start_time = time.time()
         for pair in affected_pairs:
             self.pair_scores[pair] = self._compute_sampling_score(pair[0], pair[1])
         if self.verbose:
-            print(f"Updating {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s")
+            print(
+                f"Updating {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s"
+            )
 
         # Track scores per relationship type
         if self.sampling_weights:
@@ -398,6 +448,7 @@ class SCLDataModule(L.LightningDataModule):
         self,
         batch_size=20,
         root_dir=".",
+        num_workers=None,
         augmentation_params={},
         augment=False,
         sampler=True,
@@ -411,6 +462,7 @@ class SCLDataModule(L.LightningDataModule):
         super().__init__()
         self.batch_size = batch_size
         self.root_dir = root_dir
+        self.num_workers = num_workers
         self.augmentation_params = augmentation_params
         self.augment = augment
         if self.augment:
@@ -418,13 +470,21 @@ class SCLDataModule(L.LightningDataModule):
                 [
                     T.ToPILImage(),
                     T.ColorJitter(
-                        brightness=self.augmentation_params["color_jitter"]["brightness"],
+                        brightness=self.augmentation_params["color_jitter"][
+                            "brightness"
+                        ],
                         contrast=self.augmentation_params["color_jitter"]["contrast"],
-                        saturation=self.augmentation_params["color_jitter"]["saturation"],
+                        saturation=self.augmentation_params["color_jitter"][
+                            "saturation"
+                        ],
                         hue=self.augmentation_params["color_jitter"]["hue"],
                     ),
-                    T.RandomGrayscale(p=self.augmentation_params["random_grayscale_prob"]),
-                    T.RandomHorizontalFlip(p=self.augmentation_params["random_horizontal_flip_prob"]),
+                    T.RandomGrayscale(
+                        p=self.augmentation_params["random_grayscale_prob"]
+                    ),
+                    T.RandomHorizontalFlip(
+                        p=self.augmentation_params["random_horizontal_flip_prob"]
+                    ),
                     T.ToTensor(),
                 ]
             )
@@ -498,7 +558,7 @@ class SCLDataModule(L.LightningDataModule):
         return DataLoader(
             self.train_dataset,
             batch_size=batch_size,
-            num_workers=N_WORKERS,
+            num_workers=self.num_workers,
             pin_memory=True,
             persistent_workers=True,
             sampler=sampler,
@@ -528,7 +588,6 @@ class SCLDataModule(L.LightningDataModule):
 
 
 class SCLDataModuleTask2(L.LightningDataModule):
-
     def __init__(
         self,
         batch_size=20,

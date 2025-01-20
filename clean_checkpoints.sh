@@ -1,14 +1,36 @@
 #!/bin/bash
 
-# Check if --dry-run flag is provided
+# Initialize variables
 dry_run=false
-if [ "$1" == "--dry-run" ]; then
-    dry_run=true
-    echo "DRY RUN: No files will be deleted"
-fi
+operation_pattern="*"  # Default to all operations
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dry-run)
+            dry_run=true
+            echo "DRY RUN: No files will be deleted"
+            shift
+            ;;
+        --op)
+            if [ -n "$2" ]; then
+                operation_pattern="$2"
+                shift 2
+            else
+                echo "Error: --op requires an operation pattern"
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Usage: $0 [--dry-run] [--op OPERATION_PATTERN]"
+            echo "Example: $0 --op '*:kinface-ft'"
+            exit 1
+            ;;
+    esac
+done
 
 # Get list of run directories from guild select
-guild select -Fo "*:kinface-ft" -A | while read -r run_dir; do
+guild select -Fo "$operation_pattern" -A | while read -r run_dir; do
     checkpoint_dir="$HOME/.guild/runs/$run_dir/exp/checkpoints"
     
     # Check if checkpoint directory exists

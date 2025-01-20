@@ -11,8 +11,9 @@ data:
         saturation: 0.5
       random_grayscale_prob: 0.2
       random_horizontal_flip_prob: 0.5
-    batch_size: 64
+    batch_size: 20
     bias: false
+    num_workers: 16
     dataset: ff-v3
     root_dir: data/fiw/track1
     sampler: true
@@ -23,6 +24,7 @@ data:
       fam: 0.0
       ind: 0.0
       rel: 0.0
+      diff: 1.0
 model:
   class_path: models.scl.SCL
   init_args:
@@ -88,3 +90,4 @@ trainer:
   log_every_n_steps: 10
   max_epochs: 50
   num_sanity_val_steps: 1
+  devices: 1

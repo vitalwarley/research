@@ -15,7 +15,13 @@ class SCL(LightningBaseModel):
         f1, f2 = self._forward_pass(images)
         loss = self._compute_loss(f1, f2, is_kin)
         sim = self._compute_similarity(f1, f2)
-        return {"contrastive_loss": loss, "sim": sim, "features": [f1, f2]}
+
+        return {
+            "contrastive_loss": loss,
+            "sim": sim,
+            "features": [f1, f2],
+            "difficulty_scores": 1 - sim.detach(),
+        }
 
     def _get_is_kin(self, labels):
         return labels[-1] if isinstance(labels, (list, tuple)) else labels
@@ -26,7 +32,9 @@ class SCL(LightningBaseModel):
     def _compute_loss(self, f1, f2, is_kin):
         features = torch.cat([f1, f2], dim=0)
         n_samples = f1.size(0)
-        positive_pairs = torch.tensor([(i, i + n_samples) for i in range(n_samples) if is_kin[i]])
+        positive_pairs = torch.tensor(
+            [(i, i + n_samples) for i in range(n_samples) if is_kin[i]]
+        )
         return self.criterion(features, positive_pairs, self.trainer.state.stage)
 
     def _compute_similarity(self, f1, f2):
@@ -36,6 +44,16 @@ class SCL(LightningBaseModel):
         outputs = self._step(batch)
         self._log(outputs)
         loss = outputs["contrastive_loss"]
+
+        # Update difficulty scores in the sampler
+        if hasattr(self.trainer.datamodule.train_dataloader(), "batch_sampler"):
+            difficulty_scores = outputs["difficulty_scores"]
+            sampler = self.trainer.datamodule.train_dataloader().batch_sampler.sampler
+            # Update difficulty scores for each sample in batch
+            for sim_difficulty in difficulty_scores:
+                difficulty = sim_difficulty.item()
+                sampler.update_difficulty_scores(difficulty)
+
         return loss
 
     def _log(self, outputs):
@@ -45,7 +63,9 @@ class SCL(LightningBaseModel):
     def _log_training_metrics(self, loss):
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
         self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-        self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log(
+            "loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True
+        )
 
     def _eval_step(self, batch, batch_idx, stage):
         _, labels = batch
@@ -54,7 +74,14 @@ class SCL(LightningBaseModel):
         self._log_eval_metrics(outputs, stage, is_kin, kin_relation)
 
     def _log_eval_metrics(self, outputs, stage, is_kin, kin_relation):
-        self.log(f"loss/{stage}", outputs["contrastive_loss"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log(
+            f"loss/{stage}",
+            outputs["contrastive_loss"],
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
         self.similarities(outputs["sim"])
         self.is_kin_labels(is_kin)
         self.kin_labels(kin_relation)
@@ -74,7 +101,11 @@ class SCLTask2(SCL):
         fc_sim = self._compute_similarity(f1, f3)
         mc_sim = self._compute_similarity(f2, f3)
         sim = (fc_sim + mc_sim) / 2
-        return {"contrastive_loss": [fc_loss, mc_loss], "sim": sim, "features": [f1, f2, f3]}
+        return {
+            "contrastive_loss": [fc_loss, mc_loss],
+            "sim": sim,
+            "features": [f1, f2, f3],
+        }
 
     def _get_is_kin(self, labels):
         return labels[-1] if isinstance(labels, (list, tuple)) else labels
@@ -85,7 +116,9 @@ class SCLTask2(SCL):
     def _compute_loss(self, f1, f2, is_kin):
         features = torch.cat([f1, f2], dim=0)
         n_samples = f1.size(0)
-        positive_pairs = torch.tensor([(i, i + n_samples) for i in range(n_samples) if is_kin[i]])
+        positive_pairs = torch.tensor(
+            [(i, i + n_samples) for i in range(n_samples) if is_kin[i]]
+        )
         return self.criterion(features, positive_pairs, self.trainer.state.stage)
 
     def _compute_similarity(self, f1, f2):
@@ -101,8 +134,22 @@ class SCLTask2(SCL):
         fc_loss, mc_loss = loss
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
         self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-        self.log("loss/train/fc", fc_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        self.log("loss/train/mc", mc_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log(
+            "loss/train/fc",
+            fc_loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+        self.log(
+            "loss/train/mc",
+            mc_loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
 
     def _eval_step(self, batch, batch_idx, stage):
         _, labels = batch
@@ -112,10 +159,20 @@ class SCLTask2(SCL):
 
     def _log_eval_metrics(self, outputs, stage, is_kin, kin_relation):
         self.log(
-            f"loss/{stage}/fc", outputs["contrastive_loss"][0], on_step=False, on_epoch=True, prog_bar=True, logger=True
+            f"loss/{stage}/fc",
+            outputs["contrastive_loss"][0],
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
         )
         self.log(
-            f"loss/{stage}/mc", outputs["contrastive_loss"][1], on_step=False, on_epoch=True, prog_bar=True, logger=True
+            f"loss/{stage}/mc",
+            outputs["contrastive_loss"][1],
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
         )
         self.similarities(outputs["sim"])
         self.is_kin_labels(is_kin)
@@ -184,7 +241,9 @@ class SCLTask3(SCL):
         precision_at_k = cumsum / torch.arange(1, relevance.shape[1] + 1).cuda()
 
         # Only consider the ranks where relevance is 1
-        average_precision = (precision_at_k * relevance).sum(dim=1) / relevance.sum(dim=1)
+        average_precision = (precision_at_k * relevance).sum(dim=1) / relevance.sum(
+            dim=1
+        )
 
         # Handle division by zero for cases with no relevant documents
         average_precision[torch.isnan(average_precision)] = 0
@@ -211,7 +270,9 @@ class SCLTask3(SCL):
         else:
             gallery_embeddings = self.cached_gallery_embeddings[batch_key_gallery]
 
-        similarities = torch.cosine_similarity(gallery_embeddings.unsqueeze(1), probe_embeddings.unsqueeze(0), dim=2)
+        similarities = torch.cosine_similarity(
+            gallery_embeddings.unsqueeze(1), probe_embeddings.unsqueeze(0), dim=2
+        )
         max_similarities, _ = similarities.max(dim=1)
         mean_similarities = similarities.mean(dim=1)
         self.similarity_data.append((gallery_ids, max_similarities, mean_similarities))
@@ -222,7 +283,9 @@ class SCLTask3(SCL):
             self._compute_ranks()
 
     def _compute_ranks(self):
-        gallery_indexes, max_similarities, mean_similarities = zip(*self.similarity_data)
+        gallery_indexes, max_similarities, mean_similarities = zip(
+            *self.similarity_data
+        )
 
         gallery_indexes = torch.cat(gallery_indexes)
         max_similarities = torch.cat(max_similarities)
@@ -276,7 +339,9 @@ class SCLV2(LightningBaseModel):
         f1, f2 = self([img1, img2])
         features = torch.cat([f1, f2], dim=0)
         n_samples = f1.size(0)
-        positive_pairs = torch.tensor([(i, i + n_samples) for i in range(n_samples) if is_kin[i]])
+        positive_pairs = torch.tensor(
+            [(i, i + n_samples) for i in range(n_samples) if is_kin[i]]
+        )
         loss = self.criterion(features, positive_pairs, self.trainer.state.stage)
         sim = torch.cosine_similarity(f1, f2)
         outputs = {"contrastive_loss": loss, "sim": sim, "features": [f1, f2]}
@@ -288,25 +353,42 @@ class SCLV2(LightningBaseModel):
         cur_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
         # on_step=True to see the warmup and cooldown properly :)
         self.log("lr", cur_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-        self.log("loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log(
+            "loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True
+        )
         return loss
 
     def _eval_step(self, batch, batch_idx, stage):
         _, _, labels = batch
         kin_relation, is_kin = labels
         outputs = self._step(batch)
-        self.log(f"loss/{stage}", outputs["contrastive_loss"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log(
+            f"loss/{stage}",
+            outputs["contrastive_loss"],
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
         # Compute best threshold for training or validation
         self.similarities(outputs["sim"])
         self.is_kin_labels(is_kin)
         self.kin_labels(kin_relation)
 
     def on_train_epoch_end(self):
-        self.criterion.update_temperature(self.trainer.current_epoch, self.trainer.max_epochs)
-        self.log("temperature", self.criterion.tau, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.criterion.update_temperature(
+            self.trainer.current_epoch, self.trainer.max_epochs
+        )
+        self.log(
+            "temperature",
+            self.criterion.tau,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
 
 
 class SCLRFIW2021(SCL):
-
     def _forward_pass(self, img1, img2):
         return self([img1, img2])[2:]

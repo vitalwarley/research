@@ -32,6 +32,7 @@ model:
     adamw_beta2: 0.999
     anneal_strategy: cos
     cooldown: 400
+    enable_hcl_on: 5
     end_lr: 1.0e-10
     loss:
       class_path: losses.scl.HCL

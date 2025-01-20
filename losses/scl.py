@@ -13,6 +13,7 @@ class HCL(torch.nn.Module):
     - Uses cosine similarity between embeddings
     - Implements hard negative mining using quantile-based thresholds
     - Optionally supports hard positive mining
+    - Can be configured to enable/disable filtering via should_filter flag
 
     Args:
         tau (float): Temperature parameter for scaling similarities (default: 0.2)
@@ -37,13 +38,13 @@ class HCL(torch.nn.Module):
         self.alpha_pos = alpha_pos
         self.eps = 1e-8
 
-    def forward(self, embeddings, positive_pairs, stage):
+    def forward(self, embeddings, positive_pairs, should_filter=False):
         sim_matrix = F.cosine_similarity(
             embeddings.unsqueeze(1), embeddings.unsqueeze(0), dim=2
         )
-        return self.compute_loss(sim_matrix, positive_pairs, stage)
+        return self.compute_loss(sim_matrix, positive_pairs, should_filter)
 
-    def compute_loss(self, sim_matrix, positive_pairs, stage):
+    def compute_loss(self, sim_matrix, positive_pairs, should_filter):
         device = sim_matrix.device
         num_pairs = len(positive_pairs)
         indices_i, indices_j = positive_pairs.T
@@ -67,7 +68,7 @@ class HCL(torch.nn.Module):
         neg_exp_sim_i = exp_sim_masked[indices_i]  # Negative similarities for i anchors
         neg_exp_sim_j = exp_sim_masked[indices_j]  # Negative similarities for j anchors
 
-        if stage in ["train", "sanity_check"]:
+        if should_filter:
             # Apply hard negative mining using quantile thresholds
             threshold_neg_i = torch.quantile(
                 neg_exp_sim_i, self.alpha_neg, dim=1, keepdim=True
@@ -118,7 +119,7 @@ class HCL(torch.nn.Module):
                 / (pos_exp_sim_ji + sum_hard_neg_exp_sims_j + self.eps)
             )
         else:
-            # During validation, use standard contrastive loss without hard mining
+            # When filtering is disabled
             sum_neg_exp_sims_i = neg_exp_sim_i.sum(dim=1)
             sum_neg_exp_sims_j = neg_exp_sim_j.sum(dim=1)
 

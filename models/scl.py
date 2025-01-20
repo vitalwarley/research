@@ -9,6 +9,10 @@ class SCL(LightningBaseModel):
     Same as FaCoRNetBasicV6.
     """
 
+    def __init__(self, *args, enable_hcl_on=0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.enable_hcl_on = enable_hcl_on
+
     def _step(self, batch):
         images, labels = batch
         is_kin = self._get_is_kin(labels)
@@ -29,13 +33,20 @@ class SCL(LightningBaseModel):
     def _forward_pass(self, images):
         return self(images)
 
+    def _should_apply_hcl(self):
+        """Determine if HCL should be applied based on current training state."""
+        is_training = self.trainer.state.stage == "train"
+        is_sanity_check = self.trainer.state.stage == "sanity_check"
+        past_enable_epoch = self.trainer.current_epoch >= self.enable_hcl_on
+        return (is_training or is_sanity_check) and past_enable_epoch
+
     def _compute_loss(self, f1, f2, is_kin):
         features = torch.cat([f1, f2], dim=0)
         n_samples = f1.size(0)
         positive_pairs = torch.tensor(
             [(i, i + n_samples) for i in range(n_samples) if is_kin[i]]
         )
-        return self.criterion(features, positive_pairs, self.trainer.state.stage)
+        return self.criterion(features, positive_pairs, self._should_apply_hcl())
 
     def _compute_similarity(self, f1, f2):
         return torch.cosine_similarity(f1, f2)

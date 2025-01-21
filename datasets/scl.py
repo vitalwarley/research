@@ -24,7 +24,8 @@ class KinshipBatchSampler:
         max_attempts=100,
         max_families_to_check=50,
         verbose=False,
-        difficulty_scores=None,  # New parameter to pass pre-computed difficulty scores
+        sampler_score_update_period=10,
+        sampler_max_pairs_per_update=100,
     ):
         self.dataset = dataset
         self.batch_size = batch_size
@@ -33,7 +34,9 @@ class KinshipBatchSampler:
         self.max_attempts = max_attempts
         self.max_families_to_check = max_families_to_check
         self.verbose = verbose
-        self.difficulty_scores = difficulty_scores or {}  # Store difficulty scores
+        self.score_update_period = sampler_score_update_period
+        self.max_pairs_per_update = sampler_max_pairs_per_update
+        self.difficulty_scores = {}  # Store difficulty scores
 
         # Initialize counters
         self.family_counters = defaultdict(int)
@@ -79,6 +82,17 @@ class KinshipBatchSampler:
 
         # Track current batch's image pairs for difficulty mapping
         self.current_batch_pairs = []
+
+        # Initialize update counter
+        self._update_counter = 0
+
+        # Add distribution tracking
+        self.distribution_history = {
+            "relationship": defaultdict(list),
+            "family": defaultdict(list),
+            "individual": defaultdict(list),
+        }
+        self.tracking_interval = 100  # Track every N batches
 
     def _compute_relationship_frequencies(self):
         """Calculate the frequency of each relationship type in the dataset.
@@ -362,11 +376,9 @@ class KinshipBatchSampler:
         rel_type = labels[4]
         fam = labels[2]
 
-        # Update relationship and family counters
+        # Basic counter updates (always performed)
         self.relationship_counters[rel_type] += 1
         self.family_counters[fam] += 1
-
-        # Update individual counters
         person1_id, person2_id = self._get_person_ids(labels)
         self.individual_counters[person1_id] += 1
         self.individual_counters[person2_id] += 1
@@ -374,54 +386,75 @@ class KinshipBatchSampler:
         if not self.sampling_weights:
             return
 
-        # Update sampling scores for affected relationships
-        start_time = time.time()
-        affected_pairs = [
-            (idx, f)
-            for idx, f in self.pair_scores.keys()
-            if f == fam or self.dataset.relationships[idx][2][4] == rel_type
-        ]
+        # Check if we should update scores this iteration
+        self._update_counter += 1
+        if self._update_counter % self.score_update_period != 0:
+            return
+
         if self.verbose:
-            print(
-                f"Collecting {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s"
-            )
+            t0 = time.time()
 
-        start_time = time.time()
-        for pair in affected_pairs:
-            self.pair_scores[pair] = self._compute_sampling_score(pair[0], pair[1])
+        # Get all affected pairs (same family or relationship type)
+        affected_pairs = []
+        for (idx, f), current_score in self.pair_scores.items():
+            if f == fam or self.dataset.relationships[idx][2][4] == rel_type:
+                affected_pairs.append((idx, f, current_score))
+
+        # Sort by score (lowest first) to prioritize updating worst scores
+        affected_pairs.sort(key=lambda x: x[2])
+        affected_pairs = affected_pairs[: self.max_pairs_per_update]
+
+        # Update scores for selected pairs
+        for idx, f, _ in affected_pairs:
+            self.pair_scores[(idx, f)] = self._compute_sampling_score(idx, f)
+
         if self.verbose:
-            print(
-                f"Updating {len(affected_pairs)} pairs took: {time.time() - start_time:.4f}s"
-            )
+            print(f"Updated {len(affected_pairs)} pairs in {time.time() - t0:.4f}s")
 
-        # Track scores per relationship type
-        if self.sampling_weights:
-            scores_by_rel_type = defaultdict(list)
-            for (idx, _), score in self.pair_scores.items():
-                rel = self.dataset.relationships[idx][2][4]
-                scores_by_rel_type[rel].append(score)
+        # Track distributions periodically
+        if self._update_counter % self.tracking_interval == 0:
+            total_rels = sum(self.relationship_counters.values())
+            total_fams = sum(self.family_counters.values())
+            total_inds = sum(self.individual_counters.values())
 
-            # Compute statistics for each relationship type
-            rel_type_stats = {}
-            for rel, scores in scores_by_rel_type.items():
-                rel_type_stats[rel] = {
-                    "min": min(scores),
-                    "max": max(scores),
-                    "mean": sum(scores) / len(scores),
-                    "count": len(scores),
-                }
+            # Store current distributions
+            for rel, count in self.relationship_counters.items():
+                self.distribution_history["relationship"][rel].append(
+                    count / total_rels if total_rels else 0
+                )
 
-            # Track overall and per-relationship type statistics
-            self.score_history.append(
-                {
-                    "overall": {
-                        "min": min(self.pair_scores.values()),
-                        "max": max(self.pair_scores.values()),
-                        "mean": sum(self.pair_scores.values()) / len(self.pair_scores),
-                    },
-                    "by_relationship": rel_type_stats,
-                }
-            )
+            for fam, count in self.family_counters.items():
+                self.distribution_history["family"][fam].append(
+                    count / total_fams if total_fams else 0
+                )
+
+            for ind, count in self.individual_counters.items():
+                self.distribution_history["individual"][ind].append(
+                    count / total_inds if total_inds else 0
+                )
+
+    def get_sampling_stats(self):
+        """Compute coefficient of variation for family, relationship and individual sampling."""
+
+        def compute_cv(counter):
+            values = list(counter.values())
+            if not values:
+                return 0
+            mean = sum(values) / len(values)
+            if mean == 0:
+                return 0
+            std = (sum((x - mean) ** 2 for x in values) / len(values)) ** 0.5
+            return std / mean
+
+        return {
+            "family_cv": compute_cv(self.family_counters),
+            "relationship_cv": compute_cv(self.relationship_counters),
+            "individual_cv": compute_cv(self.individual_counters),
+        }
+
+    def get_distribution_history(self):
+        """Return the sampling distribution history for analysis."""
+        return self.distribution_history
 
     def get_score_statistics(self):
         """Return score history for analysis."""
@@ -496,7 +529,8 @@ class SCLDataModule(L.LightningDataModule):
         sampler_max_attempts=100,
         sampler_max_families=50,
         sampler_verbose=False,
-        difficulty_scores=None,  # New parameter for difficulty-based sampling
+        sampler_score_update_period=5,
+        sampler_max_pairs_per_update=100,
     ):
         super().__init__()
         self.batch_size = batch_size
@@ -538,8 +572,9 @@ class SCLDataModule(L.LightningDataModule):
         self.sampler_max_attempts = sampler_max_attempts
         self.sampler_max_families = sampler_max_families
         self.sampler_verbose = sampler_verbose
-        self.difficulty_scores = difficulty_scores  # Store difficulty scores
-        self.train_sampler = None  # Add this line to store the sampler instance
+        self.sampler_score_update_period = sampler_score_update_period
+        self.sampler_max_pairs_per_update = sampler_max_pairs_per_update
+        self.train_sampler = None
 
     def setup(self, stage=None):
         # For Hard Contrastive Loss, we need batches to have at least 1 positive pair
@@ -588,7 +623,8 @@ class SCLDataModule(L.LightningDataModule):
                 max_attempts=self.sampler_max_attempts,
                 max_families_to_check=self.sampler_max_families,
                 verbose=self.sampler_verbose,
-                difficulty_scores=self.difficulty_scores,
+                sampler_score_update_period=self.sampler_score_update_period,
+                sampler_max_pairs_per_update=self.sampler_max_pairs_per_update,
             )
             batch_size = 1
             shuffle = False
@@ -603,7 +639,7 @@ class SCLDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
             persistent_workers=True,
-            sampler=self.train_sampler,  # Use the stored sampler instance
+            sampler=self.train_sampler,
             collate_fn=self.collate_fn,
             shuffle=shuffle,
             worker_init_fn=worker_init_fn,

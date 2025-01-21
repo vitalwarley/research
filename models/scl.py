@@ -57,9 +57,9 @@ class SCL(LightningBaseModel):
         loss = outputs["contrastive_loss"]
 
         # Update difficulty scores in the sampler
-        if hasattr(self.trainer.datamodule.train_dataloader(), "batch_sampler"):
+        if self.trainer.datamodule.train_sampler is not None:
             difficulty_scores = outputs["difficulty_scores"]
-            sampler = self.trainer.datamodule.train_dataloader().batch_sampler.sampler
+            sampler = self.trainer.datamodule.train_sampler
             # Update difficulty scores for each sample in batch
             for sim_difficulty in difficulty_scores:
                 difficulty = sim_difficulty.item()

@@ -24,7 +24,7 @@ data:
       fam: 0.0
       ind: 0.0
       rel: 0.0
-      diff: 1.0
+      diff: 0.0
 model:
   class_path: models.scl.SCL
   init_args:

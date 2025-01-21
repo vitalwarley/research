@@ -1,6 +1,8 @@
+import random
 from pathlib import Path
 
 import cv2
+import numpy as np
 import torch
 from torch.utils.data import default_collate
 
@@ -18,14 +20,21 @@ def sr_collate_fn(batch):
 
     # Concatenate probe_images and gallery_images
     # Transform list of tensors into a single tensor per each
-    probe_images_tensor = torch.stack(probe_images)  # Shape: [num_probe_images, 3, 112, 112]
-    gallery_images_tensor = torch.stack(gallery_images)  # Shape: [num_gallery_images, 3, 112, 112]
+    probe_images_tensor = torch.stack(
+        probe_images
+    )  # Shape: [num_probe_images, 3, 112, 112]
+    gallery_images_tensor = torch.stack(
+        gallery_images
+    )  # Shape: [num_gallery_images, 3, 112, 112]
 
     # Handle gallery_indexes which is a list of tensors
     # Since gallery_indexes are used for indexing or referencing, they could be concatenated as well
     gallery_indexes_tensor = torch.tensor(gallery_indexes)
 
-    return (probe_index, probe_images_tensor), (gallery_indexes_tensor, gallery_images_tensor)
+    return (probe_index, probe_images_tensor), (
+        gallery_indexes_tensor,
+        gallery_images_tensor,
+    )
 
 
 def sr_collate_fn_v2(batch):
@@ -38,9 +47,16 @@ def sr_collate_fn_v2(batch):
     # Unpack the batch
     probe_info, gallery_info = batch[0]  # Always 1 element
     probe_id, probe_images = probe_info
-    gallery_ids, gallery_images = zip(*[(gallery_id, gallery_images) for (gallery_id, gallery_images) in gallery_info])
+    gallery_ids, gallery_images = zip(
+        *[(gallery_id, gallery_images) for (gallery_id, gallery_images) in gallery_info]
+    )
 
-    return probe_id, default_collate(probe_images), default_collate(gallery_ids), default_collate(gallery_images)
+    return (
+        probe_id,
+        default_collate(probe_images),
+        default_collate(gallery_ids),
+        default_collate(gallery_images),
+    )
 
 
 def collate_fn_fiw_family_v3(batch):
@@ -94,7 +110,13 @@ def collate_fn_fiw_family_v4(batch):
     imgs2_age_tensor = torch.tensor(imgs2_age_flat)
     imgs1_gender_tensor = torch.tensor(imgs1_gender_flat)
     imgs2_gender_tensor = torch.tensor(imgs2_gender_flat)
-    labels = (imgs1_age_tensor, imgs2_age_tensor, imgs1_gender_tensor, imgs2_gender_tensor, is_kin_tensor)
+    labels = (
+        imgs1_age_tensor,
+        imgs2_age_tensor,
+        imgs1_gender_tensor,
+        imgs2_gender_tensor,
+        is_kin_tensor,
+    )
 
     return imgs1_tensor, imgs2_tensor, labels
 
@@ -120,7 +142,9 @@ class Sample:
         "gmgs": 11,
     }
 
-    def __init__(self, id: str, f1: str, f2: str, kin_relation: str, is_kin: str, *args, **kwargs):
+    def __init__(
+        self, id: str, f1: str, f2: str, kin_relation: str, is_kin: str, *args, **kwargs
+    ):
         self.id = id
         self.f1 = f1
         self.f2 = f2
@@ -157,7 +181,9 @@ class SampleTask2:
         "FMS": 2,
     }
 
-    def __init__(self, f1: str, f2: str, f3: str, kin_relation: str, is_kin: str, *args, **kwargs):
+    def __init__(
+        self, f1: str, f2: str, f3: str, kin_relation: str, is_kin: str, *args, **kwargs
+    ):
         self.f1 = f1
         self.f2 = f2
         self.f3 = f3
@@ -211,3 +237,10 @@ def read_image(path: Path, shape=(112, 112)):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = cv2.resize(img, shape)
     return img
+
+
+def worker_init_fn(worker_id):
+    # Calculate unique seed for each worker
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)

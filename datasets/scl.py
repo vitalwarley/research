@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
 from datasets.fiw import FIW, FIWFamilyV3, FIWTask2  # noqa
-from datasets.utils import collate_fn_fiw_family_v3  # noqa
+from datasets.utils import collate_fn_fiw_family_v3, worker_init_fn  # noqa
 
 # Add the parent directory to sys.path using pathlib (to run standalone in ubuntu)
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -427,6 +427,21 @@ class KinshipBatchSampler:
         """Return score history for analysis."""
         return self.score_history
 
+    def update_difficulty_scores(self, difficulty_score):
+        """Update difficulty score for a specific pair.
+
+        Args:
+            difficulty_score: New difficulty score based on model predictions
+        """
+        if self.sampling_weights:
+            for rel_idx in self.current_batch_pairs:
+                self.difficulty_scores[rel_idx] = difficulty_score
+                # Update sampling score for this pair
+                fam = self.dataset.relationships[rel_idx][2][2]
+                self.pair_scores[(rel_idx, fam)] = self._compute_sampling_score(
+                    rel_idx, fam
+                )
+
     def __iter__(self):
         for i in range(0, len(self.indices), self.batch_size):
             sub_batch_indices = self.indices[i : i + self.batch_size]
@@ -435,8 +450,6 @@ class KinshipBatchSampler:
 
             batch = []
             self.current_batch_pairs = []  # Reset for new batch
-
-            start_time = time.time()
 
             start_time = time.time()
             for pair in sub_batch:
@@ -459,27 +472,10 @@ class KinshipBatchSampler:
             if self.verbose:
                 print(f"Processing all pairs took: {time.time() - start_time:.4f}s")
 
-            if self.verbose:
-                print(f"Processing all pairs took: {time.time() - start_time:.4f}s")
             yield batch
 
     def __len__(self):
         return len(self.dataset) // self.batch_size
-
-    def update_difficulty_scores(self, difficulty_score):
-        """Update difficulty score for a specific pair.
-
-        Args:
-            difficulty_score: New difficulty score based on model predictions
-        """
-        if self.sampling_weights:
-            for rel_idx in self.current_batch_pairs:
-                self.difficulty_scores[rel_idx] = difficulty_score
-                # Update sampling score for this pair
-                fam = self.dataset.relationships[rel_idx][2][2]
-                self.pair_scores[(rel_idx, fam)] = self._compute_sampling_score(
-                    rel_idx, fam
-                )
 
 
 class SCLDataModule(L.LightningDataModule):
@@ -543,6 +539,7 @@ class SCLDataModule(L.LightningDataModule):
         self.sampler_max_families = sampler_max_families
         self.sampler_verbose = sampler_verbose
         self.difficulty_scores = difficulty_scores  # Store difficulty scores
+        self.train_sampler = None  # Add this line to store the sampler instance
 
     def setup(self, stage=None):
         # For Hard Contrastive Loss, we need batches to have at least 1 positive pair
@@ -584,19 +581,19 @@ class SCLDataModule(L.LightningDataModule):
 
     def train_dataloader(self):
         if self.sampler:
-            sampler = KinshipBatchSampler(
+            self.train_sampler = KinshipBatchSampler(
                 self.train_dataset,
                 self.batch_size,
                 sampling_weights=self.sampling_weights,
                 max_attempts=self.sampler_max_attempts,
                 max_families_to_check=self.sampler_max_families,
                 verbose=self.sampler_verbose,
-                difficulty_scores=self.difficulty_scores,  # Pass difficulty scores to sampler
+                difficulty_scores=self.difficulty_scores,
             )
             batch_size = 1
             shuffle = False
         else:
-            sampler = None
+            self.train_sampler = None
             shuffle = not self.bias
             batch_size = self.batch_size
 
@@ -606,9 +603,10 @@ class SCLDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
             persistent_workers=True,
-            sampler=sampler,
+            sampler=self.train_sampler,  # Use the stored sampler instance
             collate_fn=self.collate_fn,
             shuffle=shuffle,
+            worker_init_fn=worker_init_fn,
         )
 
     def val_dataloader(self):
@@ -619,6 +617,7 @@ class SCLDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
             persistent_workers=True,
+            worker_init_fn=worker_init_fn,
         )
 
     def test_dataloader(self):
@@ -629,6 +628,7 @@ class SCLDataModule(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
             persistent_workers=True,
+            worker_init_fn=worker_init_fn,
         )
 
 
@@ -688,6 +688,7 @@ class SCLDataModuleTask2(L.LightningDataModule):
             pin_memory=True,
             persistent_workers=True,
             shuffle=True,
+            worker_init_fn=worker_init_fn,
         )
 
     def val_dataloader(self):
@@ -697,6 +698,7 @@ class SCLDataModuleTask2(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
             persistent_workers=True,
+            worker_init_fn=worker_init_fn,
         )
 
     def test_dataloader(self):
@@ -706,6 +708,7 @@ class SCLDataModuleTask2(L.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
             persistent_workers=True,
+            worker_init_fn=worker_init_fn,
         )
 
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-max_gpu=${1:-7}     # First argument: max GPU number (default: 7)
+max_gpu=${1:-4}     # First argument: max GPU number (default: 7)
 gpu_per_run=${2:-1} # Second argument: GPUs per run (default: 1)
 
 if [ "$gpu_per_run" != "1" ] && [ "$gpu_per_run" != "2" ]; then

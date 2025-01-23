@@ -287,6 +287,10 @@ class KinshipBatchSampler:
         Returns:
             float: Normalized difficulty score between 0 and 1
         """
+        # If no sampling weights, all pairs are equally difficult
+        if not self.sampling_weights.get("diff", 0):
+            return 0.0  # No difficulty score 
+
         if pair_idx not in self.difficulty_scores:
             return 0.5  # Default medium difficulty if no score available
 

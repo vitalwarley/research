@@ -78,6 +78,19 @@ class SCL(LightningBaseModel):
             "loss/train", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True
         )
 
+        # Log CV metrics if sampler is available
+        if self.trainer.datamodule.train_sampler is not None:
+            cv_stats = self.trainer.datamodule.train_sampler.get_sampling_stats()
+            for metric_name, value in cv_stats.items():
+                self.log(
+                    f"cv/{metric_name}",
+                    value,
+                    on_step=False,
+                    on_epoch=True,
+                    prog_bar=True,
+                    logger=True,
+                )
+
     def _eval_step(self, batch, batch_idx, stage):
         _, labels = batch
         kin_relation, is_kin = labels

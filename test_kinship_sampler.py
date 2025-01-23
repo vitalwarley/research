@@ -16,7 +16,7 @@ def analyze_epoch_sampling(sampler):
     batch_times = []
 
     start_time = time.time()
-    for batch in tqdm(sampler, desc="Analyzing batches"):
+    for batch in tqdm(sampler, desc="Analyzing batches", leave=False):
         # Record batch time
         batch_time = time.time() - start_time
         batch_times.append(batch_time)
@@ -46,10 +46,11 @@ def calculate_cv(counts):
 
 
 def print_sampling_statistics(
-    individual_counts, relationship_type_counts, family_counts, batch_times
+    individual_counts, relationship_type_counts, family_counts, batch_times, trial=None
 ):
     """Print detailed sampling statistics."""
-    print("\nSampling Statistics:")
+    trial_str = f" (Trial {trial})" if trial is not None else ""
+    print(f"\nSampling Statistics{trial_str}:")
     print("-" * 50)
 
     # Timing statistics
@@ -105,95 +106,139 @@ def evaluate_weight_configuration(
     root_dir="data/fiw/track1",
     sampler_score_update_period=5,
     sampler_max_pairs_per_update=100,
+    n_trials=5,
+    verbose=True,
 ):
-    """Evaluate a specific weight configuration."""
-    print(f"\nEvaluating weights: {weights}")
-    print(
-        f"Update period: {sampler_score_update_period}, Max pairs per update: {sampler_max_pairs_per_update}"
-    )
+    """Evaluate a specific weight configuration with multiple trials."""
+    if verbose:
+        print(f"\nEvaluating weights: {weights}")
+        print(
+            f"Update period: {sampler_score_update_period}, Max pairs per update: {sampler_max_pairs_per_update}"
+        )
 
-    # Initialize dataset with the weight configuration
-    dm = SCLDataModule(
-        dataset="ff-v3",
-        batch_size=batch_size,
-        root_dir=root_dir,
-        sampler=True,
-        sampling_weights=weights,
-        sampler_verbose=False,
-        num_workers=16,
-        sampler_score_update_period=sampler_score_update_period,
-        sampler_max_pairs_per_update=sampler_max_pairs_per_update,
-    )
-    dm.setup("fit")
+    # Store results for each trial
+    trial_metrics = []
 
-    # Get the sampler
-    sampler = dm.train_dataloader().batch_sampler.sampler
+    for trial in range(n_trials):
+        if verbose:
+            print(f"\nTrial {trial + 1}/{n_trials}")
 
-    # Analyze sampling patterns
-    individual_counts, relationship_type_counts, family_counts, batch_times = (
-        analyze_epoch_sampling(sampler)
-    )
+        # Initialize dataset with the weight configuration
+        dm = SCLDataModule(
+            dataset="ff-v3",
+            batch_size=batch_size,
+            root_dir=root_dir,
+            sampler=True,
+            sampling_weights=weights,
+            sampler_verbose=False,
+            num_workers=16,
+            sampler_score_update_period=sampler_score_update_period,
+            sampler_max_pairs_per_update=sampler_max_pairs_per_update,
+        )
+        dm.setup("fit")
 
-    # Calculate metrics
-    metrics = {
-        "individual_cv": calculate_cv(individual_counts),
-        "relationship_cv": calculate_cv(relationship_type_counts),
-        "family_cv": calculate_cv(family_counts),
-        "mean_batch_time": np.mean(batch_times),
-        "std_batch_time": np.std(batch_times),
-        "min_batch_time": np.min(batch_times),
-        "max_batch_time": np.max(batch_times),
-    }
+        # Get the sampler
+        sampler = dm.train_dataloader().batch_sampler.sampler
 
-    # Print statistics
-    print_sampling_statistics(
-        individual_counts, relationship_type_counts, family_counts, batch_times
-    )
+        # Analyze sampling patterns
+        individual_counts, relationship_type_counts, family_counts, batch_times = (
+            analyze_epoch_sampling(sampler)
+        )
+
+        # Calculate metrics for this trial
+        trial_metrics.append(
+            {
+                "individual_cv": calculate_cv(individual_counts),
+                "relationship_cv": calculate_cv(relationship_type_counts),
+                "family_cv": calculate_cv(family_counts),
+                "mean_batch_time": np.mean(batch_times),
+                "std_batch_time": np.std(batch_times),
+                "min_batch_time": np.min(batch_times),
+                "max_batch_time": np.max(batch_times),
+            }
+        )
+
+        if verbose:
+            print_sampling_statistics(
+                individual_counts,
+                relationship_type_counts,
+                family_counts,
+                batch_times,
+                trial + 1,
+            )
+
+    # Calculate mean and std of metrics across trials
+    trial_df = pd.DataFrame(trial_metrics)
+    metrics = {}
+
+    for column in trial_df.columns:
+        metrics[f"{column}_mean"] = trial_df[column].mean()
+        metrics[f"{column}_std"] = trial_df[column].std()
 
     return metrics
 
 
 def main():
+    # Number of trials per configuration
+    N_TRIALS = 5
+
     # Define configurations to test
     configs = [
-        # Baseline for comparison
+        # Baseline for comparison (no weighting, random sampling)
         {
-            "weights": {"rel": 0.6, "fam": 0.2, "ind": 0.2},
+            "weights": {"rel": 0.0, "fam": 0.0, "ind": 0.0, "diff": 0.0},
             "sampler_score_update_period": 1,
-            "sampler_max_pairs_per_update": 1000,
+            "sampler_max_pairs_per_update": 0,  # use all pairs
             "name": "baseline",
         },
-        # Current sweet spot for reference
+        # Baseline (pure random, limited pairs and updates)
         {
-            "weights": {"rel": 0.6, "fam": 0.2, "ind": 0.2},
+            "weights": {"rel": 0.0, "fam": 0.0, "ind": 0.0, "diff": 0.0},
             "sampler_score_update_period": 5,
             "sampler_max_pairs_per_update": 100,
-            "name": "current_sweet_spot",
+            "name": "baseline_limited",
         },
-        # Testing frequent updates with limited pairs
+        # Pure relationship weighting (full pairs, full updates)
         {
-            "weights": {"rel": 0.6, "fam": 0.2, "ind": 0.2},
+            "weights": {"rel": 1.0, "fam": 0.0, "ind": 0.0, "diff": 0.0},
             "sampler_score_update_period": 1,
-            "sampler_max_pairs_per_update": 25,
-            "name": "frequent_very_limited",
+            "sampler_max_pairs_per_update": 0,
+            "name": "pure_relationship",
         },
+        # Pure relationship weighting (limited pairs, full updates)
         {
-            "weights": {"rel": 0.6, "fam": 0.2, "ind": 0.2},
+            "weights": {"rel": 1.0, "fam": 0.0, "ind": 0.0, "diff": 0.0},
+            "sampler_score_update_period": 5,
+            "sampler_max_pairs_per_update": 100,
+            "name": "pure_relationship_limited",
+        },
+        # Pure difficulty weighting (full pairs, full updates)
+        {
+            "weights": {"rel": 0.0, "fam": 0.0, "ind": 0.0, "diff": 1.0},
             "sampler_score_update_period": 1,
-            "sampler_max_pairs_per_update": 50,
-            "name": "frequent_limited",
+            "sampler_max_pairs_per_update": 0,
+            "name": "pure_difficulty",
         },
+        # Pure difficulty weighting (limited pairs, full updates)
         {
-            "weights": {"rel": 0.6, "fam": 0.2, "ind": 0.2},
-            "sampler_score_update_period": 2,
-            "sampler_max_pairs_per_update": 25,
-            "name": "semi_frequent_very_limited",
+            "weights": {"rel": 0.0, "fam": 0.0, "ind": 0.0, "diff": 1.0},
+            "sampler_score_update_period": 5,
+            "sampler_max_pairs_per_update": 100,
+            "name": "pure_difficulty_limited",
         },
+        # Balanced weighting (full pairs, full updates)
         {
-            "weights": {"rel": 0.6, "fam": 0.2, "ind": 0.2},
-            "sampler_score_update_period": 2,
-            "sampler_max_pairs_per_update": 50,
-            "name": "semi_frequent_limited",
+            "weights": {"rel": 0.33, "fam": 0.33, "ind": 0.34, "diff": 0.0},
+            "sampler_score_update_period": 1,
+            "sampler_max_pairs_per_update": 0,
+            "name": "balanced",
+        },
+        # Balanced weighting (limited pairs, full updates)
+        {
+            "weights": {"rel": 0.33, "fam": 0.33, "ind": 0.34, "diff": 0.0},
+            "sampler_score_update_period": 5,
+            "sampler_max_pairs_per_update": 100,
+            "name": "balanced_limited",
         },
     ]
 
@@ -205,16 +250,38 @@ def main():
             weights=config["weights"],
             sampler_score_update_period=config["sampler_score_update_period"],
             sampler_max_pairs_per_update=config["sampler_max_pairs_per_update"],
+            n_trials=N_TRIALS,
         )
 
     # Create summary DataFrame
     summary = pd.DataFrame(results).T
-    print("\nSummary of Results:")
-    print(summary.round(4))
 
-    # Save results
+    # Create a more readable table
+    table_data = []
+
+    for idx, row in summary.iterrows():
+        config_data = {
+            "Configuration": idx,
+            "Individual CV": f"{row['individual_cv_mean']:.2f} ± {row['individual_cv_std']:.2f}",
+            "Relationship CV": f"{row['relationship_cv_mean']:.2f} ± {row['relationship_cv_std']:.2f}",
+            "Family CV": f"{row['family_cv_mean']:.2f} ± {row['family_cv_std']:.2f}",
+            "Batch Time (s)": f"{row['mean_batch_time_mean']*1000:.1f} ± {row['mean_batch_time_std']*1000:.1f}",
+        }
+        table_data.append(config_data)
+
+    results_table = pd.DataFrame(table_data)
+    results_table = results_table.set_index("Configuration")
+
+    # Print the table
+    print("\nSampling Results (mean ± std across trials):")
+    print("CV values in %, Batch Time in ms")
+    print("=" * 100)
+    print(results_table.to_string())
+    print("=" * 100)
+
+    # Save detailed results
     summary.to_csv("sampler_evaluation_results.csv")
-    print("\nResults saved to sampler_evaluation_results.csv")
+    print("\nDetailed results saved to sampler_evaluation_results.csv")
 
 
 if __name__ == "__main__":

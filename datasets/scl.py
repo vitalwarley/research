@@ -349,10 +349,16 @@ class KinshipBatchSampler:
         if not eligible_pairs:
             return None
 
-        # Find pair with minimum score
-        min_pair = min(eligible_pairs, key=lambda x: x[1])
+        # Find minimum score
+        min_score = min(p[1] for p in eligible_pairs)
 
-        return self.dataset.relationships[min_pair[0][0]]
+        # Get all pairs with minimum score
+        min_pairs = [p for p in eligible_pairs if p[1] == min_score]
+
+        # Randomly select from pairs with minimum score
+        selected_pair = random.choice(min_pairs)
+
+        return self.dataset.relationships[selected_pair[0][0]]
 
     def _find_balanced_replacement(self, exclude_families):
         """Find replacement considering relationship, family and individual balance using sampling scores."""
@@ -406,7 +412,8 @@ class KinshipBatchSampler:
 
         # Sort by score (lowest first) to prioritize updating worst scores
         affected_pairs.sort(key=lambda x: x[2])
-        affected_pairs = affected_pairs[: self.max_pairs_per_update]
+        if self.max_pairs_per_update:
+            affected_pairs = affected_pairs[: self.max_pairs_per_update - 1]
 
         # Update scores for selected pairs
         for idx, f, _ in affected_pairs:

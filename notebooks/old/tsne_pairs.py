@@ -43,7 +43,7 @@ sys.path.insert(0, str(Path(HERE, "..")))  # kinship root
 sys.path.insert(0, str(Path(HERE, "..", "rfiw2021")))  # rfiw2021 dir
 
 # %%
-from dataset import FIWPair  # noqa: E402
+from notebooks.fg2025.dataset import FIWPair  # noqa: E402
 from Track1.models import Net  # noqa: E402
 from Track1.utils import set_seed  # noqa: E402
 

@@ -64,7 +64,7 @@ sys.path.insert(0, str(Path(HERE, "..")))  # kinship root sys.path.insert(0, str
 print(sys.path)
 
 # %%
-from dataset import FIW  # noqa: E402
+from notebooks.fg2025.dataset import FIW  # noqa: E402
 
 from ours.models.base import SimpleModel  # noqa: E402
 from ours.models.rfiw2021 import RFIW2021Net  # noqa: E402

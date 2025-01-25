@@ -35,12 +35,13 @@ plt.style.use(["science", "ieee", "grid", "no-latex"])
 # Constants
 OUTPUT_DIR = Path("results") / "experiments"
 OUTPUT_CSV = OUTPUT_DIR / "experiments_results.csv"
+IGNORE_CSV = True
 
 # %%
 # Column configurations for guild compare command
 METADATA_COLUMNS = [
     "run",
-    "accuracy",
+    "max accuracy",
     "=data.init_args.sampling_weights.diff as diff",
     "=data.init_args.sampling_weights.fam as fam",
     "=data.init_args.sampling_weights.ind as ind",
@@ -71,7 +72,7 @@ def generate_guild_metadata() -> pd.DataFrame:
     metadata_csv = OUTPUT_DIR / "guild_metadata.csv"
 
     # Check if metadata file exists
-    if metadata_csv.exists():
+    if metadata_csv.exists() and not IGNORE_CSV:
         print("Reading existing metadata file...")
         df = pd.read_csv(metadata_csv)
     else:
@@ -81,8 +82,7 @@ def generate_guild_metadata() -> pd.DataFrame:
             "compare",
             "-Fo",
             "scl:train",
-            "-n",
-            "190",
+            "6:195",
             "-cc",
             ",".join(METADATA_COLUMNS),
             "--csv",

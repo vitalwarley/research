@@ -2,23 +2,34 @@ import subprocess
 from io import StringIO
 import pandas as pd
 import argparse
+import shlex
 
 
-def get_experiment_accuracies(n_experiments: int = 100) -> pd.DataFrame:
-    """Extract accuracy data from the last N SCL train experiments."""
-    # Create guild command to extract only run and accuracy
+def get_experiment_accuracies(guild_args: str) -> pd.DataFrame:
+    """Extract accuracy data from experiments using provided guild arguments.
+    
+    Args:
+        guild_args: String containing guild arguments for filtering experiments
+    """
+    # Create base guild command
     guild_command = [
         "guild",
         "compare",
         "-Fo",
         "scl:train",
-        "-n",
-        str(n_experiments),
+    ]
+    
+    # Add any additional guild arguments
+    if guild_args:
+        guild_command.extend(shlex.split(guild_args))
+        
+    # Add output formatting arguments
+    guild_command.extend([
         "-cc",
         "run,max accuracy",
         "--csv",
         "-",
-    ]
+    ])
 
     try:
         # Run guild command and capture output
@@ -36,12 +47,14 @@ def get_experiment_accuracies(n_experiments: int = 100) -> pd.DataFrame:
 
 def compute_statistics(df: pd.DataFrame) -> dict:
     """Compute accuracy statistics."""
+    best_idx = df["accuracy"].idxmax()
     stats = {
         "mean": df["accuracy"].mean(),
         "std": df["accuracy"].std(),
         "min": df["accuracy"].min(),
         "max": df["accuracy"].max(),
         "count": len(df),
+        "best_run": df.loc[best_idx, "run"]
     }
     return stats
 
@@ -51,16 +64,19 @@ def main():
         description="Compute accuracy statistics from Guild experiments"
     )
     parser.add_argument(
-        "-n",
-        "--num-experiments",
-        type=int,
-        default=100,
-        help="Number of most recent experiments to analyze",
+        "-g",
+        "--guild-args",
+        type=str,
+        default="",
+        help="Guild arguments for filtering experiments (e.g. '-r 1:100')",
     )
     args = parser.parse_args()
 
     # Get experiment data
-    df = get_experiment_accuracies(args.num_experiments)
+    df = get_experiment_accuracies(args.guild_args)
+
+    # Print the dataframe
+    print(df)
 
     # Compute and display statistics
     stats = compute_statistics(df)
@@ -71,6 +87,7 @@ def main():
     print(f"Standard deviation: {stats['std']:.4f}")
     print(f"Min accuracy: {stats['min']:.4f}")
     print(f"Max accuracy: {stats['max']:.4f}")
+    print(f"Best run ID: {stats['best_run']}")
 
 
 if __name__ == "__main__":

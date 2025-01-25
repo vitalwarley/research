@@ -2,14 +2,6 @@
 
 set -e  # Exit on error
 
-# Check if jq is installed
-if ! command -v jq &> /dev/null; then
-    echo "Error: jq is not installed. Please install it first:"
-    echo "  sudo pacman -S jq     # For Arch Linux"
-    echo "  sudo apt install jq   # For Ubuntu/Debian"
-    exit 1
-fi
-
 # Step 1: Find best run based on accuracy
 echo "Finding best run based on accuracy..."
 BEST_RUN=$(guild select -Fo scl:train --max accuracy)

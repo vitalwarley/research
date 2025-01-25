@@ -1,11 +1,17 @@
+import os
+import sys
 import time
 from collections import defaultdict
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from datasets.scl import SCLDataModule
+
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 
 def analyze_epoch_sampling(sampler):
@@ -16,25 +22,55 @@ def analyze_epoch_sampling(sampler):
     batch_times = []
 
     start_time = time.time()
-    for batch in tqdm(sampler, desc="Analyzing batches", leave=False):
-        # Record batch time
-        batch_time = time.time() - start_time
-        batch_times.append(batch_time)
-        start_time = time.time()
 
-        for _, _, labels in batch:
+    # Handle FIW dataset (no sampler) case
+    if isinstance(sampler, DataLoader) and not hasattr(
+        sampler.batch_sampler.sampler, "_get_person_ids"
+    ):
+        # Get the underlying dataset and shuffle its samples
+        dataset = sampler.dataset
+        samples = dataset.sample_list.copy()
+        np.random.shuffle(samples)
+
+        # Process each sample
+        for sample in tqdm(samples, desc="Analyzing samples", leave=False):
+            # Record batch time
+            batch_time = time.time() - start_time
+            batch_times.append(batch_time)
+            start_time = time.time()
+
             # Update relationship type counts
-            rel_type = labels[4]
-            relationship_type_counts[rel_type] += 1
+            relationship_type_counts[sample.kin_relation] += 1
 
             # Update family counts
-            fam = labels[2]
-            family_counts[fam] += 1
+            family_counts[sample.f1fid] += 1
 
-            # Update individual counts
-            person1_id, person2_id = sampler._get_person_ids(labels)
+            # Update individual counts by combining family id and member id
+            person1_id = f"F{sample.f1fid:04d}_MID{sample.f1mid}"
+            person2_id = f"F{sample.f2fid:04d}_MID{sample.f2mid}"
             individual_counts[person1_id] += 1
             individual_counts[person2_id] += 1
+    else:
+        # Original sampler case
+        for batch in tqdm(sampler, desc="Analyzing batches", leave=False):
+            # Record batch time
+            batch_time = time.time() - start_time
+            batch_times.append(batch_time)
+            start_time = time.time()
+
+            for _, _, labels in batch:
+                # Update relationship type counts
+                rel_type = labels[4]
+                relationship_type_counts[rel_type] += 1
+
+                # Update family counts
+                fam = labels[2]
+                family_counts[fam] += 1
+
+                # Update individual counts
+                person1_id, person2_id = sampler._get_person_ids(labels)
+                individual_counts[person1_id] += 1
+                individual_counts[person2_id] += 1
 
     return individual_counts, relationship_type_counts, family_counts, batch_times
 
@@ -111,10 +147,13 @@ def evaluate_weight_configuration(
 ):
     """Evaluate a specific weight configuration with multiple trials."""
     if verbose:
-        print(f"\nEvaluating weights: {weights}")
-        print(
-            f"Update period: {sampler_score_update_period}, Max pairs per update: {sampler_max_pairs_per_update}"
-        )
+        if weights is None:
+            print("\nEvaluating baseline (no sampler)")
+        else:
+            print(f"\nEvaluating weights: {weights}")
+            print(
+                f"Update period: {sampler_score_update_period}, Max pairs per update: {sampler_max_pairs_per_update}"
+            )
 
     # Store results for each trial
     trial_metrics = []
@@ -128,7 +167,7 @@ def evaluate_weight_configuration(
             dataset="ff-v3",
             batch_size=batch_size,
             root_dir=root_dir,
-            sampler=True,
+            sampler=weights is not None,  # Only use sampler if weights are provided
             sampling_weights=weights,
             sampler_verbose=False,
             num_workers=16,
@@ -137,8 +176,11 @@ def evaluate_weight_configuration(
         )
         dm.setup("fit")
 
-        # Get the sampler
-        sampler = dm.train_dataloader().batch_sampler.sampler
+        # Get the sampler or dataloader depending on configuration
+        if weights is not None:
+            sampler = dm.train_dataloader().batch_sampler.sampler
+        else:
+            sampler = dm.train_dataloader()
 
         # Analyze sampling patterns
         individual_counts, relationship_type_counts, family_counts, batch_times = (
@@ -178,67 +220,92 @@ def evaluate_weight_configuration(
     return metrics
 
 
-def main():
-    # Number of trials per configuration
-    N_TRIALS = 5
+def save_markdown_table(df, output_path):
+    """Save DataFrame as a markdown table."""
+    with open(output_path, "w") as f:
+        f.write("# Sampling Results (mean ± std across trials)\n\n")
+        f.write("CV values in %, Batch Time in ms\n\n")
+        f.write(df.to_markdown())
 
+
+def save_latex_table(df, output_path):
+    """Save DataFrame as a LaTeX table."""
+    with open(output_path, "w") as f:
+        f.write("\\begin{table}[h]\n")
+        f.write("\\centering\n")
+        f.write("\\caption{Sampling Results (mean ± std across trials)}\n")
+        f.write("\\small\n")
+        f.write(df.to_latex(escape=False))
+        f.write("\\caption*{CV values in \\%, Batch Time in ms}\n")
+        f.write("\\end{table}\n")
+
+
+def run_evaluations(n_trials=5):
+    """Run all sampler evaluations and return results."""
     # Define configurations to test
     configs = [
-        # Baseline for comparison (no weighting, random sampling)
+        # True baseline (no sampler)
+        {
+            "weights": None,  # no weights when not using sampler
+            "sampler_score_update_period": None,
+            "sampler_max_pairs_per_update": None,
+            "name": "baseline",
+        },
+        # Random sampling with sampler (no weighting)
         {
             "weights": {"rel": 0.0, "fam": 0.0, "ind": 0.0, "diff": 0.0},
             "sampler_score_update_period": 1,
             "sampler_max_pairs_per_update": 0,  # use all pairs
-            "name": "baseline",
+            "name": "sampler_random",
         },
-        # Baseline (pure random, limited pairs and updates)
+        # Random sampling with sampler (limited pairs and updates)
         {
             "weights": {"rel": 0.0, "fam": 0.0, "ind": 0.0, "diff": 0.0},
             "sampler_score_update_period": 5,
             "sampler_max_pairs_per_update": 100,
-            "name": "baseline_limited",
+            "name": "sampler_random_limited",
         },
         # Pure relationship weighting (full pairs, full updates)
         {
             "weights": {"rel": 1.0, "fam": 0.0, "ind": 0.0, "diff": 0.0},
             "sampler_score_update_period": 1,
             "sampler_max_pairs_per_update": 0,
-            "name": "pure_relationship",
+            "name": "sampler_relationship",
         },
         # Pure relationship weighting (limited pairs, full updates)
         {
             "weights": {"rel": 1.0, "fam": 0.0, "ind": 0.0, "diff": 0.0},
             "sampler_score_update_period": 5,
             "sampler_max_pairs_per_update": 100,
-            "name": "pure_relationship_limited",
+            "name": "sampler_relationship_limited",
         },
         # Pure difficulty weighting (full pairs, full updates)
         {
             "weights": {"rel": 0.0, "fam": 0.0, "ind": 0.0, "diff": 1.0},
             "sampler_score_update_period": 1,
             "sampler_max_pairs_per_update": 0,
-            "name": "pure_difficulty",
+            "name": "sampler_difficulty",
         },
         # Pure difficulty weighting (limited pairs, full updates)
         {
             "weights": {"rel": 0.0, "fam": 0.0, "ind": 0.0, "diff": 1.0},
             "sampler_score_update_period": 5,
             "sampler_max_pairs_per_update": 100,
-            "name": "pure_difficulty_limited",
+            "name": "sampler_difficulty_limited",
         },
         # Balanced weighting (full pairs, full updates)
         {
             "weights": {"rel": 0.33, "fam": 0.33, "ind": 0.34, "diff": 0.0},
             "sampler_score_update_period": 1,
             "sampler_max_pairs_per_update": 0,
-            "name": "balanced",
+            "name": "sampler_balanced",
         },
         # Balanced weighting (limited pairs, full updates)
         {
             "weights": {"rel": 0.33, "fam": 0.33, "ind": 0.34, "diff": 0.0},
             "sampler_score_update_period": 5,
             "sampler_max_pairs_per_update": 100,
-            "name": "balanced_limited",
+            "name": "sampler_balanced_limited",
         },
     ]
 
@@ -250,15 +317,34 @@ def main():
             weights=config["weights"],
             sampler_score_update_period=config["sampler_score_update_period"],
             sampler_max_pairs_per_update=config["sampler_max_pairs_per_update"],
-            n_trials=N_TRIALS,
+            n_trials=n_trials,
         )
 
-    # Create summary DataFrame
-    summary = pd.DataFrame(results).T
+    return pd.DataFrame(results).T
+
+
+def main(output_dir="results"):
+    """Main function with parametrized output directory."""
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Define output paths
+    csv_path = os.path.join(output_dir, "sampler_evaluation_results.csv")
+    md_path = os.path.join(output_dir, "sampler_evaluation_results.md")
+    latex_path = os.path.join(output_dir, "sampler_evaluation_results.tex")
+
+    # Load or generate results
+    if os.path.exists(csv_path):
+        print(f"Loading existing results from {csv_path}")
+        summary = pd.read_csv(csv_path, index_col=0)
+    else:
+        print("Running evaluations...")
+        summary = run_evaluations(n_trials=5)
+        # Save detailed results
+        summary.to_csv(csv_path)
 
     # Create a more readable table
     table_data = []
-
     for idx, row in summary.iterrows():
         config_data = {
             "Configuration": idx,
@@ -272,17 +358,27 @@ def main():
     results_table = pd.DataFrame(table_data)
     results_table = results_table.set_index("Configuration")
 
-    # Print the table
-    print("\nSampling Results (mean ± std across trials):")
-    print("CV values in %, Batch Time in ms")
-    print("=" * 100)
-    print(results_table.to_string())
-    print("=" * 100)
+    # Save in different formats
+    save_markdown_table(results_table, md_path)
+    save_latex_table(results_table, latex_path)
 
-    # Save detailed results
-    summary.to_csv("sampler_evaluation_results.csv")
-    print("\nDetailed results saved to sampler_evaluation_results.csv")
+    print(f"\nResults saved to {output_dir}/:")
+    print("- CSV: sampler_evaluation_results.csv")
+    print("- Markdown: sampler_evaluation_results.md")
+    print("- LaTeX: sampler_evaluation_results.tex")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Evaluate kinship sampler configurations"
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="results",
+        help="Directory to save results (default: results)",
+    )
+
+    args = parser.parse_args()
+    main(output_dir=args.output_dir)

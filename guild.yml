@@ -73,9 +73,9 @@
         - operation: scl:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt
-    tri-subject-train:
+    tri_subject_train:
       description: Supervised Contrastive Learning experiments
-      exec: python tasks/scl.py fit --config scl_t2.yml
+      exec: python tasks/scl_t2.py fit --config scl_t2.yml
       sourcecode:
         - losses/*.py
         - models/*.py
@@ -93,9 +93,9 @@
           target-type: link
         - file: data/
           target-type: link
-    tri-subject-test:
+    tri_subject_test:
       description: Supervised Contrastive Learning experiments
-      exec: python tasks/scl.py test --config scl_t2.yml
+      exec: python tasks/scl_t2.py test --config scl_t2.yml
       sourcecode:
         - losses/*.py
         - models/*.py
@@ -113,10 +113,10 @@
           target-type: link
         - file: data/
           target-type: link
-        - operation: scl:tri-subject-train
+        - operation: scl:tri_subject_train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt
-    search-retrieval:
+    search_retrieval:
       description: Supervised Contrastive Learning experiments
       exec: python tasks/scl.py predict --config scl_t3.yml
       sourcecode:
@@ -141,7 +141,7 @@
         - operation: scl:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt
-    kinface-ft:
+    kinface_ft:
       description: KinFace fine-tuning experiments
       exec: python tasks/scl.py fit --config kinface.yml
       sourcecode:
@@ -167,7 +167,7 @@
         - operation: scl:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt
-    kinface-ce:
+    kinface_ce:
       description: KinFace cross-eval experiments
       exec: python tasks/scl.py fit --config kinface.yml
       sourcecode:
@@ -216,7 +216,7 @@
           target-type: link
         - file: configs/facornet.yml
           target-type: link
-    kinface-ft:
+    kinface_ft:
       description: KinFace fine-tuning experiments
       exec: python tasks/facornet.py fit --config kinface.yml
       sourcecode:

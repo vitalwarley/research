@@ -8,7 +8,7 @@ trainer:
   accelerator: "gpu"
   deterministic: yes
   fast_dev_run: no
-  max_epochs: 40
+  max_epochs: 50
   default_root_dir: exp/
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
@@ -30,16 +30,15 @@ trainer:
         mode: 'max'  # Use 'min' if the metric should decrease
 
 data:
-   class_path: datasets.sclff.SCLDataModuleTask2
+   class_path: datasets.scl.SCLDataModuleTask2
    init_args:
-     root_dir: data/rfiw2021-track2
+     root_dir: data/fiw/track2
      batch_size: 15
+     num_workers: 16
 
 model:
   class_path: models.scl.SCLTask2
   init_args:
-    num_families: 0
-    loss_factor: 0
     optimizer: SGD
     adamw_beta1: 0.9
     adamw_beta2: 0.999
@@ -61,14 +60,7 @@ model:
       init_args:
         model: adaface_ir_101
     loss: 
-      class_path: losses.scl.HardContrastiveLossV6
+      class_path: losses.scl.HCL
       init_args:
-        tau: 0.08
-        alpha: 0.0
-        gamma_ex: 0.0
-        gamma_in: 0.0
-        inter_pos: no
-        extra_neg: no
-        dim_mixing: no
-        normalize: no
-    list_dir: data/rfiw2021-track3/txt/
+        tau: 0.3
+        alpha_neg: 0.8

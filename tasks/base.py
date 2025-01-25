@@ -25,10 +25,17 @@ class BaseLightningCLI(LightningCLI):
         return parser
 
 
-def base_main(args=None, operation_name=None):
-    class TaskLightningCLI(BaseLightningCLI):
-        def add_arguments_to_parser(self, parser):
-            parser.add_argument(f"--operation:{operation_name}:train", default=None)
-            return super().add_arguments_to_parser(parser)
+class BaseTask:
+    operation_name = None
 
-    TaskLightningCLI(args=args, subclass_mode_model=True)
+    @classmethod
+    def main(cls, args=None):
+        if cls.operation_name is None:
+            raise ValueError("operation_name must be set in the derived class")
+
+        class TaskLightningCLI(BaseLightningCLI):
+            def add_arguments_to_parser(self, parser):
+                parser.add_argument(f"--operation:{cls.operation_name}", default=None)
+                return super().add_arguments_to_parser(parser)
+
+        TaskLightningCLI(args=args, subclass_mode_model=True)

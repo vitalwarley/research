@@ -8,8 +8,17 @@ import lightning as L
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
-from datasets.fiw import FIW, FIWFamilyV3, FIWTask2  # noqa
-from datasets.utils import collate_fn_fiw_family_v3, worker_init_fn  # noqa
+from datasets.fiw import (  # noqa
+    FIW,
+    FIWFamilyV3,
+    FIWGallery,
+    FIWProbe,
+    FIWSearchRetrieval,
+    FIWTask2,
+    SampleGallery,
+    SampleProbe,
+)
+from datasets.utils import collate_fn_fiw_family_v3, sr_collate_fn_v2, worker_init_fn  # noqa
 
 # Add the parent directory to sys.path using pathlib (to run standalone in ubuntu)
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -289,7 +298,7 @@ class KinshipBatchSampler:
         """
         # If no sampling weights, all pairs are equally difficult
         if not self.sampling_weights.get("diff", 0):
-            return 0.0  # No difficulty score 
+            return 0.0  # No difficulty score
 
         if pair_idx not in self.difficulty_scores:
             return 0.5  # Default medium difficulty if no score available
@@ -756,6 +765,44 @@ class SCLDataModuleTask2(L.LightningDataModule):
             pin_memory=True,
             persistent_workers=True,
             worker_init_fn=worker_init_fn,
+        )
+
+
+class SCLDataModuleTask3(L.LightningDataModule):
+    def __init__(self, root_dir=".", batch_size=20, transform=None):
+        super().__init__()
+        self.root_dir = root_dir
+        self.batch_size = batch_size
+        self.transform = transform or T.Compose([T.ToTensor()])
+
+    def setup(self, stage=None):
+        if stage == "predict" or stage is None:
+            self.probe_dataset = FIWProbe(
+                root_dir=self.root_dir,
+                sample_path="txt/probe.txt",
+                sample_cls=SampleProbe,
+                transform=self.transform,
+            )
+            self.gallery_dataset = FIWGallery(
+                root_dir=self.root_dir,
+                sample_path="txt/gallery.txt",
+                sample_cls=SampleGallery,
+                transform=self.transform,
+            )
+            self.search_retrieval = FIWSearchRetrieval(
+                self.probe_dataset, self.gallery_dataset, self.batch_size
+            )
+        print(f"Setup {stage} datasets")
+
+    def predict_dataloader(self):
+        return DataLoader(
+            self.search_retrieval,
+            batch_size=1,
+            shuffle=False,
+            pin_memory=True,
+            collate_fn=sr_collate_fn_v2,
+            # Why num_workers reset the gallery_start_index?
+            num_workers=4,
         )
 
 

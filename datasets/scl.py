@@ -11,6 +11,7 @@ from torchvision import transforms as T
 from datasets.fiw import (  # noqa
     FIW,
     FIWFamilyV3,
+    FIWFamilyV3Task2,
     FIWGallery,
     FIWProbe,
     FIWSearchRetrieval,
@@ -18,7 +19,12 @@ from datasets.fiw import (  # noqa
     SampleGallery,
     SampleProbe,
 )
-from datasets.utils import collate_fn_fiw_family_v3, sr_collate_fn_v2, worker_init_fn  # noqa
+from datasets.utils import (  # noqa
+    collate_fn_fiw_family_v3,
+    collate_fn_fiw_family_v3_task2,
+    sr_collate_fn_v2,
+    worker_init_fn,
+)
 
 # Add the parent directory to sys.path using pathlib (to run standalone in ubuntu)
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -480,20 +486,19 @@ class KinshipBatchSampler:
         """Return score history for analysis."""
         return self.score_history
 
-    def update_difficulty_scores(self, difficulty_score):
+    def update_difficulty_scores(self, item_idx, difficulty_score):
         """Update difficulty score for a specific pair.
 
         Args:
             difficulty_score: New difficulty score based on model predictions
         """
         if self.sampling_weights:
-            for rel_idx in self.current_batch_pairs:
-                self.difficulty_scores[rel_idx] = difficulty_score
-                # Update sampling score for this pair
-                fam = self.dataset.relationships[rel_idx][2][2]
-                self.pair_scores[(rel_idx, fam)] = self._compute_sampling_score(
-                    rel_idx, fam
-                )
+            self.difficulty_scores[item_idx] = difficulty_score
+            # Update sampling score for this pair
+            fam = self.dataset.relationships[item_idx][2][2]
+            self.pair_scores[(item_idx, fam)] = self._compute_sampling_score(
+                item_idx, fam
+            )
 
     def __iter__(self):
         for i in range(0, len(self.indices), self.batch_size):
@@ -524,6 +529,479 @@ class KinshipBatchSampler:
 
             if self.verbose:
                 print(f"Processing all pairs took: {time.time() - start_time:.4f}s")
+
+            yield batch
+
+    def __len__(self):
+        return len(self.dataset) // self.batch_size
+
+
+class TriSubjectBatchSampler:
+    """Batch sampler for tri-subject verification (Task 2).
+
+    Similar to KinshipBatchSampler but handles triplets (father, mother, child) instead of pairs.
+    Maintains balanced sampling across families, relationship types, and individuals.
+    """
+
+    def __init__(
+        self,
+        dataset,
+        batch_size,
+        sampling_weights=None,
+        max_attempts=100,
+        max_families_to_check=50,
+        verbose=False,
+        sampler_score_update_period=10,
+        sampler_max_pairs_per_update=100,
+    ):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.image_counters = defaultdict(int)
+        self.indices = list(range(len(self.dataset)))
+        self.max_attempts = max_attempts
+        self.max_families_to_check = max_families_to_check
+        self.verbose = verbose
+        self.score_update_period = sampler_score_update_period
+        self.max_pairs_per_update = sampler_max_pairs_per_update
+        self.difficulty_scores = {}
+
+        # Initialize counters
+        self.family_counters = defaultdict(int)
+        self.relationship_counters = defaultdict(int)
+        self.individual_counters = defaultdict(int)
+        self.max_family_samples = self._compute_max_family_samples()
+        self.relationship_targets = self._compute_relationship_targets()
+
+        # Cache relationship mappings
+        self.rel_type_to_triplets = defaultdict(list)
+        for rel_idx, rel in enumerate(self.dataset.relationships):
+            rel_type = rel[3][5]  # kin_relation from labels tuple
+            fam = rel[3][3]  # family id from labels tuple
+            self.rel_type_to_triplets[rel_type].append((rel_idx, fam))
+
+        # Initialize sampling weights
+        self.sampling_weights = (
+            None
+            if sampling_weights and all(v == 0 for v in sampling_weights.values())
+            else sampling_weights
+        )
+
+        # Pre-compute average samples per individual
+        self.avg_samples_per_individual = (
+            len(self.dataset) * 3 / len(self.dataset.person2idx)  # *3 because triplets
+        )
+
+        # Pre-compute initial sampling scores if using weighted sampling
+        if self.sampling_weights:
+            self.triplet_scores = {}
+            for rel_type in self.rel_type_to_triplets:
+                for idx, fam in self.rel_type_to_triplets[rel_type]:
+                    self.triplet_scores[(idx, fam)] = self._compute_sampling_score(
+                        idx, fam
+                    )
+        else:
+            print("No sampling weights defined. Triplet selection will be random.")
+
+        self._shuffle_indices()
+
+        # Add score tracking
+        self.score_history = []
+        self.current_batch_triplets = []
+        self._update_counter = 0
+
+        # Add distribution tracking
+        self.distribution_history = {
+            "relationship": defaultdict(list),
+            "family": defaultdict(list),
+            "individual": defaultdict(list),
+        }
+        self.tracking_interval = 100
+
+    def _compute_relationship_frequencies(self):
+        """Calculate the frequency of each relationship type in the dataset."""
+        rel_counts = defaultdict(int)
+        total_rels = len(self.dataset.relationships)
+        for _, _, _, labels in self.dataset.relationships:
+            rel_counts[labels[5]] += 1
+
+        rel_frequencies = {rel: count / total_rels for rel, count in rel_counts.items()}
+
+        if self.verbose:
+            print("Relationship frequencies:")
+            for rel, freq in sorted(rel_frequencies.items()):
+                print(f"{rel}: {freq:.3f} ({rel_counts[rel]} triplets)")
+
+        return rel_frequencies
+
+    def _compute_relationship_targets(self):
+        total_relationships = len(self.dataset)
+        rel_types = set(labels[5] for _, _, _, labels in self.dataset.relationships)
+        return {rel: total_relationships // len(rel_types) for rel in rel_types}
+
+    def _compute_max_family_samples(self):
+        n_families = len(self.dataset.fam2rel)
+        total_samples = len(self.dataset)
+        return total_samples // n_families * 3  # *3 because triplets
+
+    def _compute_difficulty_score(self, triplet_idx):
+        """Compute normalized difficulty score for a triplet based on both parent-child relationships."""
+        if not self.sampling_weights.get("diff", 0):
+            return 0.0
+
+        if triplet_idx not in self.difficulty_scores:
+            return 0.5
+
+        # Get min/max scores for normalization
+        all_scores = list(self.difficulty_scores.values())
+        min_score = min(all_scores)
+        max_score = max(all_scores)
+
+        if min_score == max_score:
+            return 0.5
+
+        return (self.difficulty_scores[triplet_idx] - min_score) / (
+            max_score - min_score
+        )
+
+    def _compute_sampling_score(self, triplet_idx, fam):
+        """Compute sampling score for a triplet using weights."""
+        if not self.sampling_weights:
+            return 0
+
+        rel_type = self.dataset.relationships[triplet_idx][3][5]  # kin_relation
+        labels = self.dataset.relationships[triplet_idx][3]  # labels tuple
+        father_id, mother_id, child_id = self._get_person_ids(labels)
+
+        # Normalize counts (0-1 range)
+        rel_score = (
+            self.relationship_counters[rel_type] / self.relationship_targets[rel_type]
+        )
+        fam_score = self.family_counters[fam] / self.max_family_samples
+        ind_score = (
+            self.individual_counters[father_id]
+            + self.individual_counters[mother_id]
+            + self.individual_counters[child_id]
+        ) / (3 * self.avg_samples_per_individual)
+
+        diff_score = self._compute_difficulty_score(triplet_idx)
+
+        final_score = (
+            rel_score * self.sampling_weights.get("rel", 0)
+            + fam_score * self.sampling_weights.get("fam", 0)
+            + ind_score * self.sampling_weights.get("ind", 0)
+            + diff_score * self.sampling_weights.get("diff", 0)
+        )
+        return final_score
+
+    def _get_person_ids(self, labels):
+        """Get person IDs from relationship labels for father, mother, and child."""
+        f1mid, f2mid, f3mid, fid = labels[
+            :4
+        ]  # father, mother, child MIDs and family ID
+        father_key = f"F{fid:04d}_MID{f1mid}"
+        mother_key = f"F{fid:04d}_MID{f2mid}"
+        child_key = f"F{fid:04d}_MID{f3mid}"
+        return (
+            self.dataset.person2idx[father_key],
+            self.dataset.person2idx[mother_key],
+            self.dataset.person2idx[child_key],
+        )
+
+    def _get_image_with_min_count(self, person_images):
+        """Get image with minimum usage count for a person."""
+        min_count_image = min(person_images, key=lambda img: self.image_counters[img])
+        return min_count_image
+
+    def _replace_duplicates(self, sub_batch):
+        """Replace duplicate families in the batch to maintain diversity."""
+        family_counts = defaultdict(int)
+        for triplet in sub_batch:
+            fam = triplet[3][3]  # family id from labels tuple
+            family_counts[fam] += 1
+
+        attempts = 0
+        initial_duplicates = sum(count > 1 for count in family_counts.values())
+
+        if self.verbose and initial_duplicates > 0:
+            print(
+                f"Found {initial_duplicates} duplicate families in batch. Attempting replacement..."
+            )
+
+        while (
+            any(count > 1 for count in family_counts.values())
+            and attempts < self.max_attempts
+        ):
+            attempts += 1
+            exclude_families = {triplet[3][3] for triplet in sub_batch}  # family id
+
+            for i in range(len(sub_batch)):
+                current_fam = sub_batch[i][3][3]  # family id
+                if family_counts[current_fam] > 1:
+                    replacement_triplet = self._find_balanced_replacement(
+                        exclude_families
+                    )
+
+                    if replacement_triplet:
+                        family_counts = self._apply_replacement(
+                            sub_batch,
+                            i,
+                            current_fam,
+                            replacement_triplet,
+                            family_counts,
+                            "balanced",
+                        )
+                        exclude_families.discard(current_fam)
+                        exclude_families.add(replacement_triplet[3][3])  # family id
+
+        if attempts >= self.max_attempts:
+            if self.verbose:
+                print(
+                    f"Warning: Max attempts ({self.max_attempts}) reached. Falling back to random selection"
+                )
+            while any(count > 1 for count in family_counts.values()):
+                exclude_families = {triplet[3][3] for triplet in sub_batch}  # family id
+                for i in range(len(sub_batch)):
+                    current_fam = sub_batch[i][3][3]  # family id
+                    if family_counts[current_fam] > 1:
+                        replacement_triplet = self._random_replacement(exclude_families)
+                        if replacement_triplet:
+                            family_counts = self._apply_replacement(
+                                sub_batch,
+                                i,
+                                current_fam,
+                                replacement_triplet,
+                                family_counts,
+                                "random",
+                            )
+                            exclude_families.discard(current_fam)
+                            exclude_families.add(replacement_triplet[3][3])  # family id
+
+        return sub_batch
+
+    def _apply_replacement(
+        self,
+        sub_batch,
+        index,
+        current_fam,
+        replacement_triplet,
+        family_counts,
+        strategy,
+    ):
+        """Apply replacement triplet to the batch and update family counts."""
+        if self.verbose:
+            print(
+                f"Replaced family {current_fam} (relationship type: {sub_batch[index][3][5]})"  # Fixed indices
+                f" with family {replacement_triplet[3][3]} (relationship type: {replacement_triplet[3][5]})"  # Fixed indices
+                f" using {strategy} strategy"
+            )
+        sub_batch[index] = replacement_triplet
+        family_counts[current_fam] -= 1
+        family_counts[replacement_triplet[3][3]] += 1  # family id
+        return family_counts
+
+    def _random_replacement(self, exclude_families):
+        """Find a random replacement triplet from a different family."""
+        eligible_families = self._get_eligible_families(exclude_families)
+        if not eligible_families:
+            return None
+        replacement_fam = random.choice(eligible_families)
+        rel_indices = self.dataset.fam2rel[replacement_fam]
+        rel_idx = random.choice(rel_indices)
+        return self.dataset.relationships[rel_idx]
+
+    def _get_eligible_families(self, exclude_families, max_family_samples=None):
+        """Get families eligible for replacement."""
+        if max_family_samples is None:
+            eligible = [
+                fam
+                for fam in self.dataset.fam2rel.keys()
+                if fam not in exclude_families
+            ]
+        else:
+            eligible = [
+                fam
+                for fam in self.dataset.fam2rel.keys()
+                if fam not in exclude_families
+                and self.family_counters[fam] < max_family_samples
+            ]
+
+        if self.verbose:
+            print(f"Found {len(eligible)} eligible families for replacement")
+
+        if self.max_families_to_check and len(eligible) > self.max_families_to_check:
+            if self.verbose:
+                print(
+                    f"Sampling {self.max_families_to_check} families from {len(eligible)} eligible"
+                )
+            return random.sample(eligible, self.max_families_to_check)
+        return eligible
+
+    def _find_min_count_relationship(self, families_to_check):
+        """Find relationship with minimum count using pre-computed scores."""
+        families_set = set(families_to_check)
+
+        eligible_triplets = [
+            (triplet, score)
+            for triplet, score in self.triplet_scores.items()
+            if triplet[1] in families_set
+        ]
+
+        if not eligible_triplets:
+            return None
+
+        min_score = min(t[1] for t in eligible_triplets)
+        min_triplets = [t for t in eligible_triplets if t[1] == min_score]
+        selected_triplet = random.choice(min_triplets)
+
+        return self.dataset.relationships[selected_triplet[0][0]]
+
+    def _find_balanced_replacement(self, exclude_families):
+        """Find replacement considering relationship, family and individual balance."""
+        if not self.sampling_weights:
+            return self._random_replacement(exclude_families)
+
+        eligible_families = self._get_eligible_families(
+            exclude_families, self.max_family_samples
+        )
+        if not eligible_families:
+            return None
+        return self._find_min_count_relationship(eligible_families)
+
+    def _shuffle_indices(self):
+        """Shuffle the dataset indices."""
+        random.shuffle(self.indices)
+
+    def _update_counters(self, labels):
+        """Update relationship, family and individual counters and recompute sampling scores."""
+        rel_type = labels[5]  # kin_relation
+        fam = labels[3]  # family id
+
+        self.relationship_counters[rel_type] += 1
+        self.family_counters[fam] += 1
+        father_id, mother_id, child_id = self._get_person_ids(labels)
+        self.individual_counters[father_id] += 1
+        self.individual_counters[mother_id] += 1
+        self.individual_counters[child_id] += 1
+
+        if not self.sampling_weights:
+            return
+
+        self._update_counter += 1
+        if self._update_counter % self.score_update_period != 0:
+            return
+
+        if self.verbose:
+            t0 = time.time()
+
+        affected_triplets = []
+        for (idx, f), current_score in self.triplet_scores.items():
+            if (
+                f == fam or self.dataset.relationships[idx][3][5] == rel_type
+            ):  # Fixed indices
+                affected_triplets.append((idx, f, current_score))
+
+        affected_triplets.sort(key=lambda x: x[2])
+        if self.max_pairs_per_update:
+            affected_triplets = affected_triplets[: self.max_pairs_per_update]
+
+        for idx, f, _ in affected_triplets:
+            self.triplet_scores[(idx, f)] = self._compute_sampling_score(idx, f)
+
+        if self.verbose:
+            print(
+                f"Updated {len(affected_triplets)} triplets in {time.time() - t0:.4f}s"
+            )
+
+        if self._update_counter % self.tracking_interval == 0:
+            total_rels = sum(self.relationship_counters.values())
+            total_fams = sum(self.family_counters.values())
+            total_inds = sum(self.individual_counters.values())
+
+            for rel, count in self.relationship_counters.items():
+                self.distribution_history["relationship"][rel].append(
+                    count / total_rels if total_rels else 0
+                )
+
+            for fam, count in self.family_counters.items():
+                self.distribution_history["family"][fam].append(
+                    count / total_fams if total_fams else 0
+                )
+
+            for ind, count in self.individual_counters.items():
+                self.distribution_history["individual"][ind].append(
+                    count / total_inds if total_inds else 0
+                )
+
+    def update_difficulty_scores(self, item_idx, difficulty_score):
+        """Update difficulty scores for the current batch's triplets.
+
+        For task 2, difficulty scores should be the average of father-child and mother-child difficulties.
+        """
+        if self.sampling_weights:
+            self.difficulty_scores[item_idx] = difficulty_score
+            fam = self.dataset.relationships[item_idx][3][3]
+            self.triplet_scores[(item_idx, fam)] = self._compute_sampling_score(
+                item_idx, fam
+            )
+
+    def get_sampling_stats(self):
+        """Compute coefficient of variation for family, relationship and individual sampling."""
+
+        def compute_cv(counter):
+            values = list(counter.values())
+            if not values:
+                return 0
+            mean = sum(values) / len(values)
+            if mean == 0:
+                return 0
+            std = (sum((x - mean) ** 2 for x in values) / len(values)) ** 0.5
+            return std / mean
+
+        return {
+            "family_cv": compute_cv(self.family_counters),
+            "relationship_cv": compute_cv(self.relationship_counters),
+            "individual_cv": compute_cv(self.individual_counters),
+        }
+
+    def get_distribution_history(self):
+        """Return the sampling distribution history for analysis."""
+        return self.distribution_history
+
+    def get_score_statistics(self):
+        """Return score history for analysis."""
+        return self.score_history
+
+    def __iter__(self):
+        for i in range(0, len(self.indices), self.batch_size):
+            sub_batch_indices = self.indices[i : i + self.batch_size]
+            sub_batch = [self.dataset.relationships[idx] for idx in sub_batch_indices]
+            sub_batch = self._replace_duplicates(sub_batch)
+
+            batch = []
+            self.current_batch_triplets = []
+
+            start_time = time.time()
+            for triplet in sub_batch:
+                father_imgs, mother_imgs, child_imgs, labels = triplet
+                father_img = self._get_image_with_min_count(father_imgs)
+                mother_img = self._get_image_with_min_count(mother_imgs)
+                child_img = self._get_image_with_min_count(child_imgs)
+
+                father_id = self.dataset.image2idx[father_img]
+                mother_id = self.dataset.image2idx[mother_img]
+                child_id = self.dataset.image2idx[child_img]
+
+                rel_idx = self.dataset.relationships.index(triplet)
+                self.current_batch_triplets.append(rel_idx)
+
+                self.image_counters[father_img] += 1
+                self.image_counters[mother_img] += 1
+                self.image_counters[child_img] += 1
+                batch.append((father_id, mother_id, child_id, labels))
+                self._update_counters(labels)
+
+            if self.verbose:
+                print(f"Processing all triplets took: {time.time() - start_time:.4f}s")
 
             yield batch
 
@@ -689,27 +1167,76 @@ class SCLDataModule(L.LightningDataModule):
 
 
 class SCLDataModuleTask2(L.LightningDataModule):
+    DATASETS = {"fiw": FIWTask2, "ff-v3": FIWFamilyV3Task2}
+    COLLATE_FN = {"fiw": None, "ff-v3": collate_fn_fiw_family_v3_task2}
+
     def __init__(
         self,
         batch_size=20,
         root_dir=".",
         num_workers=None,
+        augmentation_params={},
+        augment=False,
+        sampler=True,
+        dataset="ff-v3",
+        sampling_weights=None,
+        sampler_max_attempts=100,
+        sampler_max_families=50,
+        sampler_verbose=False,
+        sampler_score_update_period=5,
+        sampler_max_pairs_per_update=100,
     ):
         super().__init__()
         self.batch_size = batch_size
         self.root_dir = root_dir
         self.num_workers = num_workers
-        self.train_transforms = T.Compose([T.ToTensor()])
+        self.augmentation_params = augmentation_params
+        self.augment = augment
+        if self.augment:
+            self.train_transforms = T.Compose(
+                [
+                    T.ToPILImage(),
+                    T.ColorJitter(
+                        brightness=self.augmentation_params["color_jitter"][
+                            "brightness"
+                        ],
+                        contrast=self.augmentation_params["color_jitter"]["contrast"],
+                        saturation=self.augmentation_params["color_jitter"][
+                            "saturation"
+                        ],
+                        hue=self.augmentation_params["color_jitter"]["hue"],
+                    ),
+                    T.RandomGrayscale(
+                        p=self.augmentation_params["random_grayscale_prob"]
+                    ),
+                    T.RandomHorizontalFlip(
+                        p=self.augmentation_params["random_horizontal_flip_prob"]
+                    ),
+                    T.ToTensor(),
+                ]
+            )
+        else:
+            self.train_transforms = T.Compose([T.ToTensor()])
         self.val_transforms = T.Compose([T.ToTensor()])
+        self.sampler = sampler
+        self.dataset = self.DATASETS[dataset]
+        self.collate_fn = self.COLLATE_FN[dataset]
+        self.sampling_weights = sampling_weights
+        self.sampler_max_attempts = sampler_max_attempts
+        self.sampler_max_families = sampler_max_families
+        self.sampler_verbose = sampler_verbose
+        self.sampler_score_update_period = sampler_score_update_period
+        self.sampler_max_pairs_per_update = sampler_max_pairs_per_update
+        self.train_sampler = None
 
     def setup(self, stage=None):
         if stage == "fit" or stage is None:
-            self.train_dataset = FIWTask2(
+            self.train_dataset = self.dataset(
                 root_dir=self.root_dir,
-                sample_path=Path(FIWTask2.TRAIN_PAIRS),
+                sample_path=Path(self.dataset.TRAIN_PAIRS),
                 batch_size=self.batch_size,
                 transform=self.train_transforms,
-                sample_cls=FIWTask2.SAMPLE,
+                sample_cls=self.dataset.SAMPLE,
             )
             self.val_dataset = FIWTask2(
                 root_dir=self.root_dir,
@@ -737,13 +1264,33 @@ class SCLDataModuleTask2(L.LightningDataModule):
         print(f"Setup {stage or 'all'} datasets")
 
     def train_dataloader(self):
+        if self.sampler:
+            self.train_sampler = TriSubjectBatchSampler(
+                self.train_dataset,
+                self.batch_size,
+                sampling_weights=self.sampling_weights,
+                max_attempts=self.sampler_max_attempts,
+                max_families_to_check=self.sampler_max_families,
+                verbose=self.sampler_verbose,
+                sampler_score_update_period=self.sampler_score_update_period,
+                sampler_max_pairs_per_update=self.sampler_max_pairs_per_update,
+            )
+            batch_size = 1
+            shuffle = False
+        else:
+            self.train_sampler = None
+            batch_size = self.batch_size
+            shuffle = True
+
         return DataLoader(
             self.train_dataset,
-            batch_size=self.batch_size,
+            batch_size=batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
             persistent_workers=True,
-            shuffle=True,
+            sampler=self.train_sampler,
+            shuffle=shuffle,
+            collate_fn=self.collate_fn,
             worker_init_fn=worker_init_fn,
         )
 

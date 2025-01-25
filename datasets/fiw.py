@@ -7,11 +7,16 @@ import torch
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from torchvision import transforms as T
 
-from datasets.utils import Sample, SampleGallery, SampleProbe, SampleTask2, sr_collate_fn_v2
+from datasets.utils import (
+    Sample,
+    SampleGallery,
+    SampleProbe,
+    SampleTask2,
+    sr_collate_fn_v2,
+)
 
 
 class FIW(Dataset):
-
     TRAIN_PAIRS = "txt/train_sort_A2_m.txt"
     VAL_PAIRS_MODEL_SEL = "txt/val_choose_A.txt"
     VAL_PAIRS_THRES_SEL = "txt/val_A.txt"
@@ -54,7 +59,11 @@ class FIW(Dataset):
         return sample_list
 
     def __len__(self):
-        return len(self.sample_list) // self.batch_size if self.biased else len(self.sample_list)
+        return (
+            len(self.sample_list) // self.batch_size
+            if self.biased
+            else len(self.sample_list)
+        )
 
     def read_image(self, path):
         # TODO: add to utils.py
@@ -98,7 +107,6 @@ class FIW(Dataset):
 
 
 class FIWTask2(FIW):
-
     TRAIN_PAIRS = "txt/train.txt"
     VAL_PAIRS = "txt/val.txt"
     TEST_PAIRS = "txt/test.txt"
@@ -154,7 +162,6 @@ class FIWFamilyV3(FIW):
     To be used with the KinshipBatchSampler.
     """
 
-    # FaCoRNet dataset
     TRAIN_PAIRS = "txt/train_sort_A2_m.txt"
     VAL_PAIRS_MODEL_SEL = "txt/val_choose_A.txt"
     VAL_PAIRS_THRES_SEL = "txt/val_A.txt"
@@ -213,17 +220,37 @@ class FIWFamilyV3(FIW):
             if relation not in unique_relations:
                 unique_relations.add(relation)  # New relation
                 # Get all images from individuals in this relation (FX/MY/<images>)
-                person1_images = list(Path(self.root_dir, self.images_dir, sample.f1).parent.glob("*.jpg"))
-                person2_images = list(Path(self.root_dir, self.images_dir, sample.f2).parent.glob("*.jpg"))
+                person1_images = list(
+                    Path(self.root_dir, self.images_dir, sample.f1).parent.glob("*.jpg")
+                )
+                person2_images = list(
+                    Path(self.root_dir, self.images_dir, sample.f2).parent.glob("*.jpg")
+                )
                 # Filter path relative to images_dir
-                person1_images = [str(img.relative_to(self.root_dir / self.images_dir)) for img in person1_images]
-                person2_images = [str(img.relative_to(self.root_dir / self.images_dir)) for img in person2_images]
+                person1_images = [
+                    str(img.relative_to(self.root_dir / self.images_dir))
+                    for img in person1_images
+                ]
+                person2_images = [
+                    str(img.relative_to(self.root_dir / self.images_dir))
+                    for img in person2_images
+                ]
                 # Filter relative to self.filepaths; apparently some images are missing in the train.csv
-                person1_images = [person for person in person1_images if person in self.filepaths]
-                person2_images = [person for person in person2_images if person in self.filepaths]
+                person1_images = [
+                    person for person in person1_images if person in self.filepaths
+                ]
+                person2_images = [
+                    person for person in person2_images if person in self.filepaths
+                ]
                 if person1_images and person2_images:
                     # Store pair and individual information: members IDs, family id, and kinship relation
-                    labels = (sample.f1mid, sample.f2mid, sample.f1fid, sample.is_kin, sample.kin_relation)
+                    labels = (
+                        sample.f1mid,
+                        sample.f2mid,
+                        sample.f1fid,
+                        sample.is_kin,
+                        sample.kin_relation,
+                    )
                     # List with all images from both individuals
                     relationships.append((person1_images, person2_images, labels))
                     # Store index of the current relationship in the relationships list for a given family
@@ -249,15 +276,174 @@ class FIWFamilyV3(FIW):
     def __getitem__(self, idx: list[tuple[int, int]]):
         # idx comes from person indices (person2idx)
         img1_idx, img2_idx, labels = list(zip(*idx))
-        imgs1, imgs2 = [self.images[idx] for idx in img1_idx], [self.images[idx] for idx in img2_idx]
+        imgs1, imgs2 = (
+            [self.images[idx] for idx in img1_idx],
+            [self.images[idx] for idx in img2_idx],
+        )
         # Get is_kin from the stored relationship
         is_kin = [labels[i][3] == labels[i][3] for i in range(len(imgs1))]
         # Get kin_id from the stored relationship
-        kin_ids = [labels[i][4] for i in range(len(imgs1))]  # collate fn will convert from name to label
+        kin_ids = [
+            labels[i][4] for i in range(len(imgs1))
+        ]  # collate fn will convert from name to label
 
         imgs1 = [self._process_one_image(img) for img in imgs1]
         imgs2 = [self._process_one_image(img) for img in imgs2]
         images = (imgs1, imgs2)
+        labels = (kin_ids, is_kin)
+        sample = (images, labels)
+        return sample
+
+    def __len__(self):
+        return len(self.relationships)
+
+
+class FIWFamilyV3Task2(FIWTask2):
+    """
+    To be used with the TriSubjectBatchSampler.
+    Similar to FIWFamilyV3 but adapted for Task 2 (tri-subject verification).
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Encode all samples fids to set of unique values
+        self.fids = []
+        self.filepaths = []
+        for sample in self.sample_list:
+            self.fids.append(sample.f1fid)  # father
+            self.fids.append(sample.f2fid)  # mother
+            self.fids.append(sample.f3fid)  # child
+            self.filepaths.append(sample.f1)
+            self.filepaths.append(sample.f2)
+            self.filepaths.append(sample.f3)
+        self.filepaths = set(self.filepaths)
+        # Clean filepaths ./ prefix
+        self.filepaths = {path.lstrip("./") for path in self.filepaths}
+        # Map each fid to an index
+        self.fids = sorted(list(set(self.fids)))
+        print(f"Found {len(self.fids)} unique fids")
+        self.fid2idx = {fid: idx for idx, fid in enumerate(self.fids)}
+
+        whitelist_dir = "MID"
+        self.families = [
+            [
+                cur_person
+                for cur_person in cur_family.iterdir()
+                if cur_person.is_dir() and cur_person.name.startswith(whitelist_dir)
+            ]
+            for cur_family in self.root_dir.iterdir()
+            if cur_family.is_dir()
+        ]
+        self.fam2rel = defaultdict(list)
+        self.people = []
+        self.person2idx = {}
+        self.idx2person = {}
+        self.person2family = {}
+        self.cache = {}
+        self.relationships = self._generate_relationships()
+
+    def _generate_relationships(self):
+        """Generate relationships from the sample list.
+
+        For Task 2, each relationship is a triplet (father, mother, child).
+        """
+        relationships = []
+        unique_relations = set()
+        persons = []
+        images = []
+        for sample_idx, sample in enumerate(self.sample_list):
+            # Only consider training set, therefore only positive samples
+            relation = (sample.f1fid,) + tuple(
+                sorted([sample.f1mid, sample.f2mid, sample.f3mid])
+            )
+            # Create unique person IDs by combining family ID and member ID
+            father_id = f"F{sample.f1fid:04d}_MID{sample.f1mid}"
+            mother_id = f"F{sample.f2fid:04d}_MID{sample.f2mid}"
+            child_id = f"F{sample.f3fid:04d}_MID{sample.f3mid}"
+            persons.extend([father_id, mother_id, child_id])
+            images.extend([sample.f1, sample.f2, sample.f3])
+
+            if relation not in unique_relations:
+                unique_relations.add(relation)  # New relation
+                # Get all images from individuals in this relation
+                father_images = list(
+                    Path(self.root_dir, self.images_dir, sample.f1).parent.glob("*.jpg")
+                )
+                mother_images = list(
+                    Path(self.root_dir, self.images_dir, sample.f2).parent.glob("*.jpg")
+                )
+                child_images = list(
+                    Path(self.root_dir, self.images_dir, sample.f3).parent.glob("*.jpg")
+                )
+                # Filter path relative to images_dir
+                father_images = [
+                    str(img.relative_to(self.root_dir / self.images_dir))
+                    for img in father_images
+                ]
+                mother_images = [
+                    str(img.relative_to(self.root_dir / self.images_dir))
+                    for img in mother_images
+                ]
+                child_images = [
+                    str(img.relative_to(self.root_dir / self.images_dir))
+                    for img in child_images
+                ]
+                # Filter relative to self.filepaths
+                father_images = [img for img in father_images if img in self.filepaths]
+                mother_images = [img for img in mother_images if img in self.filepaths]
+                child_images = [img for img in child_images if img in self.filepaths]
+
+                if father_images and mother_images and child_images:
+                    # Store triplet information: member IDs, family id, and kinship relation
+                    labels = (
+                        sample.f1mid,
+                        sample.f2mid,
+                        sample.f3mid,
+                        sample.f1fid,
+                        sample.is_kin,
+                        sample.kin_relation,
+                    )
+                    # List with all images from all three individuals
+                    relationships.append(
+                        (father_images, mother_images, child_images, labels)
+                    )
+                    # Store index of the current relationship in the relationships list for a given family
+                    self.fam2rel[sample.f1fid].append(len(relationships) - 1)
+
+        # List of unique persons (based on the filepath)
+        self.people = sorted(list(set(persons)))
+        self.images = sorted(list(set(images)))
+        # Mapping from person to its index
+        self.person2idx = {person: idx for idx, person in enumerate(self.people)}
+        self.image2idx = {image: idx for idx, image in enumerate(self.images)}
+        print(f"Generated {len(relationships)} relationships")
+        print(f"Found {len(self.people)} unique persons")
+        print(f"Found {len(self.images)} unique images")
+        return relationships
+
+    def _process_one_image(self, image_path):
+        if image_path in self.cache:
+            return self.cache[image_path]
+        image = super()._process_one_image(image_path)
+        self.cache[image_path] = image
+        return image
+
+    def __getitem__(self, idx: list[tuple[int, int, int]]):
+        # idx comes from person indices (person2idx)
+        father_idx, mother_idx, child_idx, labels = list(zip(*idx))
+        father_imgs = [self.images[idx] for idx in father_idx]
+        mother_imgs = [self.images[idx] for idx in mother_idx]
+        child_imgs = [self.images[idx] for idx in child_idx]
+
+        # Get is_kin from the stored relationship
+        is_kin = [labels[i][4] == labels[i][4] for i in range(len(father_imgs))]
+        # Get kin_id from the stored relationship
+        kin_ids = [labels[i][5] for i in range(len(father_imgs))]
+
+        father_imgs = [self._process_one_image(img) for img in father_imgs]
+        mother_imgs = [self._process_one_image(img) for img in mother_imgs]
+        child_imgs = [self._process_one_image(img) for img in child_imgs]
+        images = (father_imgs, mother_imgs, child_imgs)
         labels = (kin_ids, is_kin)
         sample = (images, labels)
         return sample
@@ -300,7 +486,6 @@ class FIWSearchRetrieval(Dataset):
 
 
 class FIWProbe(FIW, IterableDataset):
-
     def __iter__(self):
         self.sample_iter = iter(self.sample_list)  # Reset iterator
         return self
@@ -322,7 +507,6 @@ class FIWProbe(FIW, IterableDataset):
 
 
 class FIWGallery(FIW, IterableDataset):
-
     def __iter__(self):
         self.sample_iter = iter(self.sample_list)  # Reset iterator
         return self
@@ -336,23 +520,32 @@ class FIWGallery(FIW, IterableDataset):
 
 
 if __name__ == "__main__":
-
     # Test FIWProbe and FIWGallery
     root_dir = "../datasets/rfiw2021-track3"
     probe_path = "txt/probe.txt"
     gallery_path = "txt/gallery.txt"
     fiw_probe = FIWProbe(
-        root_dir=root_dir, sample_path=probe_path, sample_cls=SampleProbe, transform=T.Compose([T.ToTensor()])
+        root_dir=root_dir,
+        sample_path=probe_path,
+        sample_cls=SampleProbe,
+        transform=T.Compose([T.ToTensor()]),
     )
     fiw_gallery = FIWGallery(
-        root_dir=root_dir, sample_path=gallery_path, sample_cls=SampleGallery, transform=T.Compose([T.ToTensor()])
+        root_dir=root_dir,
+        sample_path=gallery_path,
+        sample_cls=SampleGallery,
+        transform=T.Compose([T.ToTensor()]),
     )
     fiw_sr = FIWSearchRetrieval(fiw_probe, fiw_gallery, 20)
     print(len(fiw_sr))
     # Create a gallery dataloader and test them
-    sr_loader = DataLoader(fiw_sr, batch_size=1, shuffle=False, collate_fn=sr_collate_fn_v2)
+    sr_loader = DataLoader(
+        fiw_sr, batch_size=1, shuffle=False, collate_fn=sr_collate_fn_v2
+    )
     # Iters through the probe and gallery samples
-    for i, (probe_index, probe_images, gallery_indexes, gallery_images) in enumerate(sr_loader):
+    for i, (probe_index, probe_images, gallery_indexes, gallery_images) in enumerate(
+        sr_loader
+    ):
         # if i % len(fiw_gallery) == 0:
         print(probe_index, len(probe_images), gallery_indexes)
         if i > 2:

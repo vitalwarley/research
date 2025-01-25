@@ -61,9 +61,9 @@ class SCL(LightningBaseModel):
             difficulty_scores = outputs["difficulty_scores"]
             sampler = self.trainer.datamodule.train_sampler
             # Update difficulty scores for each sample in batch
-            for sim_difficulty in difficulty_scores:
+            for item_idx, sim_difficulty in enumerate(difficulty_scores):
                 difficulty = sim_difficulty.item()
-                sampler.update_difficulty_scores(difficulty)
+                sampler.update_difficulty_scores(item_idx, difficulty)
 
         return loss
 
@@ -129,6 +129,8 @@ class SCLTask2(SCL):
             "contrastive_loss": [fc_loss, mc_loss],
             "sim": sim,
             "features": [f1, f2, f3],
+            "difficulty_scores": 1
+            - sim.detach(),  # Higher similarity = lower difficulty
         }
 
     def _get_is_kin(self, labels):
@@ -152,6 +154,16 @@ class SCLTask2(SCL):
         outputs = self._step(batch)
         loss = outputs["contrastive_loss"]
         self._log_training_metrics(loss)
+
+        # Update difficulty scores in the sampler
+        if self.trainer.datamodule.train_sampler is not None:
+            difficulty_scores = outputs["difficulty_scores"]
+            sampler = self.trainer.datamodule.train_sampler
+            # Update difficulty scores for each sample in batch
+            for item_idx, sim_difficulty in enumerate(difficulty_scores):
+                difficulty = sim_difficulty.item()
+                sampler.update_difficulty_scores(item_idx, difficulty)
+
         return sum(loss)
 
     def _log_training_metrics(self, loss):

@@ -84,6 +84,46 @@ def collate_fn_fiw_family_v3(batch):
     return (imgs1_tensor, imgs2_tensor), (kin_ids_tensor, is_kin_tensor)
 
 
+def collate_fn_fiw_family_v3_task2(batch):
+    """Collate function for Task 2 (tri-subject verification) that handles triplets.
+
+    Similar to collate_fn_fiw_family_v3 but handles father, mother, child triplets.
+
+    Args:
+        batch: List of tuples (images, labels) where:
+            images = (father_imgs, mother_imgs, child_imgs)
+            labels = (kin_ids, is_kin)
+
+    Returns:
+        tuple: ((father_tensor, mother_tensor, child_tensor), (kin_ids_tensor, is_kin_tensor))
+    """
+    # Unpack the batch
+    father_batch = [item[0][0] for item in batch]  # List of father images
+    mother_batch = [item[0][1] for item in batch]  # List of mother images
+    child_batch = [item[0][2] for item in batch]  # List of child images
+    kin_ids = [item[1][0] for item in batch]  # List of kinship types
+    is_kin = [item[1][1] for item in batch]  # List of kinship labels
+
+    # Flatten the list of lists into a single list of tensors
+    father_flat = [img for imgs in father_batch for img in imgs]
+    mother_flat = [img for imgs in mother_batch for img in imgs]
+    child_flat = [img for imgs in child_batch for img in imgs]
+    is_kin_flat = [label for labels in is_kin for label in labels]
+    kin_ids_flat = [kid for kids in kin_ids for kid in kids]
+
+    # Stack tensors along the batch dimension
+    father_tensor = torch.stack(father_flat)
+    mother_tensor = torch.stack(mother_flat)
+    child_tensor = torch.stack(child_flat)
+    is_kin_tensor = torch.tensor(is_kin_flat)
+    kin_ids_tensor = [
+        SampleTask2.NAME2LABEL[kid] for kid in kin_ids_flat
+    ]  # Use Task2 labels
+    kin_ids_tensor = torch.tensor(kin_ids_tensor)
+
+    return (father_tensor, mother_tensor, child_tensor), (kin_ids_tensor, is_kin_tensor)
+
+
 def collate_fn_fiw_family_v4(batch):
     imgs1_batch = [item[0] for item in batch]
     imgs2_batch = [item[1] for item in batch]
@@ -184,32 +224,36 @@ class SampleTask2:
     def __init__(
         self, f1: str, f2: str, f3: str, kin_relation: str, is_kin: str, *args, **kwargs
     ):
-        self.f1 = f1
-        self.f2 = f2
-        self.f3 = f3
+        self.f1 = f1.lstrip("./")  # father
+        self.f2 = f2.lstrip("./")  # mother
+        self.f3 = f3.lstrip("./")  # child
         self.kin_relation = kin_relation
         self.is_kin = int(is_kin)
+        f1_parts = f1.lstrip("./").split("/")
+        f2_parts = f2.lstrip("./").split("/")
+        f3_parts = f3.lstrip("./").split("/")
+        self.set_fids(f1_parts, f2_parts, f3_parts)
+        self.set_mids(f1_parts, f2_parts, f3_parts)
 
+    def set_fids(self, f1, f2, f3):
+        try:
+            self.f1fid = int(f1[2][1:])  # father's family ID
+            self.f2fid = int(f2[2][1:])  # mother's family ID
+            self.f3fid = int(f3[2][1:])  # child's family ID
+        except Exception:
+            self.f1fid = 0
+            self.f2fid = 0
+            self.f3fid = 0
 
-class SampleKFC:
-    # TODO: adjust
-    NAME2LABEL = {
-        "fs": 0,
-        "fd": 1,
-        "ms": 2,
-        "md": 3,
-        "fms": 4,
-        "fmd": 5,
-        "fsd": 6,
-        "msd": 7,
-    }
-
-    def __init__(self, f1: str, f2: str, kin_relation: str, is_kin: str, race: str):
-        self.f1 = f1
-        self.f2 = f2
-        self.kin_relation = kin_relation
-        self.is_kin = int(is_kin)
-        self.race = race
+    def set_mids(self, f1, f2, f3):
+        try:
+            self.f1mid = int(f1[3][3:])  # father's member ID
+            self.f2mid = int(f2[3][3:])  # mother's member ID
+            self.f3mid = int(f3[3][3:])  # child's member ID
+        except Exception:
+            self.f1mid = 0
+            self.f2mid = 0
+            self.f3mid = 0
 
 
 class SampleProbe:

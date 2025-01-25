@@ -11,15 +11,6 @@ repos:
     hooks:
         - id: rm-unneeded-f-str
 
-  - repo: https://github.com/pycqa/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
-        args: [
-          "--treat-comment-as-code", "# %%",
-          "--float-to-top",
-        ]
-
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.8.6
     hooks:

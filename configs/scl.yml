@@ -30,11 +30,33 @@ trainer:
         mode: 'max'  # Use 'min' if the metric should decrease
 
 data:
-   class_path: datasets.scl.SCLDataModuleTask2
-   init_args:
-     root_dir: data/rfiw2021-track2
-     batch_size: 15
-
+  class_path: datasets.scl.SCLDataModule
+  init_args:
+    augment: false
+    augmentation_params:
+      color_jitter:
+        brightness: 0.5
+        contrast: 0.5
+        hue: 0.1
+        saturation: 0.5
+      random_grayscale_prob: 0.2
+      random_horizontal_flip_prob: 0.5
+    batch_size: 64
+    bias: true
+    num_workers: 16
+    dataset: fiw
+    root_dir: data/fiw/track1
+    sampler: no
+    sampler_max_attempts: 100
+    sampler_max_families: 0
+    sampler_verbose: false
+    sampler_score_update_period: 5
+    sampler_max_pairs_per_update: 100
+    sampling_weights:
+      fam: 0.0
+      ind: 0.0
+      rel: 0.0
+      diff: 0.0
 model:
   class_path: models.scl.SCLTask2
   init_args:
@@ -63,5 +85,58 @@ model:
     loss: 
       class_path: losses.scl.HCL
       init_args:
-        tau: 0.3
-        alpha_neg: 0.8
+        alpha_neg: 0.0
+        alpha_pos: 0.0
+        tau: 0.08
+    lr: 0.0001
+    lr_factor: 0.75
+    lr_steps:
+    - 8
+    - 14
+    - 25
+    - 35
+    - 40
+    - 50
+    - 60
+    model:
+      class_path: models.base.SimpleModel
+      init_args:
+        model: adaface_ir_101
+    momentum: 0.9
+    optimizer: SGD
+    scheduler: null
+    start_lr: 1.0e-10
+    threshold: null
+    warmup: 200
+    weight_decay: 0
+    weights: null
+seed_everything: 100
+trainer:
+  accelerator: gpu
+  accumulate_grad_batches: 1
+  callbacks:
+  - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      auto_insert_metric_name: false
+      dirpath: exp/checkpoints/
+      filename: '{epoch}-{loss/val:.3f}-{loss/train:.3f}-{auc:.6f}'
+      mode: max
+      monitor: auc
+      save_last: true
+      save_top_k: 1
+      save_weights_only: false
+      verbose: false
+  - class_path: lightning.pytorch.callbacks.EarlyStopping
+    init_args:
+      mode: max
+      monitor: auc
+      patience: 5
+      verbose: false
+  default_root_dir: exp/
+  deterministic: true
+  fast_dev_run: false
+  limit_train_batches: 50
+  log_every_n_steps: 10
+  max_epochs: 50
+  num_sanity_val_steps: 1
+  devices: 1

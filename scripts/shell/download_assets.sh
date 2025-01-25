@@ -27,9 +27,18 @@ fi
 
 # Check if weights file already exists
 if [ ! -f "weights/adaface_ir101_webface12m.ckpt" ]; then
-    # Download model weights
-    echo "Downloading model weights..."
+    # Download adaface model weights
+    echo "Downloading adaface model weights..."
     gdown 1IqG6EOfOJVMgl9pFJDLCCfnFwYeZrJxB -O weights/adaface_ir101_webface12m.ckpt
+else
+    echo "Weights file already exists, skipping download..."
+fi
+
+# Check if weights file already exists
+if [ ! -f "weights/ms1mv3_arcface_r100_fp16.pth" ]; then
+    # Download arcface model weights
+    echo "Downloading arcface model weights..."
+    gdown 1SJnqCq-cbfsTsezkXOCmBTCD-0cQEVBn -O weights/ms1mv3_arcface_r100_fp16.pth
 else
     echo "Weights file already exists, skipping download..."
 fi

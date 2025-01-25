@@ -28,31 +28,34 @@ trainer:
         patience: 5  # Number of epochs to wait for improvement
         verbose: False
         mode: 'max'  # Use 'min' if the metric should decrease
-
 data:
-   class_path: datasets.scl.SCLDataModule
-   init_args:
-     batch_size: 20
-     root_dir: data/fiw/track1
-     sampler: no
-     augment: no
-     bias: no
-     dataset: fiw
-     sampling_weights:
-       rel: 0.0
-       fam: 0.0
-       ind: 0.0
-     sampler_max_attempts: 100
-     sampler_max_families: 0
-     sampler_verbose: no
-     augmentation_params:
-       color_jitter:
-         brightness: 0.5
-         contrast: 0.5
-         saturation: 0.5
-         hue: 0.1
-       random_grayscale_prob: 0.2
-       random_horizontal_flip_prob: 0.5
+  class_path: datasets.scl.SCLDataModule
+  init_args:
+    augment: false
+    augmentation_params:
+      color_jitter:
+        brightness: 0.5
+        contrast: 0.5
+        hue: 0.1
+        saturation: 0.5
+      random_grayscale_prob: 0.2
+      random_horizontal_flip_prob: 0.5
+    batch_size: 64
+    bias: false
+    num_workers: 4
+    dataset: fiw
+    root_dir: data/fiw/track1
+    sampler: no
+    sampler_max_attempts: 100
+    sampler_max_families: 0
+    sampler_verbose: false
+    sampler_score_update_period: 5
+    sampler_max_pairs_per_update: 100
+    sampling_weights:
+      fam: 0.0
+      ind: 0.0
+      rel: 0.0
+      diff: 0.0
 
 model:
   class_path: models.facornet.FaCoRNet

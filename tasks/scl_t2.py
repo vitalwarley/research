@@ -1,10 +1,10 @@
 import sys
 from pathlib import Path
 
-from tasks.base import BaseTask
-
 # Add the parent directory to sys.path using pathlib
-sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent))  # noqa: E402
+
+from tasks.base import BaseTask
 
 
 class SCLTask2(BaseTask):

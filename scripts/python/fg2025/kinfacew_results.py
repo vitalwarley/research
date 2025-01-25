@@ -2,7 +2,7 @@ import subprocess
 from pathlib import Path
 
 import pandas as pd
-import utils
+import scripts.python.fg2025.utils as utils
 
 # Constants
 OUTPUT_DIR = Path("results") / "kinface"

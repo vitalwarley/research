@@ -16,6 +16,6 @@ echo "Running pipeline for Task 3..."
 
 # Run search-retrieval using the model from RUN_ID
 echo "Running search-retrieval with model from run $RUN_ID..."
-guild run scl:search_retrieval operation:scl:train="$RUN_ID" -y
+guild run scl:search_retrieval operation:scl:train="$RUN_ID" model.init_args.weights=exp/checkpoints/best.ckpt -y
 
 echo "Task 3 completed successfully!" 

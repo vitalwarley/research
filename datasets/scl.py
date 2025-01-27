@@ -1102,6 +1102,7 @@ class SCLDataModule(L.LightningDataModule):
                 sample_path=Path(FIW.VAL_PAIRS_THRES_SEL),
                 batch_size=self.batch_size,
                 transform=self.val_transforms,
+                shuffle=True,  # See init
             )
         if stage == "test" or stage is None:
             self.test_dataset = FIW(
@@ -1109,6 +1110,7 @@ class SCLDataModule(L.LightningDataModule):
                 sample_path=Path(FIW.TEST_PAIRS),
                 batch_size=self.batch_size,
                 transform=self.val_transforms,
+                shuffle=True,  # See init
             )
         print(f"Setup {stage or 'all'} datasets")
 
@@ -1250,6 +1252,7 @@ class SCLDataModuleTask2(L.LightningDataModule):
                 batch_size=self.batch_size,
                 transform=self.val_transforms,
                 sample_cls=FIWTask2.SAMPLE,
+                shuffle=True,  # See init
             )
         if stage == "test" or stage is None:
             self.test_dataset = FIWTask2(
@@ -1258,6 +1261,7 @@ class SCLDataModuleTask2(L.LightningDataModule):
                 batch_size=self.batch_size,
                 transform=self.val_transforms,
                 sample_cls=FIWTask2.SAMPLE,
+                shuffle=True,  # See init
             )
         print(f"Setup {stage or 'all'} datasets")
 

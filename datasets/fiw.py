@@ -31,6 +31,7 @@ class FIW(Dataset):
         biased: bool = False,
         transform=None,
         sample_cls=Sample,
+        shuffle: bool = False,
     ):
         self.root_dir = Path(root_dir)
         self.images_dir = "images"
@@ -41,7 +42,17 @@ class FIW(Dataset):
         self.biased = biased
         self.sample_cls = sample_cls
         self.sample_list = self.load_sample()
+
         print(f"Loaded {len(self.sample_list)} samples from {sample_path}")
+
+        if shuffle:
+            # Validation set and test set are shuffle:
+
+            # because my contrastive loss implementation requires at least
+            # one positive sample per batch.
+            # Otherwise, the loss will be zero, which is not good,
+            # even for these validation and test samples.   random.shuffle(sample_list)
+            random.shuffle(self.sample_list)
 
     def load_sample(self):
         print(f"Loading samples from {self.sample_path}")
@@ -57,13 +68,6 @@ class FIW(Dataset):
             # id, f1, f2, kin, is_kin -> val
             sample = self.sample_cls(*line)
             sample_list.append(sample)
-        if "train" not in str(self.sample_path):
-            # Validation set and test set are shuffled
-            # because my contrastive loss implementation requires at least
-            # one positive sample per batch.
-            # Otherwise, the loss will be zero, which is not good,
-            # even for these validation and test samples.
-            random.shuffle(sample_list)
         return sample_list
 
     def __len__(self):

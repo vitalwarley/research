@@ -292,13 +292,19 @@ class SCLTask3(SCL):
         return self.model.backbone(inputs[:, [2, 1, 0]])[0]
 
     def predict_step(self, batch, batch_idx):
+        # Unpack the batch containing probe and gallery data
         (probe_index, probe_images, gallery_ids, gallery_images) = batch
+
+        # Cache probe embeddings to avoid recomputing for same probe images
+        # Each probe may have multiple images that we need embeddings for
         if probe_index not in self.cached_probe_embeddings:
-            probe_embeddings = self(probe_images)
+            probe_embeddings = self(probe_images)  # Get embeddings for all probe images
             self.cached_probe_embeddings[probe_index] = probe_embeddings
         else:
             probe_embeddings = self.cached_probe_embeddings[probe_index]
 
+        # Cache gallery embeddings using batch range as key
+        # This avoids recomputing embeddings for same gallery batch
         batch_key_gallery = f"{gallery_ids[0].item()}-{gallery_ids[-1].item()}"
         if batch_key_gallery not in self.cached_gallery_embeddings:
             gallery_embeddings = self(gallery_images)
@@ -306,11 +312,21 @@ class SCLTask3(SCL):
         else:
             gallery_embeddings = self.cached_gallery_embeddings[batch_key_gallery]
 
+        # Compute cosine similarity between gallery and probe embeddings
+        # Unsqueeze adds dimensions to allow broadcasting:
+        # gallery: [G, 1, D] and probe: [1, P, D] -> similarities: [G, P]
         similarities = torch.cosine_similarity(
             gallery_embeddings.unsqueeze(1), probe_embeddings.unsqueeze(0), dim=2
         )
-        max_similarities, _ = similarities.max(dim=1)
-        mean_similarities = similarities.mean(dim=1)
+
+        # Get max and mean similarities across probe images for each gallery image
+        # This handles cases where a probe subject has multiple images
+        max_similarities, _ = similarities.max(dim=1)  # Best match among probe images
+        mean_similarities = similarities.mean(
+            dim=1
+        )  # Average match across probe images
+
+        # Store similarity scores for later ranking computation
         self.similarity_data.append((gallery_ids, max_similarities, mean_similarities))
         return gallery_ids
 

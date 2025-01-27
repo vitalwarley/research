@@ -40,9 +40,13 @@ class FIW(Dataset):
 
         for family_id in tqdm(self.families):
             if "F" not in family_id:  # hack
-                family_path = os.path.join(self.root_dir, f"F{int(family_id):04}")  # FIXME: F0{family_id} is a hack
+                family_path = os.path.join(
+                    self.root_dir, f"F{int(family_id):04}"
+                )  # FIXME: F0{family_id} is a hack
             else:
-                family_path = os.path.join(self.root_dir, family_id)  # FIXME: F0{family_id} is a hack
+                family_path = os.path.join(
+                    self.root_dir, family_id
+                )  # FIXME: F0{family_id} is a hack
             # shuffle, then select member_limit members
             member_ids = os.listdir(family_path)
             # np.random.shuffle(member_ids)
@@ -54,7 +58,9 @@ class FIW(Dataset):
                 # print(f"Member {member_id} has {len(member_images)} images")
                 # randomly select one image per member
                 if len(member_images) > self.samples_per_member:
-                    member_images = random.sample(member_images, self.samples_per_member)
+                    member_images = random.sample(
+                        member_images, self.samples_per_member
+                    )
                 # select all images per member
                 for image in member_images:
                     sample_list.append((image, family_id))
@@ -118,15 +124,24 @@ class FIWPair(Dataset):
         # <root-dir>/F{family_id}/{member_id}/{image_name}.jpg
         # We need to extract the family_id from the path
         data.loc[:, "face1_family_id"] = (
-            data["face1_path"].apply(lambda x: x.split("/")[-3].replace("F", "")).astype(int)
+            data["face1_path"]
+            .apply(lambda x: x.split("/")[-3].replace("F", ""))
+            .astype(int)
         )
         data.loc[:, "face2_family_id"] = (
-            data["face2_path"].apply(lambda x: x.split("/")[-3].replace("F", "")).astype(int)
+            data["face2_path"]
+            .apply(lambda x: x.split("/")[-3].replace("F", ""))
+            .astype(int)
         )
         # Filter the data by family_id
         if self.families:
-            data = data[data["face1_family_id"].isin(self.families) | data["face2_family_id"].isin(self.families)]
-            assert len(data) > 0, "No data loaded from csv_path after filtering by families list: {}".format(
+            data = data[
+                data["face1_family_id"].isin(self.families)
+                | data["face2_family_id"].isin(self.families)
+            ]
+            assert (
+                len(data) > 0
+            ), "No data loaded from csv_path after filtering by families list: {}".format(
                 self.families
             )
         # Drop id column, reset index
@@ -163,4 +178,11 @@ class FIWPair(Dataset):
         face1 = np2tensor(self.preprocess(np.array(face1, dtype=float)))
         face2 = np2tensor(self.preprocess(np.array(face2, dtype=float)))
 
-        return face1, face2, sample.kin_relation, sample.face1_family_id, sample.face2_family_id, sample.is_kin
+        return (
+            face1,
+            face2,
+            sample.kin_relation,
+            sample.face1_family_id,
+            sample.face2_family_id,
+            sample.is_kin,
+        )

@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import pandas as pd
 
 from models.base import load_pretrained_model
 from models.scl import SCL, SCLTask3
@@ -47,7 +46,9 @@ class FaCoRNet(SCL):
     def _compute_loss(self, f1, f2, is_kin, att):
         features = torch.cat([f1, f2], dim=0)
         n_samples = f1.size(0)
-        positive_pairs = torch.tensor([(i, i + n_samples) for i in range(n_samples) if is_kin[i]])
+        positive_pairs = torch.tensor(
+            [(i, i + n_samples) for i in range(n_samples) if is_kin[i]]
+        )
         return self.criterion(features, att, positive_pairs)
 
     def _step(self, batch):
@@ -57,7 +58,12 @@ class FaCoRNet(SCL):
         loss = self._compute_loss(f1, f2, is_kin, att)
         sim = self._compute_similarity(f1, f2)
         psi = self.criterion.m(att)
-        return {"contrastive_loss": loss, "sim": sim, "features": [f1, f2, att], "psi": psi}
+        return {
+            "contrastive_loss": loss,
+            "sim": sim,
+            "features": [f1, f2, att],
+            "psi": psi,
+        }
 
     def _log(self, outputs):
         super()._log(outputs)
@@ -68,7 +74,9 @@ class FaCoRNet(SCL):
     def _log_eval_metrics(self, outputs, stage, is_kin, kin_relation):
         super()._log_eval_metrics(outputs, stage, is_kin, kin_relation)
         # Add psi logging
-        self.logger.experiment.add_histogram(f"psi/{stage}", outputs["psi"], self.global_step)
+        self.logger.experiment.add_histogram(
+            f"psi/{stage}", outputs["psi"], self.global_step
+        )
 
     def _eval_step(self, batch, batch_idx, stage):
         _, labels = batch
@@ -96,7 +104,9 @@ class FaCoRNetTask2(FaCoRNet):
     def _step(self, batch):
         images, labels = batch
         is_kin = self._get_is_kin(labels)
-        f1, f2, (f3_fc, f3_mc), att_fc, att_mc = self._forward_pass(images)  # father, mother, child
+        f1, f2, (f3_fc, f3_mc), att_fc, att_mc = self._forward_pass(
+            images
+        )  # father, mother, child
         fc_loss = self._compute_loss(f1, f3_fc, is_kin, att_fc)
         mc_loss = self._compute_loss(f2, f3_mc, is_kin, att_mc)
         fc_sim = self._compute_similarity(f1, f3_fc)
@@ -167,14 +177,18 @@ class FaCoRNetTask2(FaCoRNet):
             logger=True,
         )
         psi_fc, psi_mc = outputs["psi"]
-        self.logger.experiment.add_histogram(f"psi/{stage}/fc", psi_fc, self.global_step)
-        self.logger.experiment.add_histogram(f"psi/{stage}/mc", psi_mc, self.global_step)
+        self.logger.experiment.add_histogram(
+            f"psi/{stage}/fc", psi_fc, self.global_step
+        )
+        self.logger.experiment.add_histogram(
+            f"psi/{stage}/mc", psi_mc, self.global_step
+        )
         self.similarities(outputs["sim"])
         self.is_kin_labels(is_kin)
         self.kin_labels(kin_relation)
 
 
-class FaCoRNetTask3(FaCoRNet, SCLTask3):
+class FaCoRNetTask3(SCLTask3):
     """
     Task 3 variant of FaCoRNet for family search.
     Uses backbone embeddings to compute similarity between probes and gallery.
@@ -186,19 +200,20 @@ class FaCoRNetTask3(FaCoRNet, SCLTask3):
         self.cached_gallery_embeddings_feat = {}
 
     def forward(self, inputs):
-        img1, img2 = inputs
-        idx = [2, 1, 0]
-        f1_0, x1_feat = self.model.backbone(img1[:, idx])  # (B, 512) and (B, 512, 7, 7)
-
-        # Both are (B, 512)
+        f1_0, x1_feat = self.model.backbone(
+            inputs[:, [2, 1, 0]]
+        )  # (B, 512) and (B, 512, 7, 7)
         f1_0 = self.model.l2norm(f1_0)
-
         return f1_0, x1_feat
 
+    # It may be possible to use attention yet, but it is not straightforwad.
+    # attention needs x1 and x2 of the same length, but the probe images are of varying length.
+    # gallery_images depends on the batch.
+    # The FaCoRNet authors didn't specify how they did it. I won't use it.
     def predict_step(self, batch, batch_idx):
         (probe_index, probe_images, gallery_ids, gallery_images) = batch
         if probe_index not in self.cached_probe_embeddings:
-            probe_embeddings_f1, probe_embeddings_feat = self(probe_images)  # This will return backbone embeddings
+            probe_embeddings_f1, probe_embeddings_feat = self(probe_images)
             self.cached_probe_embeddings[probe_index] = probe_embeddings_f1
             self.cached_probe_embeddings_feat[probe_index] = probe_embeddings_feat
         else:
@@ -207,19 +222,24 @@ class FaCoRNetTask3(FaCoRNet, SCLTask3):
 
         batch_key_gallery = f"{gallery_ids[0].item()}-{gallery_ids[-1].item()}"
         if batch_key_gallery not in self.cached_gallery_embeddings:
-            gallery_embeddings_f1, gallery_embeddings_feat = self(gallery_images)  # This will return backbone embeddings
+            gallery_embeddings_f1, gallery_embeddings_feat = self(gallery_images)
             self.cached_gallery_embeddings[batch_key_gallery] = gallery_embeddings_f1
-            self.cached_gallery_embeddings_feat[batch_key_gallery] = gallery_embeddings_feat
+            self.cached_gallery_embeddings_feat[batch_key_gallery] = (
+                gallery_embeddings_feat
+            )
         else:
             gallery_embeddings_f1 = self.cached_gallery_embeddings[batch_key_gallery]
-            gallery_embeddings_feat = self.cached_gallery_embeddings_feat[batch_key_gallery]
-
-        f1, f2, _ = self.attention(probe_embeddings_f1, probe_embeddings_feat, gallery_embeddings_f1, gallery_embeddings_feat)
+            gallery_embeddings_feat = self.cached_gallery_embeddings_feat[
+                batch_key_gallery
+            ]
 
         similarities = torch.cosine_similarity(
-            f1.unsqueeze(1), f2.unsqueeze(0), dim=2
+            gallery_embeddings_f1.unsqueeze(1), probe_embeddings_f1.unsqueeze(0), dim=2
         )
+
+        # For each probe, get max and mean similarities
         max_similarities, _ = similarities.max(dim=1)
         mean_similarities = similarities.mean(dim=1)
+
         self.similarity_data.append((gallery_ids, max_similarities, mean_similarities))
         return gallery_ids

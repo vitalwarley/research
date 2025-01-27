@@ -577,8 +577,14 @@ class LightningBaseModel(L.LightningModule):
             self.load_weights(weights)
 
     def load_weights(self, checkpoint_path):
-        checkpoint = torch.load(checkpoint_path)
-        self.load_state_dict(checkpoint["state_dict"], strict=False)
+        checkpoint = torch.load(
+            checkpoint_path, weights_only=False
+        )  # TODO: weights_only=True
+        # Only load model weights, not optimizer state etc.
+        model_state = {
+            k: v for k, v in checkpoint["state_dict"].items() if k.startswith("model.")
+        }
+        self.model.load_state_dict(model_state, strict=False)
 
     def forward(self, inputs):
         return self.model(inputs)

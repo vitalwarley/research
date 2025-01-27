@@ -241,7 +241,7 @@
           target-type: link
         - operation: facornet:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
-          rename: exp/checkpoints/best.ckptimport sys
+          rename: exp/checkpoints/best.ckpt
     val:
       description: FaCoRNet validation
       exec: python tasks/facornet.py validate --config facornet.yml
@@ -289,6 +289,74 @@
           target-type: link
         - file: data/
           target-type: link
+        - operation: facornet:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    tri_subject_train:
+      description: FaCoRNet tri-subject training
+      exec: python tasks/facornet.py fit --config facornet_t2.yml
+      sourcecode:
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/*.py
+      flags-import: all
+      flags-dest: config:configs/facornet_t2.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: data/
+          target-type: link
+    tri_subject_test:
+      description: FaCoRNet tri-subject testing
+      exec: python tasks/facornet.py test --config facornet_t2.yml
+      sourcecode:
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/*.py
+      flags-import: all
+      flags-dest: config:configs/facornet_t2.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: data/
+          target-type: link
+        - operation: facornet:tri_subject_train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    search_retrieval:
+      description: FaCoRNet search and retrieval
+      exec: python tasks/facornet.py predict --config facornet_t3.yml
+      sourcecode:
+        - utils.py
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/*.py
+      flags-import: all
+      flags-dest: config:configs/facornet_t3.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: data/
+          target-type: link
+          rename: data
         - operation: facornet:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt

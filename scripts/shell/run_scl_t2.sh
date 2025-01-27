@@ -29,6 +29,7 @@ echo "Running tri-subject test for Task 2..."
 guild run scl:tri_subject_test \
     model.init_args.weights="exp/checkpoints/best.ckpt" \
     model.init_args.threshold="$THRESHOLD_T2" \
-    operation:scl:tri_subject_train="$RUN_ID" -y
+    operation:scl:tri_subject_train="$RUN_ID" -y \
+    --gpus 0
 
 echo "Task 2 completed successfully!" 

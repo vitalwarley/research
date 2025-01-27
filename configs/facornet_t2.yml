@@ -1,0 +1,87 @@
+seed_everything: 50
+ckpt_path: null
+trainer:
+  limit_train_batches: 50
+  accumulate_grad_batches: 1
+  num_sanity_val_steps: 1
+  log_every_n_steps: 10
+  accelerator: "gpu"
+  deterministic: yes
+  fast_dev_run: no
+  max_epochs: 50
+  default_root_dir: exp/
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: exp/checkpoints/
+        filename: '{epoch}-{loss/val:.3f}-{loss/train:.3f}-{auc:.6f}'
+        monitor: auc
+        verbose: no
+        save_last: yes
+        save_top_k: 1
+        save_weights_only: no
+        auto_insert_metric_name: no
+        mode: max
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: 'auc'
+        patience: 5
+        verbose: false
+        mode: 'max'
+
+data:
+   class_path: datasets.scl.SCLDataModuleTask2
+   init_args:
+     root_dir: data/fiw/track2
+     batch_size: 32
+     num_workers: 4
+     augment: false
+     augmentation_params:
+       color_jitter:
+         brightness: 0.5
+         contrast: 0.5
+         saturation: 0.5
+         hue: 0.1
+       random_grayscale_prob: 0.2
+       random_horizontal_flip_prob: 0.5
+     sampler: false
+     dataset: fiw
+     sampling_weights:
+       rel: 0.0
+       fam: 0.0
+       ind: 0.0
+       diff: 0.0
+     sampler_max_attempts: 100
+     sampler_max_families: 0
+     sampler_verbose: false
+     sampler_score_update_period: 5
+     sampler_max_pairs_per_update: 100
+
+model:
+  class_path: models.facornet.FaCoRNetTask2
+  init_args:
+    optimizer: SGD
+    adamw_beta1: 0.9
+    adamw_beta2: 0.999
+    lr: 1e-4
+    momentum: 0.9
+    weight_decay: 0
+    start_lr: 1e-10
+    end_lr: 1e-10
+    lr_factor: 0.75
+    lr_steps: [8, 14, 25, 35, 40, 50, 60]
+    warmup: 200
+    cooldown: 400
+    scheduler: null
+    threshold: null
+    anneal_strategy: cos
+    weights: null
+    model:
+      class_path: models.facornet.FaCoR
+      init_args:
+        attention: models.attention.FaCoRAttention
+        model: adaface_ir_101
+    loss:
+      class_path: losses.facornet.FaCoRNetCL
+      init_args:
+        s: 500 

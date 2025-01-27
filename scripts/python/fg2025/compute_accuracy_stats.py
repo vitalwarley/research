@@ -20,7 +20,7 @@ def get_experiment_accuracies(guild_args: str, operation: str) -> pd.DataFrame:
         "guild",
         "compare",
         "-Fo",
-        f"scl:{operation}",
+        f"{operation}",
     ]
 
     # Add any additional guild arguments
@@ -133,11 +133,18 @@ def main():
         default="",
         help="Guild arguments for filtering experiments (e.g. '-r 1:100')",
     )
+    parser.add_argument(
+        "-m",
+        "--model",
+        type=str,
+        default="scl",
+        help="Model to compute statistics for",
+    )
     args = parser.parse_args()
 
     # Get experiment data for train and test
-    train_df = get_experiment_accuracies(args.guild_args, "train")
-    test_df = get_experiment_accuracies(args.guild_args, "test")
+    train_df = get_experiment_accuracies(args.guild_args, f"{args.model}:train")
+    test_df = get_experiment_accuracies(args.guild_args, f"{args.model}:test")
 
     # Print raw data
     print("\nRaw Train Data:")

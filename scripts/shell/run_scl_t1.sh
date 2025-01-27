@@ -5,15 +5,16 @@ set -e  # Exit on error
 # Check if label parameter is provided
 if [ -z "$1" ]; then
     echo "Error: Label parameter is required"
-    echo "Usage: $0 <label>"
+    echo "Usage: $0 <label> [operation_model]"
     exit 1
 fi
 
 LABEL="$1"
+OPERATION_MODEL="${2:-scl}"  # Use second parameter if provided, default to "scl"
 
 # Step 1: Find best run based on accuracy
 echo "Finding best run based on accuracy..."
-BEST_RUN=$(guild select -Fo "scl:train" -Fl "$LABEL" --max 'max accuracy')
+BEST_RUN=$(guild select -Fo "${OPERATION_MODEL}:train" -Fl "$LABEL" --max 'max accuracy')
 
 if [ -z "$BEST_RUN" ]; then
     echo "Error: No training runs found with label '$LABEL'"
@@ -23,25 +24,25 @@ fi
 echo "Best run found: $BEST_RUN"
 
 # Step 2: Copy the config file directly from guild runs directory
-CONFIG_PATH="$HOME/.guild/runs/$BEST_RUN/scl.yml"
+CONFIG_PATH="$HOME/.guild/runs/$BEST_RUN/${OPERATION_MODEL}.yml"
 if [ -f "$CONFIG_PATH" ]; then
     echo "Copying config file..."
-    cp "$CONFIG_PATH" configs/scl.yml
+    cp "$CONFIG_PATH" "configs/${OPERATION_MODEL}.yml"
 else
     echo "Error: Config file not found in guild runs"
     exit 1
 fi
 
 # Check if validation run already exists
-LATEST_VAL_RUN=$(guild select -Fo "scl:val" -Fl "$LABEL" 2>/dev/null || echo "")
+LATEST_VAL_RUN=$(guild select -Fo "${OPERATION_MODEL}:val" -Fl "$LABEL" 2>/dev/null || echo "")
 if [ -z "$LATEST_VAL_RUN" ]; then
     # Step 3: Run validation with best checkpoint
     echo "No validation run found, running validation..."
-    guild run scl:val \
-        model.init_args.weights="exp/checkpoints/best.ckpt" \
-        operation:scl:train="$BEST_RUN" \
+    guild run "${OPERATION_MODEL}:val" \
+        "model.init_args.weights=exp/checkpoints/best.ckpt" \
+        "operation:${OPERATION_MODEL}:train=$BEST_RUN" \
         -l "$LABEL" -y
-    LATEST_VAL_RUN=$(guild select -Fo "scl:val" -Fl "$LABEL")
+    LATEST_VAL_RUN=$(guild select -Fo "${OPERATION_MODEL}:val" -Fl "$LABEL")
 else
     echo "Validation run already exists, skipping to step 4..."
 fi
@@ -65,10 +66,10 @@ echo "Threshold value: $THRESHOLD"
 
 # Step 5: Run test with threshold
 echo "Running test..."
-guild run scl:test \
-    model.init_args.weights="exp/checkpoints/best.ckpt" \
-    model.init_args.threshold="$THRESHOLD" \
-    operation:scl:train="$BEST_RUN" \
+guild run "${OPERATION_MODEL}:test" \
+    "model.init_args.weights=exp/checkpoints/best.ckpt" \
+    "model.init_args.threshold=$THRESHOLD" \
+    "operation:${OPERATION_MODEL}:train=$BEST_RUN" \
     -l "$LABEL" -y
 
 echo "All stages completed successfully!" 

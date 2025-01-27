@@ -5,12 +5,12 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 # Why isn't sufficient to do it in base?
 
-from tasks.base import base_main  # noqa
+from tasks.base import BaseTask  # noqa
 
 
-def main(args=None):
-    base_main(args=args, operation_name="facornet")
+class FacorNet(BaseTask):
+    operation_name = "facornet:train"
 
 
 if __name__ == "__main__":
-    main()
+    FacorNet.main()

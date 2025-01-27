@@ -1,4 +1,5 @@
 import math
+import random
 from collections import defaultdict
 from pathlib import Path
 
@@ -56,6 +57,13 @@ class FIW(Dataset):
             # id, f1, f2, kin, is_kin -> val
             sample = self.sample_cls(*line)
             sample_list.append(sample)
+        if "train" not in str(self.sample_path):
+            # Validation set and test set are shuffled
+            # because my contrastive loss implementation requires at least
+            # one positive sample per batch.
+            # Otherwise, the loss will be zero, which is not good,
+            # even for these validation and test samples.
+            random.shuffle(sample_list)
         return sample_list
 
     def __len__(self):

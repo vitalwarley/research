@@ -241,4 +241,54 @@
           target-type: link
         - operation: facornet:train
           select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckptimport sys
+    val:
+      description: FaCoRNet validation
+      exec: python tasks/facornet.py validate --config facornet.yml
+      sourcecode:
+        - utils.py
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/*.py
+      flags-import: all
+      flags-dest: config:configs/facornet.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: data/
+          target-type: link
+        - file: configs/facornet.yml
+          target-type: link
+        - operation: facornet:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
+          rename: exp/checkpoints/best.ckpt
+    test:
+      description: FaCoRNet testing
+      exec: python tasks/facornet.py test --config facornet.yml
+      sourcecode:
+        - utils.py
+        - losses/*.py
+        - models/*.py
+        - models/insightface
+        - datasets/*.py
+        - tasks/*.py
+      flags-import: all
+      flags-dest: config:configs/facornet.yml
+      output-scalars: '(\key):\s+(\value)'
+      requires:
+        - file: models/insightface
+          target-type: link
+          rename: models/insightface
+        - file: weights
+          target-type: link
+        - file: data/
+          target-type: link
+        - operation: facornet:train
+          select: exp/checkpoints/.*\.(\d+)\.ckpt
           rename: exp/checkpoints/best.ckpt

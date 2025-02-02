@@ -95,6 +95,87 @@ def format_task3_table(df: pd.DataFrame) -> str:
     return table
 
 
+def format_task2_latex_table(df: pd.DataFrame) -> str:
+    """Format results as a LaTeX table for Task 2.
+
+    Args:
+        df: DataFrame containing metrics data
+
+    Returns:
+        LaTeX formatted table string
+    """
+    # Create table header
+    table = "\\begin{table}[h]\n"
+    table += "\\centering\n"
+    table += "\\begin{tabular}{lccc}\n"
+    table += "\\toprule\n"
+    table += "Method & FMD & FMS & Avg. \\\\\n"
+    table += "\\midrule\n"
+
+    # Add rows
+    for _, row in df.iterrows():
+        avg_acc = (row["accuracy/md"] + row["accuracy/ms"]) / 2
+        escaped_label = row["label"].replace("_", "\\_")
+        table += (
+            f"{escaped_label} & {row['accuracy/md']:.3f} & "
+            f"{row['accuracy/ms']:.3f} & {avg_acc:.3f} \\\\\n"
+        )
+
+    # Add table footer
+    table += "\\bottomrule\n"
+    table += "\\end{tabular}\n"
+    table += "\\caption{Task 2 (Tri-Subject) Results}\n"
+    table += "\\label{tab:task2-results}\n"
+    table += "\\end{table}"
+
+    return table
+
+
+def format_task3_latex_table(df: pd.DataFrame) -> str:
+    """Format results as a LaTeX table for Task 3.
+
+    Args:
+        df: DataFrame containing metrics data
+
+    Returns:
+        LaTeX formatted table string
+    """
+    # Create table header
+    table = "\\begin{table}[h]\n"
+    table += "\\centering\n"
+    table += "\\begin{tabular}{lccc}\n"
+    table += "\\toprule\n"
+    table += "Method & mAP & Rank@5 & Avg. \\\\\n"
+    table += "\\midrule\n"
+
+    # Add rows
+    for _, row in df.iterrows():
+        base_label = row["label"].replace("_", "\\_")
+
+        # Add row for max fusion
+        max_avg = (row["mAP/max"] + row["rank@5/max"]) / 2
+        table += (
+            f"{base_label} (max) & {row['mAP/max']:.3f} & "
+            f"{row['rank@5/max']:.3f} & {max_avg:.3f} \\\\\n"
+        )
+
+        # Add row for mean fusion
+        mean_avg = (row["mAP/mean"] + row["rank@5/mean"]) / 2
+        table += (
+            f"{base_label} (mean) & {row['mAP/mean']:.3f} & "
+            f"{row['rank@5/mean']:.3f} & {mean_avg:.3f} \\\\\n"
+        )
+
+    # Add table footer
+    table += "\\bottomrule\n"
+    table += "\\end{tabular}\n"
+    table += "\\caption{Task 3 (Search-Retrieval) Results}\n"
+    table += "\\label{tab:task3-results}\n"
+    table += "\\end{table}"
+
+    return table
+
+
 def main():
     # Get experiment data for task 2
     task2_metrics = ["accuracy/md", "accuracy/ms"]
@@ -108,6 +189,12 @@ def main():
     print("\nMarkdown Tables:")
     print(format_task2_table(task2_df))
     print(format_task3_table(task3_df))
+
+    # Print LaTeX tables
+    print("\nLaTeX Tables:")
+    print(format_task2_latex_table(task2_df))
+    print("\n")
+    print(format_task3_latex_table(task3_df))
 
 
 if __name__ == "__main__":

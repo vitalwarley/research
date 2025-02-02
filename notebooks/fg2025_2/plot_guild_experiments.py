@@ -20,6 +20,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
 
 # %%
 # %matplotlib inline
@@ -82,7 +83,8 @@ def generate_guild_metadata() -> pd.DataFrame:
             "compare",
             "-Fo",
             "scl:train",
-            "6:195",
+            "-Fl",
+            "Hyperparameter search",
             "-cc",
             ",".join(METADATA_COLUMNS),
             "--csv",
@@ -124,65 +126,101 @@ def generate_guild_metadata() -> pd.DataFrame:
 
 
 # %%
+
+
 def plot_accuracy_vs_hparams(df: pd.DataFrame):
     """Create scatter plots of accuracy vs each hyperparameter."""
     sampling_hparams = ["diff", "fam", "ind", "rel"]
     loss_hparams = ["alpha_neg", "tau", "enable_hcl"]
 
     # Plot sampling optimization
-    fig1, axes1 = plt.subplots(1, 4, figsize=(20, 5), sharey=True)
+    fig1, axes1 = plt.subplots(1, 4, figsize=(10, 3), sharey=True)
     plot_group(df, sampling_hparams, axes1, "Sampling Optimization")
-    plt.savefig(OUTPUT_DIR / "accuracy_vs_sampling.png", bbox_inches="tight", dpi=300)
+    plt.savefig(OUTPUT_DIR / "accuracy_vs_sampling.png", bbox_inches="tight", dpi=600)
     plt.show()
 
     # Plot loss optimization
-    fig2, axes2 = plt.subplots(1, 3, figsize=(15, 5), sharey=True)
+    fig2, axes2 = plt.subplots(1, 3, figsize=(10, 3), sharey=True)
     plot_group(df, loss_hparams, axes2, "Loss Optimization")
-    plt.savefig(OUTPUT_DIR / "accuracy_vs_loss.png", bbox_inches="tight", dpi=300)
+    plt.savefig(OUTPUT_DIR / "accuracy_vs_loss.png", bbox_inches="tight", dpi=600)
     plt.show()
 
 
 def plot_group(df, hparams, axes, title):
     """Helper function to plot a group of hyperparameters."""
-    # Get top 5 experiments
-    top_5_df = df.nlargest(5, "accuracy")
+    # Get top 10 experiments
+    top_n_df = df.nlargest(5, "accuracy")
 
-    # Define markers and colors for top 5
-    markers = ["*", "^", "s", "D", "v"]
-    colors = ["red", "green", "orange", "purple", "cyan"]
+    # Define distinct markers and their labels for top 10
+    markers = ["*", "^", "s", "D", "v"]  # , "p", "h", "8", "P", "X"]
+
+    # Create a colormap based on accuracy values
+    norm = plt.Normalize(df["accuracy"].min(), df["accuracy"].max())
+    cmap = plt.cm.viridis
 
     # Create subplots for each hyperparameter
     for i, hparam in enumerate(hparams):
         ax = axes[i]
 
-        # Plot all points in gray
-        ax.scatter(
-            df[hparam], df["accuracy"], color="gray", alpha=0.3, marker="o", s=50
+        # Calculate x-axis jitter range based on parameter range
+        x_range = df[hparam].max() - df[hparam].min()
+        jitter_range = x_range * 0.02  # 2% of parameter range
+
+        # Plot all points with color gradient based on accuracy
+        _ = ax.scatter(
+            df[hparam],
+            df["accuracy"],
+            c=df["accuracy"],
+            cmap=cmap,
+            norm=norm,
+            alpha=0.6,
+            marker="o",
+            s=20,
         )
 
-        # Plot top 5 with different markers and colors
-        for idx, (_, row) in enumerate(top_5_df.iterrows()):
+        # Highlight top 10 experiments with different markers
+        for idx, (_, row) in enumerate(top_n_df.iterrows()):
+            # Add small random jitter to x-coordinate for better visibility
+            jittered_x = row[hparam] + np.random.uniform(-jitter_range, jitter_range)
+
             ax.scatter(
-                row[hparam],
+                jittered_x,
                 row["accuracy"],
-                color=colors[idx],
+                c=row["accuracy"],
+                cmap=cmap,
+                norm=norm,
                 marker=markers[idx],
-                s=60,
+                s=50,
+                edgecolor="red",
+                linewidth=1.0,
+                zorder=5,  # Ensure top experiments are drawn on top
             )
 
-        # Set labels without greek letters
         hparam_label = {
-            "alpha_neg": "alpha neg",
-            "tau": "tau",
-            "enable_hcl": "enable hcl",
+            "alpha_neg": "Similarity Quantile ($s_\\alpha$)",
+            "tau": "Temperature ($\\tau$)",
+            "enable_hcl": "Epoch HCL started",
+            "diff": "Difficulty Weight ($w_d$)",
+            "fam": "Family Weight ($w_f$)",
+            "ind": "Individual Weight ($w_i$)",
+            "rel": "Relationship Weight ($w_r$)",
         }.get(hparam, hparam)
 
-        ax.set_title(f"Accuracy vs {hparam_label}")
-        ax.set_xlabel(f"{hparam_label}")
+        ax.set_xlabel(f"{hparam_label}", fontsize=12)
         if i == 0:  # Only set ylabel for first subplot
-            ax.set_ylabel("Accuracy")
+            ax.set_ylabel("Accuracy", fontsize=12)
 
-    plt.suptitle(title)
+        # Increase tick label sizes
+        ax.tick_params(axis="both", which="major", labelsize=12)
+
+        if hparam == "tau":
+            ax.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+
+    # # Add colorbar
+    # cbar = plt.colorbar(scatter, ax=axes, orientation='vertical', pad=0.02, label='Accuracy')
+    # cbar.ax.tick_params(labelsize=10)
+    # cbar.set_label('Accuracy', fontsize=12)
+
     plt.tight_layout()
 
 
@@ -242,4 +280,77 @@ def main():
 
 # %%
 main()
+
+
+# %%
+# Analysis of missing hyperparameter combinations
+def analyze_missing_combinations():
+    """Analyze which hyperparameter combinations are missing from the experiments."""
+    # Load the data
+    df = pd.read_csv(OUTPUT_DIR / "guild_metadata.csv")
+
+    # Get unique values for each hyperparameter from the data
+    expected_values = {}
+    all_params = ["diff", "fam", "ind", "rel", "alpha_neg", "tau", "enable_hcl"]
+
+    for param in all_params:
+        if param in df.columns:
+            # Round floating point values to handle numerical precision
+            unique_vals = df[param].round(3).unique()
+            # Sort and remove NaN values
+            unique_vals = sorted([x for x in unique_vals if pd.notna(x)])
+            expected_values[param] = unique_vals
+            print(f"\n{param} unique values: {unique_vals}")
+
+    # Create all possible combinations for sampling weights
+    sampling_params = ["diff", "fam", "ind", "rel"]
+    mesh = np.meshgrid(*[expected_values[p] for p in sampling_params])
+    combinations = np.array([x.flatten() for x in mesh]).T
+    sampling_combinations = pd.DataFrame(combinations, columns=sampling_params)
+
+    # Check which combinations are missing
+    existing_combinations = df[sampling_params].round(
+        3
+    )  # Round to handle floating point issues
+    missing_combinations = []
+
+    for _, row in sampling_combinations.iterrows():
+        combination = row.to_dict()
+        exists = False
+        for _, existing_row in existing_combinations.iterrows():
+            # Compare each parameter individually
+            matches = []
+            for param in sampling_params:
+                diff = abs(float(existing_row[param]) - float(combination[param]))
+                matches.append(diff < 0.001)
+
+            if all(matches):  # If all parameters match
+                exists = True
+                break
+
+        if not exists:
+            missing_combinations.append(combination)
+
+    # Print results
+    print(
+        f"\nTotal possible sampling weight combinations: {len(sampling_combinations)}"
+    )
+    print(f"Existing combinations: {len(existing_combinations)}")
+    print(f"Missing combinations: {len(missing_combinations)}")
+
+    if missing_combinations:
+        print("\nMissing combinations:")
+        for combo in missing_combinations:
+            print(combo)
+
+    # Analyze loss hyperparameters distribution
+    print("\nLoss hyperparameters distribution:")
+    for param in ["alpha_neg", "tau", "enable_hcl"]:
+        if param in df.columns:
+            print(f"\nCount of experiments for each {param} value:")
+            print(df[param].value_counts().sort_index())
+
+
+# %%
+analyze_missing_combinations()
 # %%

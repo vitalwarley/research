@@ -314,7 +314,7 @@
           target-type: link
     tri_subject_test:
       description: FaCoRNet tri-subject testing
-      exec: python tasks/facornet.py test --config facornet_t2.yml
+      exec: python tasks/facornet_t2.py test --config facornet_t2.yml
       sourcecode:
         - losses/*.py
         - models/*.py
